@@ -319,7 +319,59 @@ async function refreshMedia() {
   }
 }
 
+// Renders the congress agenda from the admin-editable itinerary_items table
+// instead of the old hardcoded HTML — grouped into one card per day, in the
+// same order the admin panel's Itinerary tab lists them (sort_order, then id).
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+async function refreshItinerary() {
+  const grid = document.getElementById('itineraryGrid');
+  if (!grid) return;
+  let items = [];
+  try {
+    if (HAS_BACKEND) {
+      items = await jget(`${API}/itinerary`);
+    } else {
+      const data = await getStaticData();
+      items = data.itinerary || [];
+    }
+  } catch (e) {
+    console.error(e);
+    grid.innerHTML = '<div class="empty">Itinerary is not available right now.</div>';
+    return;
+  }
+  if (!items.length) {
+    grid.innerHTML = '<div class="empty">Itinerary coming soon.</div>';
+    return;
+  }
+  const days = [];
+  const dayIndex = {};
+  items.forEach((it) => {
+    if (!(it.day_label in dayIndex)) {
+      dayIndex[it.day_label] = days.length;
+      days.push({ label: it.day_label, items: [] });
+    }
+    days[dayIndex[it.day_label]].items.push(it);
+  });
+  grid.innerHTML = days.map((day) => `
+    <div class="card itin-day">
+      <div class="itin-day-label">${escapeHtml(day.label)}</div>
+      ${day.items.map((it) => `
+        <div class="feed-item">
+          <div class="time">${escapeHtml(it.time_label || '')}</div>
+          <div class="title">${escapeHtml(it.title)}</div>
+          ${it.description ? `<div class="desc">${escapeHtml(it.description)}</div>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+}
+
 refreshStats();
 refreshMedia();
+refreshItinerary();
 setInterval(refreshStats, 30000);
 setInterval(refreshMedia, 5 * 60000); // re-check for newly uploaded media every 5 min without disrupting playback
+setInterval(refreshItinerary, 5 * 60000);
