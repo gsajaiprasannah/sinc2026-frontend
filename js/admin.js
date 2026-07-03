@@ -341,6 +341,11 @@ async function savePartForm(form, force) {
   const body = Object.fromEntries(fd.entries());
   if (!body.club_id) delete body.club_id;
   if (!body.registration_id) delete body.registration_id;
+  // travel_mode/departure_mode have a DB check constraint allowing only
+  // flight/train/road/other or NULL — an empty string (the "-" placeholder
+  // option) would violate it, so strip it rather than send "".
+  if (!body.travel_mode) delete body.travel_mode;
+  if (!body.departure_mode) delete body.departure_mode;
   if (force) body.force = true;
   const editId = form.dataset.editId;
   try {
