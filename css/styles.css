@@ -232,6 +232,35 @@ th {
 }
 tr:nth-child(even) .sticky-actions { background: #fff; }
 
+/* Pins the identifying (Name) column to the left of a scrollable table so it
+   stays visible while scrolling through wide tables like Host Registration &
+   Payments — same idea as .sticky-actions but on the opposite edge. */
+.sticky-col-left {
+  position: sticky;
+  left: 0;
+  background: #fff;
+  box-shadow: 6px 0 8px -6px rgba(0,0,0,0.15);
+  white-space: nowrap;
+}
+tr:nth-child(even) .sticky-col-left { background: #fff; }
+
+/* Host Registration & Payments: give every column more breathing room so the
+   Status column (previously easy to miss next to dense text columns) reads
+   clearly, and color the select so paid/pending is obvious at a glance. */
+.host-payments-table th,
+.host-payments-table td {
+  padding: 14px 16px;
+}
+.hp-status-select {
+  min-width: 120px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  border: 1px solid #d7dce3;
+}
+.hp-status-select.pending { background: #fdeaea; color: var(--red); border-color: #f6c9c9; }
+.hp-status-select.paid { background: #e3f7f8; color: #1f9a86; border-color: #bfeae9; }
+
 .pill {
   display: inline-block;
   padding: 2px 9px;

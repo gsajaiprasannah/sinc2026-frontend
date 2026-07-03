@@ -705,19 +705,19 @@ async function refreshHostPayments() {
   `;
   document.getElementById('hostPaymentsTableBody').innerHTML = rows.map((h) => `
     <tr>
-      <td>${h.name}</td>
-      <td>${h.company || '-'}</td>
-      <td>${h.phone || '-'}</td>
+      <td class="sticky-col-left"><strong>${h.name}</strong></td>
       <td>
-        <select id="hp-status-${h.id}">
+        <select id="hp-status-${h.id}" class="hp-status-select ${h.payment_status}">
           <option value="pending" ${h.payment_status === 'pending' ? 'selected' : ''}>Pending</option>
           <option value="paid" ${h.payment_status === 'paid' ? 'selected' : ''}>Paid</option>
         </select>
       </td>
-      <td><input id="hp-amount-${h.id}" type="number" value="${h.payment_amount}" style="width:90px;" /></td>
-      <td><input id="hp-mode-${h.id}" type="text" value="${(h.payment_mode || '').replace(/"/g, '&quot;')}" style="width:110px;" placeholder="UPI / Bank / Others" /></td>
+      <td><input id="hp-amount-${h.id}" type="number" value="${h.payment_amount}" style="width:100px;" /></td>
+      <td>${h.company || '-'}</td>
+      <td>${h.phone || '-'}</td>
+      <td><input id="hp-mode-${h.id}" type="text" value="${(h.payment_mode || '').replace(/"/g, '&quot;')}" style="width:120px;" placeholder="UPI / Bank / Others" /></td>
       <td><input id="hp-date-${h.id}" type="date" value="${h.payment_date ? new Date(h.payment_date).toISOString().slice(0, 10) : ''}" /></td>
-      <td><input id="hp-notes-${h.id}" type="text" value="${(h.notes || '').replace(/"/g, '&quot;')}" style="width:140px;" /></td>
+      <td><input id="hp-notes-${h.id}" type="text" value="${(h.notes || '').replace(/"/g, '&quot;')}" style="width:150px;" /></td>
       <td class="sticky-actions"><button class="btn small" onclick="saveHostPayment(${h.id})">Save</button></td>
     </tr>
   `).join('') || '<tr><td colspan="9" class="empty">No host members yet</td></tr>';
