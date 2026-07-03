@@ -556,3 +556,12 @@ textarea { resize: vertical; min-height: 60px; }
   align-items: center;
   gap: 4px;
 }
+
+/* --- Admin login / signup gate --- */
+#authGate {
+  margin-top: 60px;
+}
+
+#authGate .card {
+  margin-bottom: 14px;
+}
