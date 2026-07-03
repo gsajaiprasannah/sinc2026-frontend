@@ -63,6 +63,7 @@
   <button data-tab="happenings">Happenings</button>
   <button data-tab="itinerary">Itinerary</button>
   <button data-tab="hostmembers">Host Members</button>
+  <button data-tab="hostpayments">Host Registration &amp; Payments</button>
   <button data-tab="committees">Committees</button>
   <button data-tab="assignments">Delegate Assistance</button>
   <button data-tab="hosttasks">Checklists &amp; Milestones</button>
@@ -353,16 +354,32 @@
     </div>
   </section>
 
+  <!-- HOST REGISTRATION & PAYMENTS TAB (Host club members' own ₹5,000        -->
+  <!-- personal contribution — completely separate from the delegate         -->
+  <!-- "Registrations & Payments" tab and its `registrations` table above.    -->
+  <!-- Nothing here reads or writes the delegate registrations/payments data. -->
+  <section class="tab-panel" id="tab-hostpayments">
+    <p class="hint" style="margin-top:0;">Host club members each pay a ₹5,000 personal contribution to the congress — tracked here, separately from delegate registration fees in the "Registrations &amp; Payments" tab. Editing a payment here updates the same host member record shown in the Host Members tab.</p>
+    <div class="grid-stats" id="hostPaymentStats" style="margin-bottom:16px;"></div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Status</th><th>Amount (₹)</th><th>Mode</th><th>Date</th><th>Notes</th><th></th></tr></thead>
+        <tbody id="hostPaymentsTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
   <!-- COMMITTEES TAB -->
   <section class="tab-panel" id="tab-committees">
     <div class="card">
-      <div class="section-title" style="margin-top:0">Add committee</div>
+      <div class="section-title" style="margin-top:0" id="committeeFormTitle">Add committee</div>
       <form id="committeeForm">
         <div class="form-grid cols-2">
           <div class="field"><label>Committee name *</label><input name="name" required /></div>
           <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="0" /></div>
         </div>
-        <button class="btn gold" type="submit">Save Committee</button>
+        <button class="btn gold" type="submit" id="committeeSubmitBtn">Save Committee</button>
+        <button type="button" class="btn outline" id="committeeCancelEditBtn" style="display:none;">Cancel edit</button>
       </form>
     </div>
     <div class="card" style="margin-top:14px;">

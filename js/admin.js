@@ -531,20 +531,26 @@ async function refreshHostMembers(query) {
   const filtered = q
     ? rows.filter((h) => [h.name, h.phone, h.company].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
     : rows;
-  document.getElementById('hmTableBody').innerHTML = filtered.map((h) => `
+  document.getElementById('hmTableBody').innerHTML = filtered.map((h) => {
+    const committeeNames = (h.committees || []).map((c) => c.name);
+    const committeesLabel = committeeNames.length > 2
+      ? committeeNames.slice(0, 2).join(', ') + ` +${committeeNames.length - 2} more`
+      : (committeeNames.join(', ') || '-');
+    return `
     <tr>
-      <td>${h.name}${h.designation ? ' <span class="hint">(' + h.designation + ')</span>' : ''}</td>
+      <td class="sticky-col">${h.name}${h.designation ? ' <span class="hint">(' + h.designation + ')</span>' : ''}</td>
       <td>${h.company || '-'}</td>
       <td>${h.phone || '-'}</td>
-      <td>${(h.committees || []).map((c) => c.name).join(', ') || '-'}</td>
+      <td style="white-space:normal;max-width:220px;" title="${committeeNames.join(', ')}">${committeesLabel}</td>
       <td><span class="pill ${h.payment_status}">${h.payment_status}</span> <span class="hint">₹${h.payment_amount}</span></td>
       <td>${h.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createHostLogin(${h.id}, '${(h.name || '').replace(/'/g, '')}')">Create login</button>`}</td>
-      <td>
+      <td class="sticky-actions">
         <button class="btn small" onclick="editHm(${h.id})">Edit</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteHm(${h.id})">Delete</button>` : ''}
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="7" class="empty">No host members yet</td></tr>';
+  `;
+  }).join('') || '<tr><td colspan="7" class="empty">No host members yet</td></tr>';
 
   // Keep every other tab's host-member dropdowns in sync with the latest list.
   const opts = rows.map((h) => `<option value="${h.id}">${h.name}${h.company ? ' (' + h.company + ')' : ''}</option>`).join('');
@@ -589,10 +595,9 @@ window.cancelEditHm = () => {
   document.getElementById('hmCancelEditBtn').style.display = 'none';
 };
 document.getElementById('hmCancelEditBtn').addEventListener('click', (e) => { e.preventDefault(); window.cancelEditHm(); });
-document.getElementById('hmForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const form = e.target;
+async function saveHmForm(form, force) {
   const body = Object.fromEntries(new FormData(form).entries());
+  if (force) body.force = true;
   const editId = form.dataset.editId;
   try {
     if (editId) {
@@ -605,7 +610,18 @@ document.getElementById('hmForm').addEventListener('submit', async (e) => {
       toast('Host member saved');
     }
     refreshHostMembers();
-  } catch (err) { toast(err.message); }
+  } catch (err) {
+    if (err.status === 409 && err.data && err.data.error === 'duplicate') {
+      const proceed = confirm(err.data.message + '\n\nClick OK to save anyway, or Cancel to go back and edit.');
+      if (proceed) return saveHmForm(form, true);
+    } else {
+      toast(err.message);
+    }
+  }
+}
+document.getElementById('hmForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await saveHmForm(e.target, false);
 });
 document.getElementById('hmCsvForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -622,12 +638,74 @@ document.getElementById('hmSearch').addEventListener('input', (e) => {
   hmSearchTimer = setTimeout(() => refreshHostMembers(e.target.value), 300);
 });
 
+// --- Host Registration & Payments ---
+// A view dedicated to the host club members' own ₹5,000 personal
+// contribution. This reads/writes the SAME host_members rows as the Host
+// Members tab (just the payment_* columns) — it never touches the
+// `registrations` table used by the delegate "Registrations & Payments" tab,
+// so the two payment streams can never mix up.
+async function refreshHostPayments() {
+  const rows = await jget(`${API}/hostmembers`);
+  const paidCount = rows.filter((h) => h.payment_status === 'paid').length;
+  const pendingCount = rows.length - paidCount;
+  const totalCollected = rows
+    .filter((h) => h.payment_status === 'paid')
+    .reduce((sum, h) => sum + Number(h.payment_amount || 0), 0);
+  document.getElementById('hostPaymentStats').innerHTML = `
+    <div class="stat-card"><div class="value">${rows.length}</div><div class="label">Host Members</div></div>
+    <div class="stat-card"><div class="value">${paidCount}</div><div class="label">Paid</div></div>
+    <div class="stat-card"><div class="value">${pendingCount}</div><div class="label">Pending</div></div>
+    <div class="stat-card"><div class="value">₹${totalCollected.toLocaleString('en-IN')}</div><div class="label">Total Collected</div></div>
+  `;
+  document.getElementById('hostPaymentsTableBody').innerHTML = rows.map((h) => `
+    <tr>
+      <td>${h.name}</td>
+      <td>${h.company || '-'}</td>
+      <td>${h.phone || '-'}</td>
+      <td>
+        <select id="hp-status-${h.id}">
+          <option value="pending" ${h.payment_status === 'pending' ? 'selected' : ''}>Pending</option>
+          <option value="paid" ${h.payment_status === 'paid' ? 'selected' : ''}>Paid</option>
+        </select>
+      </td>
+      <td><input id="hp-amount-${h.id}" type="number" value="${h.payment_amount}" style="width:90px;" /></td>
+      <td><input id="hp-mode-${h.id}" type="text" value="${(h.payment_mode || '').replace(/"/g, '&quot;')}" style="width:110px;" placeholder="UPI / Bank / Others" /></td>
+      <td><input id="hp-date-${h.id}" type="date" value="${h.payment_date ? new Date(h.payment_date).toISOString().slice(0, 10) : ''}" /></td>
+      <td><input id="hp-notes-${h.id}" type="text" value="${(h.notes || '').replace(/"/g, '&quot;')}" style="width:140px;" /></td>
+      <td class="sticky-actions"><button class="btn small" onclick="saveHostPayment(${h.id})">Save</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="9" class="empty">No host members yet</td></tr>';
+}
+window.saveHostPayment = async (id) => {
+  const body = {
+    payment_status: document.getElementById(`hp-status-${id}`).value,
+    payment_amount: document.getElementById(`hp-amount-${id}`).value,
+    payment_mode: document.getElementById(`hp-mode-${id}`).value,
+    payment_date: document.getElementById(`hp-date-${id}`).value || null,
+    notes: document.getElementById(`hp-notes-${id}`).value
+  };
+  try {
+    await jput(`${API}/hostmembers/${id}`, body);
+    toast('Payment updated');
+    refreshHostPayments();
+    refreshHostMembers();
+  } catch (err) { toast(err.message); }
+};
+
 // --- Committees ---
+let ALL_COMMITTEES_CACHE = [];
 async function refreshCommittees() {
   const rows = await jget(`${API}/committees`);
+  ALL_COMMITTEES_CACHE = rows;
   document.getElementById('committeesList').innerHTML = rows.map((c) => `
     <div class="card" style="margin-bottom:10px;">
-      <strong>${c.name}</strong>
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <strong>${c.name}</strong>
+        <div>
+          <button class="btn small" onclick="editCommittee(${c.id})">Edit</button>
+          ${canDelete() ? `<button class="btn danger small" onclick="deleteCommittee(${c.id})">Delete</button>` : ''}
+        </div>
+      </div>
       <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">
         ${(c.members || []).map((m) => `
           <span class="pill single" style="display:inline-flex;align-items:center;gap:6px;">
@@ -646,12 +724,52 @@ window.removeCommitteeMember = async (committeeId, hostMemberId) => {
   toast('Removed from committee');
   refreshCommittees();
 };
+window.deleteCommittee = async (id) => {
+  if (!confirm('Delete this committee? Members will be unassigned from it, but not deleted themselves.')) return;
+  try {
+    await jdel(`${API}/committees/${id}`);
+    toast('Committee deleted');
+    refreshCommittees();
+  } catch (err) { toast(err.message); }
+};
+window.editCommittee = (id) => {
+  const c = ALL_COMMITTEES_CACHE.find((x) => x.id === id);
+  if (!c) return;
+  const form = document.getElementById('committeeForm');
+  form.elements.name.value = c.name;
+  form.elements.sort_order.value = c.sort_order;
+  form.dataset.editId = id;
+  document.getElementById('committeeFormTitle').textContent = `Edit committee — ${c.name}`;
+  document.getElementById('committeeSubmitBtn').textContent = 'Update Committee';
+  document.getElementById('committeeCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+window.cancelEditCommittee = () => {
+  const form = document.getElementById('committeeForm');
+  form.reset();
+  delete form.dataset.editId;
+  document.getElementById('committeeFormTitle').textContent = 'Add committee';
+  document.getElementById('committeeSubmitBtn').textContent = 'Save Committee';
+  document.getElementById('committeeCancelEditBtn').style.display = 'none';
+};
+document.getElementById('committeeCancelEditBtn').addEventListener('click', (e) => { e.preventDefault(); window.cancelEditCommittee(); });
 document.getElementById('committeeForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  await jpost(`${API}/committees`, Object.fromEntries(new FormData(e.target).entries()));
-  e.target.reset();
-  toast('Committee saved');
-  refreshCommittees();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  const editId = form.dataset.editId;
+  try {
+    if (editId) {
+      await jput(`${API}/committees/${editId}`, body);
+      toast('Committee updated');
+      window.cancelEditCommittee();
+    } else {
+      await jpost(`${API}/committees`, body);
+      form.reset();
+      toast('Committee saved');
+    }
+    refreshCommittees();
+  } catch (err) { toast(err.message); }
 });
 document.getElementById('committeeAssignForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -768,12 +886,26 @@ async function refreshPartners() {
   document.getElementById('driverPartnerSelect').innerHTML = '<option value="">-- none --</option>' + opts;
 }
 window.deletePartner = async (id) => { await jdel(`${API}/partners/${id}`); toast('Partner removed'); refreshPartners(); };
+async function savePartnerForm(form, force) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  if (force) body.force = true;
+  try {
+    await jpost(`${API}/partners`, body);
+    form.reset();
+    toast('Partner saved');
+    refreshPartners();
+  } catch (err) {
+    if (err.status === 409) {
+      const proceed = confirm(err.message + '\n\nClick OK to save anyway, or Cancel to go back and edit.');
+      if (proceed) return savePartnerForm(form, true);
+    } else {
+      toast(err.message);
+    }
+  }
+}
 document.getElementById('partnerForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  await jpost(`${API}/partners`, Object.fromEntries(new FormData(e.target).entries()));
-  e.target.reset();
-  toast('Partner saved');
-  refreshPartners();
+  await savePartnerForm(e.target, false);
 });
 
 async function refreshDrivers() {
@@ -789,15 +921,27 @@ async function refreshDrivers() {
   `).join('') || '<tr><td colspan="5" class="empty">No drivers yet</td></tr>';
 }
 window.deleteDriver = async (id) => { await jdel(`${API}/drivers/${id}`); toast('Driver removed'); refreshDrivers(); };
+async function saveDriverForm(form, force) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  if (!body.partner_id) delete body.partner_id;
+  if (force) body.force = true;
+  try {
+    await jpost(`${API}/drivers`, body);
+    form.reset();
+    toast('Driver saved');
+    refreshDrivers();
+  } catch (err) {
+    if (err.status === 409) {
+      const proceed = confirm(err.message + '\n\nClick OK to save anyway, or Cancel to go back and edit.');
+      if (proceed) return saveDriverForm(form, true);
+    } else {
+      toast(err.message);
+    }
+  }
+}
 document.getElementById('driverForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const fd = new FormData(e.target);
-  const body = Object.fromEntries(fd.entries());
-  if (!body.partner_id) delete body.partner_id;
-  await jpost(`${API}/drivers`, body);
-  e.target.reset();
-  toast('Driver saved');
-  refreshDrivers();
+  await saveDriverForm(e.target, false);
 });
 
 // --- Export ---
@@ -908,6 +1052,7 @@ function loadAllData() {
   refreshHappeningsAdmin();
   refreshItinerary();
   refreshHostMembers();
+  refreshHostPayments();
   refreshCommittees();
   refreshAssignmentDropdowns();
   refreshAssignments();

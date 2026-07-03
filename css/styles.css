@@ -219,6 +219,19 @@ th {
   -webkit-overflow-scrolling: touch;
 }
 
+/* Wide tables (e.g. Host Members, with a long committees list) can push the
+   Edit/Delete actions column off-screen with no visible scrollbar cue on some
+   browsers/trackpads. Pin the actions column to the right of the scroll area
+   so it's always reachable without discovering horizontal scroll first. */
+.sticky-actions {
+  position: sticky;
+  right: 0;
+  background: #fff;
+  box-shadow: -6px 0 8px -6px rgba(0,0,0,0.15);
+  white-space: nowrap;
+}
+tr:nth-child(even) .sticky-actions { background: #fff; }
+
 .pill {
   display: inline-block;
   padding: 2px 9px;
