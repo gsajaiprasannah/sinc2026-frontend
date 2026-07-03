@@ -494,7 +494,14 @@
 
   <!-- SETTINGS TAB (super_admin only) -->
   <section class="tab-panel" id="tab-settings">
-    <div class="section-title" style="margin-top:0">Pending signup requests</div>
+    <div class="section-title" style="margin-top:0">Import host club data</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">Loads host members, their committee assignments, and payment status from the SINC2026 "Host members Record Sheet" Excel file — and seeds the congress itinerary if it's empty. Safe to run again after the sheet is updated: existing host members are matched by phone number and updated rather than duplicated.</p>
+      <button class="btn gold" type="button" id="seedHostDataBtn">Import Host Members &amp; Committees Now</button>
+      <div id="seedHostDataResult" class="hint" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="section-title">Pending signup requests</div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Username</th><th>Email</th><th>Requested</th><th></th></tr></thead>

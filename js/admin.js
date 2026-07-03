@@ -812,6 +812,31 @@ document.getElementById('exportBtn').addEventListener('click', async () => {
   URL.revokeObjectURL(url);
 });
 
+// --- Settings: one-click host club data import (super_admin only) ---
+document.getElementById('seedHostDataBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('seedHostDataBtn');
+  const out = document.getElementById('seedHostDataResult');
+  btn.disabled = true;
+  btn.textContent = 'Importing...';
+  out.textContent = '';
+  try {
+    const summary = await jpost(`${API}/admin/seed-host-data`, {});
+    out.innerHTML = `Host members: ${summary.membersInserted} added, ${summary.membersUpdated} updated.<br>` +
+      `Committees: ${summary.committeesCreated} created, ${summary.membershipsCreated} memberships added.<br>` +
+      `Itinerary: ${summary.itineraryResult}.`;
+    toast('Import complete');
+    refreshHostMembers();
+    refreshCommittees();
+    refreshItinerary();
+  } catch (err) {
+    out.textContent = 'Import failed: ' + err.message;
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Import Host Members & Committees Now';
+  }
+});
+
 // --- Settings: user management (super_admin only) ---
 function userBadge(status) {
   const cls = status === 'approved' ? 'paid' : status === 'pending' ? 'partial' : 'pending';
