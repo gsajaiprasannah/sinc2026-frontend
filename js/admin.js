@@ -228,12 +228,13 @@ document.getElementById('clubCsvForm').addEventListener('submit', async (e) => {
 });
 
 // --- Registrations ---
+const REG_TYPE_LABEL = { single: 'Single', double: 'Double', congress_only: 'Congress Only' };
 async function refreshRegs() {
   const regs = await jget(`${API}/registrations`);
   document.getElementById('regsTableBody').innerHTML = regs.map((r) => `
     <tr>
       <td>${r.reg_number}</td>
-      <td><span class="pill ${r.reg_type}">${r.reg_type}</span></td>
+      <td><span class="pill ${r.reg_type}">${REG_TYPE_LABEL[r.reg_type] || r.reg_type}</span></td>
       <td>${r.club_name || '-'}</td>
       <td>₹${r.amount_paid}</td>
       <td>₹${r.amount_due}</td>
@@ -292,6 +293,16 @@ function paymentPill(status) {
   return `<span class="pill ${status}">${status}</span>`;
 }
 
+// Prefers the linked host member (real, always-current contact info) over
+// the legacy free-text spoc_name/spoc_phone, which only remain as a fallback
+// for participants that predate the host-member link.
+function spocDisplay(p) {
+  if (p.spoc_host_member_name) {
+    return `${p.spoc_host_member_name}<br><span class="hint">${p.spoc_host_member_phone || ''} (host member)</span>`;
+  }
+  return `${p.spoc_name || '-'}${p.spoc_phone ? '<br><span class="hint">' + p.spoc_phone + '</span>' : ''}`;
+}
+
 async function refreshParts(query) {
   const url = query ? `${API}/participants?q=${encodeURIComponent(query)}` : `${API}/participants`;
   const rows = await jget(url);
@@ -304,7 +315,7 @@ async function refreshParts(query) {
       <td>${p.phone || '-'}</td>
       <td>${p.travel_mode ? p.travel_mode + ' ' + (p.travel_number || '') + '<br><span class="hint">' + (p.travel_datetime || '') + '</span>' : '-'}</td>
       <td>${p.pickup_by || '-'}${p.pickup_vehicle ? '<br><span class="hint">' + p.pickup_vehicle + '</span>' : ''}</td>
-      <td>${p.spoc_name || '-'}${p.spoc_phone ? '<br><span class="hint">' + p.spoc_phone + '</span>' : ''}</td>
+      <td>${spocDisplay(p)}</td>
       <td>${paymentPill(p.payment_status)}</td>
       <td>
         <button class="btn small" onclick="editPart(${p.id})">Edit</button>
@@ -339,6 +350,9 @@ window.editPart = async (id) => {
     if (!el) return;
     el.value = p[f] !== null && p[f] !== undefined ? p[f] : '';
   });
+  if (form.elements.spoc_host_member_id) {
+    form.elements.spoc_host_member_id.value = p.spoc_host_member_id || '';
+  }
   form.dataset.editId = id;
   document.getElementById('partFormTitle').textContent = `Edit participant — ${p.participant_code || p.name}`;
   document.getElementById('partSubmitBtn').textContent = 'Update Participant';
@@ -358,6 +372,10 @@ window.cancelEditPart = () => {
 async function savePartForm(form, force) {
   const fd = new FormData(form);
   const body = Object.fromEntries(fd.entries());
+  // spoc_host_member_id isn't a participants column — it's saved separately
+  // as a delegate_assignments row (role='SPOC') via /api/assignments/spoc/:id.
+  const spocHostMemberId = body.spoc_host_member_id || '';
+  delete body.spoc_host_member_id;
   if (!body.club_id) delete body.club_id;
   if (!body.registration_id) delete body.registration_id;
   // travel_mode/departure_mode have a DB check constraint allowing only
@@ -368,15 +386,24 @@ async function savePartForm(form, force) {
   if (force) body.force = true;
   const editId = form.dataset.editId;
   try {
+    let participantId = editId;
     if (editId) {
       await jput(`${API}/participants/${editId}`, body);
       toast('Participant updated');
-      window.cancelEditPart();
     } else {
       const res = await jpost(`${API}/participants`, body);
-      form.reset();
+      participantId = res.id;
       toast(`Participant saved${res.participant_code ? ' — Registration ID ' + res.participant_code : ''}`);
     }
+    if (participantId) {
+      try {
+        await jput(`${API}/assignments/spoc/${participantId}`, { host_member_id: spocHostMemberId || null });
+      } catch (spocErr) {
+        toast('Participant saved, but SPOC link failed: ' + spocErr.message);
+      }
+    }
+    if (editId) window.cancelEditPart();
+    else form.reset();
     refreshParts();
   } catch (err) {
     if (err.status === 409 && err.data && err.data.error === 'duplicate') {
@@ -573,7 +600,7 @@ async function refreshHostMembers(query) {
 
   // Keep every other tab's host-member dropdowns in sync with the latest list.
   const opts = rows.map((h) => `<option value="${h.id}">${h.name}${h.company ? ' (' + h.company + ')' : ''}</option>`).join('');
-  ['committeeHmSelect', 'assignHmSelect', 'taskHmSelect'].forEach((id) => {
+  ['committeeHmSelect', 'assignHmSelect', 'taskHmSelect', 'createUserHmSelect', 'partSpocHmSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<option value="">-- select --</option>' + opts;
   });
@@ -1029,24 +1056,42 @@ async function refreshUsersAdmin() {
   document.getElementById('allUsersBody').innerHTML = users.map((u) => `
     <tr>
       <td>${u.username}</td><td>${u.email || '-'}</td><td>${u.role}</td>
+      <td>${u.host_member_name || '<span class="hint">-</span>'}</td>
       <td>${userBadge(u.status)}</td>
       <td>${new Date(u.created_at).toLocaleDateString()}</td>
       <td>${u.id === CURRENT_USER.id ? '<span class="hint">(you)</span>' : `<button class="btn danger small" onclick="deleteUser(${u.id})">Delete</button>`}</td>
     </tr>
-  `).join('') || '<tr><td colspan="6" class="empty">No logins yet</td></tr>';
+  `).join('') || '<tr><td colspan="7" class="empty">No logins yet</td></tr>';
 }
 window.approveUser = async (id) => { await jput(`${API}/auth/users/${id}/approve`, {}); toast('Approved'); refreshUsersAdmin(); };
 window.rejectUser = async (id) => { await jput(`${API}/auth/users/${id}/reject`, {}); toast('Rejected'); refreshUsersAdmin(); };
 window.deleteUser = async (id) => { if (!confirm('Delete this login?')) return; await jdel(`${API}/auth/users/${id}`); toast('Login removed'); refreshUsersAdmin(); };
 
+// Show/hide + require the host-member picker only when creating a host_member login.
+const createUserRoleSelect = document.getElementById('createUserRoleSelect');
+const createUserHmField = document.getElementById('createUserHmField');
+const createUserHmSelect = document.getElementById('createUserHmSelect');
+if (createUserRoleSelect) {
+  createUserRoleSelect.addEventListener('change', () => {
+    const isHostMember = createUserRoleSelect.value === 'host_member';
+    createUserHmField.style.display = isHostMember ? '' : 'none';
+    if (createUserHmSelect) createUserHmSelect.required = isHostMember;
+  });
+}
+
 document.getElementById('createUserForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
+  const body = Object.fromEntries(fd.entries());
+  if (body.role !== 'host_member') delete body.host_member_id;
+  else if (!body.host_member_id) { toast('Choose which host member this login belongs to.'); return; }
   try {
-    await jpost(`${API}/auth/users`, Object.fromEntries(fd.entries()));
+    await jpost(`${API}/auth/users`, body);
     e.target.reset();
+    createUserHmField.style.display = 'none';
     toast('Login created');
     refreshUsersAdmin();
+    refreshHostMembers();
   } catch (err) { toast(err.message); }
 });
 

@@ -158,6 +158,7 @@ function renderAssignments(rows) {
     <tr>
       <td>${a.participant_name}<br><span class="hint">${a.participant_code || ''}</span></td>
       <td>${a.club_name || '-'}<br><span class="hint">${a.reg_number || ''}</span></td>
+      <td>${a.role ? `<span class="pill ${String(a.role).toLowerCase() === 'spoc' ? 'double' : 'single'}">${a.role}</span>` : '<span class="hint">-</span>'}</td>
       <td>${a.travel_mode ? a.travel_mode + (a.travel_number ? ' · ' + a.travel_number : '') : '-'}${a.arrival_point ? '<br><span class="hint">' + a.arrival_point + '</span>' : ''}</td>
       <td>
         <select onchange="updateAssignmentStatus(${a.id}, this.value)">
@@ -168,7 +169,7 @@ function renderAssignments(rows) {
       </td>
       <td><input type="text" value="${(a.notes || '').replace(/"/g, '&quot;')}" onchange="updateAssignmentNotes(${a.id}, this.value)" placeholder="Add a note..." /></td>
     </tr>
-  `).join('') || '<tr><td colspan="5" class="empty">No delegates assigned to you yet</td></tr>';
+  `).join('') || '<tr><td colspan="6" class="empty">No delegates assigned to you yet</td></tr>';
 }
 window.updateAssignmentStatus = async (id, status) => {
   try { await jput(`${API}/host/assignments/${id}`, { status }); toast('Status updated'); }

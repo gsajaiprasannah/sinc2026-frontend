@@ -45,6 +45,7 @@ function renderOverview(s) {
     { label: 'Total Registrations', value: s.totalRegistrations },
     { label: 'Single Registrations', value: s.singleRegs },
     { label: 'Double Registrations', value: s.doubleRegs },
+    { label: 'Congress Only Registrations', value: s.congressOnlyRegs || 0 },
     { label: 'Total Participants (Double = 2)', value: s.totalParticipants }
   ];
   document.getElementById('statCards').innerHTML = cards.map((c) => `

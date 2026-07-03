@@ -245,6 +245,7 @@ tr:nth-child(even) .sticky-actions { background: #fff; }
 .pill.pending { background: #fdeaea; color: var(--red); }
 .pill.single { background: #e9f3fc; color: var(--navy); }
 .pill.double { background: #f8ecfb; color: var(--purple); }
+.pill.congress_only { background: #eafbea; color: #1f8a3d; }
 .pill.refunded { background: #eef1f5; color: #55606e; }
 .pill.done, .pill.completed { background: #e3f7f8; color: #1f9a86; }
 .pill.in_progress { background: #fdf8e0; color: #a6900a; }

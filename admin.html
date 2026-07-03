@@ -121,6 +121,7 @@
               <select name="reg_type" required>
                 <option value="single">Single</option>
                 <option value="double">Double</option>
+                <option value="congress_only">Congress Only (domestic, no room)</option>
               </select>
             </div>
             <div class="field"><label>Club</label><select name="club_id" id="regClubSelect"></select></div>
@@ -202,8 +203,13 @@
           <div class="field"><label>Picked up by</label><input name="pickup_by" /></div>
           <div class="field"><label>Vehicle</label><input name="pickup_vehicle" placeholder="Innova KA-05-AB-1234" /></div>
           <div class="field"><label>Pickup contact phone</label><input name="pickup_phone" /></div>
-          <div class="field"><label>SPOC name</label><input name="spoc_name" /></div>
-          <div class="field"><label>SPOC phone</label><input name="spoc_phone" /></div>
+          <div class="field">
+            <label>SPOC (host member)</label>
+            <select name="spoc_host_member_id" id="partSpocHmSelect"><option value="">-- none --</option></select>
+            <span class="hint">Preferred — links a real host member so their contact info stays accurate.</span>
+          </div>
+          <div class="field"><label>SPOC name (free text, fallback)</label><input name="spoc_name" /></div>
+          <div class="field"><label>SPOC phone (free text, fallback)</label><input name="spoc_phone" /></div>
         </div>
         <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
 
@@ -536,7 +542,15 @@
             <div class="field"><label>Email</label><input name="email" type="email" /></div>
             <div class="field"><label>Password *</label><input name="password" type="password" required minlength="6" /></div>
             <div class="field"><label>Role</label>
-              <select name="role"><option value="admin">Admin</option><option value="super_admin">Super Admin</option></select>
+              <select name="role" id="createUserRoleSelect">
+                <option value="admin">Admin</option>
+                <option value="super_admin">Super Admin</option>
+                <option value="host_member">Host Member</option>
+              </select>
+            </div>
+            <div class="field" id="createUserHmField" style="display:none;">
+              <label>Host member *</label>
+              <select name="host_member_id" id="createUserHmSelect"><option value="">-- select --</option></select>
             </div>
           </div>
           <button class="btn gold" type="submit">Create login</button>
@@ -555,7 +569,7 @@
     <div class="section-title">All logins</div>
     <div class="card table-scroll">
       <table>
-        <thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Linked host member</th><th>Status</th><th>Created</th><th></th></tr></thead>
         <tbody id="allUsersBody"></tbody>
       </table>
     </div>
