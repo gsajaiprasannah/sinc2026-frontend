@@ -233,6 +233,14 @@ th {
 .pill.single { background: #e9f3fc; color: var(--navy); }
 .pill.double { background: #f8ecfb; color: var(--purple); }
 
+.media-two-col {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .media-two-col { grid-template-columns: 1fr 1fr; }
+}
+
 .media-loop {
   position: relative;
   border-radius: var(--radius);
@@ -244,19 +252,19 @@ th {
 .media-loop video, .media-loop img {
   width: 100%;
   display: block;
-  max-height: 60vh;
+  max-height: 50vh;
   object-fit: contain;
   background: #000;
 }
 
 .media-caption {
   position: absolute;
-  bottom: 0;
+  top: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(transparent, rgba(0,0,0,0.75));
+  background: linear-gradient(rgba(0,0,0,0.7), transparent);
   color: #fff;
-  padding: 20px 12px 8px;
+  padding: 8px 12px 20px;
   font-size: 13px;
 }
 
@@ -264,18 +272,69 @@ th {
   display: flex;
   justify-content: center;
   gap: 6px;
-  margin-top: 8px;
+  margin: 8px 0;
+  background: #000;
+  padding-bottom: 8px;
 }
 
 .media-dots span {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #d7dce8;
+  background: #4a4f5c;
 }
 
 .media-dots span.active {
   background: var(--gold);
+}
+
+.media-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #14151b;
+  padding: 8px 10px;
+  flex-wrap: wrap;
+}
+
+.media-controls.poster-controls {
+  justify-content: flex-end;
+}
+
+.media-btn {
+  border: none;
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.media-btn:hover {
+  background: rgba(255,255,255,0.18);
+}
+
+.media-btn.media-download {
+  width: auto;
+  padding: 0 12px;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.media-controls .media-volume {
+  flex: 1;
+  min-width: 60px;
+  max-width: 120px;
+  accent-color: var(--gold);
 }
 
 .feed-item {
