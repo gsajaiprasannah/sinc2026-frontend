@@ -20,11 +20,13 @@ function mediaUrl(p) {
   return MEDIA_ORIGIN + p;
 }
 
-function toast(msg) {
+let toastTimer = null;
+function toast(msg, durationMs) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2200);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), durationMs || 2200);
 }
 
 // Thrown by jget/jpost/etc when the server says the session is no longer valid.
@@ -60,9 +62,21 @@ async function jdel(url) {
   return r.json();
 }
 async function uploadFile(url, formEl) {
-  const r = await fetch(url, { method: 'POST', headers: authHeaders(), body: new FormData(formEl) });
+  let r;
+  try {
+    r = await fetch(url, { method: 'POST', headers: authHeaders(), body: new FormData(formEl) });
+  } catch (networkErr) {
+    // fetch() itself rejects on a dropped connection (not just a non-2xx
+    // response) — surface that clearly instead of a generic "Upload failed".
+    throw new Error('Upload failed — the connection was interrupted. Check your internet connection and try again.');
+  }
   if (r.status === 401) { handleUnauthorized(); throw new Error('Please log in again.'); }
-  const data = await r.json();
+  let data;
+  try {
+    data = await r.json();
+  } catch (parseErr) {
+    throw new Error(`Server returned an unexpected response (status ${r.status}). Please try again.`);
+  }
   if (!r.ok) throw new Error(data.error || 'Upload failed');
   return data;
 }
@@ -333,12 +347,26 @@ window.deleteMedia = async (id) => { await jdel(`${API}/media/${id}`); toast('Me
 
 document.getElementById('mediaForm').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('button[type="submit"]');
+  const fileInput = form.querySelector('input[type="file"]');
+  if (!fileInput.files.length) { toast('Choose a file first'); return; }
+
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Uploading… do not close this tab';
+  toast(`Uploading ${fileInput.files[0].name} — this can take a while for large videos`, 6000);
   try {
-    await uploadFile(`${API}/media/upload`, e.target);
-    e.target.reset();
-    toast('Uploaded');
+    const res = await uploadFile(`${API}/media/upload`, form);
+    form.reset();
+    toast('Upload complete and verified on the server', 3000);
     refreshMediaAdmin();
-  } catch (err) { toast(err.message); }
+  } catch (err) {
+    toast(err.message, 8000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
 });
 
 // --- Happenings ---
