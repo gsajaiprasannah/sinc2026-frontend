@@ -45,8 +45,7 @@ function renderOverview(s) {
     { label: 'Total Registrations', value: s.totalRegistrations },
     { label: 'Single Registrations', value: s.singleRegs },
     { label: 'Double Registrations', value: s.doubleRegs },
-    { label: 'Total Participants (Double = 2)', value: s.totalParticipants },
-    { label: 'Amount Collected', value: fmtMoney(s.totalCollected) }
+    { label: 'Total Participants (Double = 2)', value: s.totalParticipants }
   ];
   document.getElementById('statCards').innerHTML = cards.map((c) => `
     <div class="stat-card">
@@ -98,9 +97,8 @@ function renderClubComparison(rows) {
       <td>${r.members_count}</td>
       <td>${r.registrations}</td>
       <td>${r.participants != null ? r.participants : '-'}</td>
-      <td>${fmtMoney(r.collected)}</td>
     </tr>
-  `).join('') || '<tr><td colspan="6" class="empty">No club data yet</td></tr>';
+  `).join('') || '<tr><td colspan="5" class="empty">No club data yet</td></tr>';
 }
 
 function renderNationwide(rows) {

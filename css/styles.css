@@ -232,6 +232,7 @@ th {
 .pill.pending { background: #fdeaea; color: var(--red); }
 .pill.single { background: #e9f3fc; color: var(--navy); }
 .pill.double { background: #f8ecfb; color: var(--purple); }
+.pill.refunded { background: #eef1f5; color: #55606e; }
 
 .media-two-col {
   grid-template-columns: 1fr;

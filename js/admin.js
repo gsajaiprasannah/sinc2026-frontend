@@ -20,6 +20,14 @@ function mediaUrl(p) {
   return MEDIA_ORIGIN + p;
 }
 
+// Only a super admin can delete records — everyone else can still create and
+// edit, just not permanently remove anything. The backend enforces this too
+// (a regular admin's DELETE request gets a 403 either way); this just keeps
+// the button from being shown in the first place.
+function canDelete() {
+  return !!(CURRENT_USER && CURRENT_USER.role === 'super_admin');
+}
+
 let toastTimer = null;
 function toast(msg, durationMs) {
   const t = document.getElementById('toast');
@@ -190,7 +198,7 @@ async function refreshClubs() {
   document.getElementById('clubsTableBody').innerHTML = clubs.map((c) => `
     <tr>
       <td>${c.name}</td><td>${c.city || ''}</td><td>${c.state || ''}</td><td>${c.zone || ''}</td><td>${c.members_count}</td>
-      <td><button class="btn danger small" onclick="deleteClub(${c.id})">Delete</button></td>
+      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteClub(${c.id})">Delete</button>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="6" class="empty">No clubs yet</td></tr>';
 
@@ -231,7 +239,7 @@ async function refreshRegs() {
       <td>₹${r.amount_due}</td>
       <td><span class="pill ${r.payment_status}">${r.payment_status}</span></td>
       <td>${r.participant_count}</td>
-      <td><button class="btn danger small" onclick="deleteReg(${r.id})">Delete</button></td>
+      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteReg(${r.id})">Delete</button>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="8" class="empty">No registrations yet</td></tr>';
 
@@ -260,6 +268,11 @@ document.getElementById('regCsvForm').addEventListener('submit', async (e) => {
 });
 
 // --- Participants ---
+function paymentPill(status) {
+  if (!status) return '<span class="hint">-</span>';
+  return `<span class="pill ${status}">${status}</span>`;
+}
+
 async function refreshParts(query) {
   const url = query ? `${API}/participants?q=${encodeURIComponent(query)}` : `${API}/participants`;
   const rows = await jget(url);
@@ -273,11 +286,55 @@ async function refreshParts(query) {
       <td>${p.travel_mode ? p.travel_mode + ' ' + (p.travel_number || '') + '<br><span class="hint">' + (p.travel_datetime || '') + '</span>' : '-'}</td>
       <td>${p.pickup_by || '-'}${p.pickup_vehicle ? '<br><span class="hint">' + p.pickup_vehicle + '</span>' : ''}</td>
       <td>${p.spoc_name || '-'}${p.spoc_phone ? '<br><span class="hint">' + p.spoc_phone + '</span>' : ''}</td>
-      <td><button class="btn danger small" onclick="deletePart(${p.id})">Delete</button></td>
+      <td>${paymentPill(p.payment_status)}</td>
+      <td>
+        <button class="btn small" onclick="editPart(${p.id})">Edit</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deletePart(${p.id})">Delete</button>` : ''}
+      </td>
     </tr>
-  `).join('') || '<tr><td colspan="9" class="empty">No participants yet</td></tr>';
+  `).join('') || '<tr><td colspan="10" class="empty">No participants yet</td></tr>';
 }
 window.deletePart = async (id) => { await jdel(`${API}/participants/${id}`); toast('Participant deleted'); refreshParts(); };
+
+const PART_FORM_FIELDS = [
+  'name', 'phone', 'whatsapp', 'email', 'address', 'club_id', 'registration_id', 'designation', 'is_primary',
+  'travel_mode', 'travel_number', 'travel_datetime', 'arrival_point',
+  'departure_mode', 'departure_number', 'departure_datetime',
+  'pickup_by', 'pickup_vehicle', 'pickup_phone', 'spoc_name', 'spoc_phone', 'notes'
+];
+
+// Loads an existing participant into the Add Participant form and switches
+// it into "update" mode (tracked via form.dataset.editId) so the same form
+// is used for both creating and editing — no separate edit screen needed.
+window.editPart = async (id) => {
+  let p;
+  try {
+    p = await jget(`${API}/participants/${id}`);
+  } catch (err) {
+    toast(err.message);
+    return;
+  }
+  const form = document.getElementById('partForm');
+  PART_FORM_FIELDS.forEach((f) => {
+    const el = form.elements[f];
+    if (!el) return;
+    el.value = p[f] !== null && p[f] !== undefined ? p[f] : '';
+  });
+  form.dataset.editId = id;
+  document.getElementById('partFormTitle').textContent = `Edit participant — ${p.participant_code || p.name}`;
+  document.getElementById('partSubmitBtn').textContent = 'Update Participant';
+  document.getElementById('partCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+window.cancelEditPart = () => {
+  const form = document.getElementById('partForm');
+  form.reset();
+  delete form.dataset.editId;
+  document.getElementById('partFormTitle').textContent = 'Add participant';
+  document.getElementById('partSubmitBtn').textContent = 'Save Participant';
+  document.getElementById('partCancelEditBtn').style.display = 'none';
+};
 
 async function savePartForm(form, force) {
   const fd = new FormData(form);
@@ -285,10 +342,17 @@ async function savePartForm(form, force) {
   if (!body.club_id) delete body.club_id;
   if (!body.registration_id) delete body.registration_id;
   if (force) body.force = true;
+  const editId = form.dataset.editId;
   try {
-    const res = await jpost(`${API}/participants`, body);
-    form.reset();
-    toast(`Participant saved${res.participant_code ? ' — Registration ID ' + res.participant_code : ''}`);
+    if (editId) {
+      await jput(`${API}/participants/${editId}`, body);
+      toast('Participant updated');
+      window.cancelEditPart();
+    } else {
+      const res = await jpost(`${API}/participants`, body);
+      form.reset();
+      toast(`Participant saved${res.participant_code ? ' — Registration ID ' + res.participant_code : ''}`);
+    }
     refreshParts();
   } catch (err) {
     if (err.status === 409 && err.data && err.data.error === 'duplicate') {
@@ -303,6 +367,11 @@ async function savePartForm(form, force) {
 document.getElementById('partForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   await savePartForm(e.target, false);
+});
+
+document.getElementById('partCancelEditBtn').addEventListener('click', (e) => {
+  e.preventDefault();
+  window.cancelEditPart();
 });
 
 document.getElementById('partCsvForm').addEventListener('submit', async (e) => {
@@ -334,7 +403,7 @@ async function refreshMediaAdmin() {
         <span>${m.title || ''}</span>
         <div>
           <button class="btn ${m.active ? 'outline' : 'gold'} small" onclick="toggleMedia(${m.id}, ${m.active ? 0 : 1})">${m.active ? 'Hide' : 'Show'}</button>
-          <button class="btn danger small" onclick="deleteMedia(${m.id})">Del</button>
+          ${canDelete() ? `<button class="btn danger small" onclick="deleteMedia(${m.id})">Del</button>` : ''}
         </div>
       </div>
     </div>
@@ -377,7 +446,7 @@ async function refreshHappeningsAdmin() {
       <div class="time">${new Date(h.happened_at.replace(' ', 'T') + 'Z').toLocaleString()} · ${h.category} · ${h.posted_by || ''}</div>
       <div class="title">${h.title}</div>
       <div class="desc">${h.description || ''}</div>
-      <button class="btn danger small" style="margin-top:6px;" onclick="deleteHappening(${h.id})">Delete</button>
+      ${canDelete() ? `<button class="btn danger small" style="margin-top:6px;" onclick="deleteHappening(${h.id})">Delete</button>` : ''}
     </div>
   `).join('') || '<div class="empty">No updates yet</div>';
 }
