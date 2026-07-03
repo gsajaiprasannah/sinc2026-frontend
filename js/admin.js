@@ -248,13 +248,32 @@ async function refreshRegs() {
 }
 window.deleteReg = async (id) => { await jdel(`${API}/registrations/${id}`); toast('Registration deleted'); refreshRegs(); };
 
+async function loadNextRegNumber() {
+  const field = document.getElementById('regNumberField');
+  if (!field) return;
+  try {
+    const res = await jget(`${API}/registrations/next-number`);
+    field.value = res.reg_number;
+  } catch (err) {
+    field.value = '';
+    field.placeholder = 'Could not auto-generate — reload page';
+  }
+}
+
 document.getElementById('regForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
-  await jpost(`${API}/registrations`, Object.fromEntries(fd.entries()));
-  e.target.reset();
-  toast('Registration saved');
-  refreshRegs();
+  try {
+    await jpost(`${API}/registrations`, Object.fromEntries(fd.entries()));
+    e.target.reset();
+    toast('Registration saved');
+    refreshRegs();
+    loadNextRegNumber();
+  } catch (err) {
+    // Someone else grabbed this number first (rare race) — fetch a fresh one and let the admin retry.
+    toast(err.message);
+    loadNextRegNumber();
+  }
 });
 
 document.getElementById('regCsvForm').addEventListener('submit', async (e) => {
@@ -1047,6 +1066,7 @@ function refreshStatsDependents() { /* hook for cross-tab refresh if needed */ }
 function loadAllData() {
   refreshClubs();
   refreshRegs();
+  loadNextRegNumber();
   refreshParts();
   refreshMediaAdmin();
   refreshHappeningsAdmin();
