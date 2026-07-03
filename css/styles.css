@@ -233,6 +233,9 @@ th {
 .pill.single { background: #e9f3fc; color: var(--navy); }
 .pill.double { background: #f8ecfb; color: var(--purple); }
 .pill.refunded { background: #eef1f5; color: #55606e; }
+.pill.done, .pill.completed { background: #e3f7f8; color: #1f9a86; }
+.pill.in_progress { background: #fdf8e0; color: #a6900a; }
+.pill.not_started { background: #eef1f5; color: #55606e; }
 
 .media-two-col {
   grid-template-columns: 1fr;

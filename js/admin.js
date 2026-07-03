@@ -466,6 +466,340 @@ document.getElementById('happeningForm').addEventListener('submit', async (e) =>
   refreshHappeningsAdmin();
 });
 
+// --- Itinerary (congress agenda, editable — shown on public dashboard) ---
+async function refreshItinerary() {
+  const rows = await jget(`${API}/itinerary`);
+  document.getElementById('itinTableBody').innerHTML = rows.map((it) => `
+    <tr>
+      <td>${it.day_label}</td>
+      <td>${it.time_label || '-'}</td>
+      <td>${it.title}</td>
+      <td>${it.description || '-'}</td>
+      <td>
+        <button class="btn small" onclick="editItin(${it.id})">Edit</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteItin(${it.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No itinerary items yet</td></tr>';
+}
+window.deleteItin = async (id) => { await jdel(`${API}/itinerary/${id}`); toast('Itinerary item deleted'); refreshItinerary(); };
+
+window.editItin = async (id) => {
+  const it = await jget(`${API}/itinerary/${id}`);
+  const form = document.getElementById('itinForm');
+  ['day_label', 'time_label', 'title', 'description', 'sort_order'].forEach((f) => {
+    if (form.elements[f]) form.elements[f].value = it[f] !== null && it[f] !== undefined ? it[f] : '';
+  });
+  form.dataset.editId = id;
+  document.getElementById('itinFormTitle').textContent = 'Edit itinerary item';
+  document.getElementById('itinSubmitBtn').textContent = 'Update Item';
+  document.getElementById('itinCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+window.cancelEditItin = () => {
+  const form = document.getElementById('itinForm');
+  form.reset();
+  delete form.dataset.editId;
+  document.getElementById('itinFormTitle').textContent = 'Add itinerary item';
+  document.getElementById('itinSubmitBtn').textContent = 'Save Item';
+  document.getElementById('itinCancelEditBtn').style.display = 'none';
+};
+document.getElementById('itinCancelEditBtn').addEventListener('click', (e) => { e.preventDefault(); window.cancelEditItin(); });
+document.getElementById('itinForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  const editId = form.dataset.editId;
+  try {
+    if (editId) {
+      await jput(`${API}/itinerary/${editId}`, body);
+      toast('Itinerary item updated');
+      window.cancelEditItin();
+    } else {
+      await jpost(`${API}/itinerary`, body);
+      form.reset();
+      toast('Itinerary item saved');
+    }
+    refreshItinerary();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Host Members ---
+async function refreshHostMembers(query) {
+  const rows = await jget(`${API}/hostmembers`);
+  const q = (query || '').toLowerCase();
+  const filtered = q
+    ? rows.filter((h) => [h.name, h.phone, h.company].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
+    : rows;
+  document.getElementById('hmTableBody').innerHTML = filtered.map((h) => `
+    <tr>
+      <td>${h.name}${h.designation ? ' <span class="hint">(' + h.designation + ')</span>' : ''}</td>
+      <td>${h.company || '-'}</td>
+      <td>${h.phone || '-'}</td>
+      <td>${(h.committees || []).map((c) => c.name).join(', ') || '-'}</td>
+      <td><span class="pill ${h.payment_status}">${h.payment_status}</span> <span class="hint">₹${h.payment_amount}</span></td>
+      <td>${h.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createHostLogin(${h.id}, '${(h.name || '').replace(/'/g, '')}')">Create login</button>`}</td>
+      <td>
+        <button class="btn small" onclick="editHm(${h.id})">Edit</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteHm(${h.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No host members yet</td></tr>';
+
+  // Keep every other tab's host-member dropdowns in sync with the latest list.
+  const opts = rows.map((h) => `<option value="${h.id}">${h.name}${h.company ? ' (' + h.company + ')' : ''}</option>`).join('');
+  ['committeeHmSelect', 'assignHmSelect', 'taskHmSelect'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '<option value="">-- select --</option>' + opts;
+  });
+}
+window.deleteHm = async (id) => { await jdel(`${API}/hostmembers/${id}`); toast('Host member deleted'); refreshHostMembers(); };
+
+window.createHostLogin = async (id, name) => {
+  const username = prompt(`Username for ${name}'s login:`, (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, ''));
+  if (!username) return;
+  const password = prompt('Temporary password (they can change it after logging in, min 6 characters):');
+  if (!password || password.length < 6) { toast('Password must be at least 6 characters'); return; }
+  try {
+    await jpost(`${API}/auth/users`, { username, password, role: 'host_member', host_member_id: id });
+    toast(`Login created for ${name}. Share the username/password with them — they log in at host.html.`, 6000);
+    refreshHostMembers();
+  } catch (err) { toast(err.message); }
+};
+
+const HM_FORM_FIELDS = ['name', 'phone', 'email', 'company', 'designation', 'category', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date', 'notes'];
+window.editHm = async (id) => {
+  const h = await jget(`${API}/hostmembers/${id}`);
+  const form = document.getElementById('hmForm');
+  HM_FORM_FIELDS.forEach((f) => {
+    if (form.elements[f]) form.elements[f].value = h[f] !== null && h[f] !== undefined ? h[f] : '';
+  });
+  form.dataset.editId = id;
+  document.getElementById('hmFormTitle').textContent = `Edit host member — ${h.name}`;
+  document.getElementById('hmSubmitBtn').textContent = 'Update Host Member';
+  document.getElementById('hmCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+window.cancelEditHm = () => {
+  const form = document.getElementById('hmForm');
+  form.reset();
+  delete form.dataset.editId;
+  document.getElementById('hmFormTitle').textContent = 'Add host member';
+  document.getElementById('hmSubmitBtn').textContent = 'Save Host Member';
+  document.getElementById('hmCancelEditBtn').style.display = 'none';
+};
+document.getElementById('hmCancelEditBtn').addEventListener('click', (e) => { e.preventDefault(); window.cancelEditHm(); });
+document.getElementById('hmForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  const editId = form.dataset.editId;
+  try {
+    if (editId) {
+      await jput(`${API}/hostmembers/${editId}`, body);
+      toast('Host member updated');
+      window.cancelEditHm();
+    } else {
+      await jpost(`${API}/hostmembers`, body);
+      form.reset();
+      toast('Host member saved');
+    }
+    refreshHostMembers();
+  } catch (err) { toast(err.message); }
+});
+document.getElementById('hmCsvForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const res = await uploadFile(`${API}/hostmembers/bulk-upload`, e.target);
+    toast(`Imported ${res.imported} host members`);
+    e.target.reset();
+    refreshHostMembers();
+  } catch (err) { toast(err.message); }
+});
+let hmSearchTimer = null;
+document.getElementById('hmSearch').addEventListener('input', (e) => {
+  clearTimeout(hmSearchTimer);
+  hmSearchTimer = setTimeout(() => refreshHostMembers(e.target.value), 300);
+});
+
+// --- Committees ---
+async function refreshCommittees() {
+  const rows = await jget(`${API}/committees`);
+  document.getElementById('committeesList').innerHTML = rows.map((c) => `
+    <div class="card" style="margin-bottom:10px;">
+      <strong>${c.name}</strong>
+      <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">
+        ${(c.members || []).map((m) => `
+          <span class="pill single" style="display:inline-flex;align-items:center;gap:6px;">
+            ${m.name}${canDelete() ? ` <a href="#" onclick="removeCommitteeMember(${c.id}, ${m.id});return false;" style="color:inherit;">✕</a>` : ''}
+          </span>
+        `).join('') || '<span class="hint">No members assigned yet</span>'}
+      </div>
+    </div>
+  `).join('') || '<div class="empty">No committees yet</div>';
+
+  const opts = rows.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+  document.getElementById('committeeSelect').innerHTML = opts;
+}
+window.removeCommitteeMember = async (committeeId, hostMemberId) => {
+  await jdel(`${API}/committees/${committeeId}/members/${hostMemberId}`);
+  toast('Removed from committee');
+  refreshCommittees();
+};
+document.getElementById('committeeForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await jpost(`${API}/committees`, Object.fromEntries(new FormData(e.target).entries()));
+  e.target.reset();
+  toast('Committee saved');
+  refreshCommittees();
+});
+document.getElementById('committeeAssignForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const committeeId = fd.get('committee_id');
+  const hostMemberId = fd.get('host_member_id');
+  if (!hostMemberId) { toast('Choose a host member'); return; }
+  try {
+    await jpost(`${API}/committees/${committeeId}/members`, { host_member_id: hostMemberId });
+    toast('Added to committee');
+    refreshCommittees();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Delegate assistance assignments ---
+async function refreshAssignments() {
+  const rows = await jget(`${API}/assignments`);
+  document.getElementById('assignTableBody').innerHTML = rows.map((a) => `
+    <tr>
+      <td>${a.host_member_name}<br><span class="hint">${a.host_member_phone || ''}</span></td>
+      <td>${a.participant_name}<br><span class="hint">${a.participant_code || ''}</span></td>
+      <td>${a.club_name || '-'}</td>
+      <td>${a.reg_number || '-'}</td>
+      <td>
+        <select onchange="updateAssignmentStatus(${a.id}, this.value)">
+          <option value="not_started" ${a.status === 'not_started' ? 'selected' : ''}>Not started</option>
+          <option value="in_progress" ${a.status === 'in_progress' ? 'selected' : ''}>In progress</option>
+          <option value="completed" ${a.status === 'completed' ? 'selected' : ''}>Completed</option>
+        </select>
+      </td>
+      <td>${a.notes || '-'}</td>
+      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteAssignment(${a.id})">Delete</button>` : ''}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No assignments yet</td></tr>';
+}
+window.deleteAssignment = async (id) => { await jdel(`${API}/assignments/${id}`); toast('Assignment removed'); refreshAssignments(); };
+window.updateAssignmentStatus = async (id, status) => {
+  try {
+    await jput(`${API}/assignments/${id}`, { status });
+    toast('Status updated');
+  } catch (err) { toast(err.message); }
+};
+
+async function refreshAssignmentDropdowns() {
+  const parts = await jget(`${API}/participants`);
+  const opts = parts.map((p) => `<option value="${p.id}">${p.name} — ${p.participant_code || ''} (${p.club_name || 'no club'})</option>`).join('');
+  const el = document.getElementById('assignPartSelect');
+  if (el) el.innerHTML = opts;
+}
+
+document.getElementById('assignForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  try {
+    await jpost(`${API}/assignments`, body);
+    e.target.reset();
+    toast('Assignment created');
+    refreshAssignments();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Checklists & milestones (host_tasks) ---
+async function refreshTasks() {
+  const rows = await jget(`${API}/tasks`);
+  document.getElementById('taskTableBody').innerHTML = rows.map((t) => `
+    <tr>
+      <td>${t.host_member_name}</td>
+      <td>${t.title}${t.description ? '<br><span class="hint">' + t.description + '</span>' : ''}</td>
+      <td>${Number(t.is_milestone) ? '<span class="pill double">Milestone</span>' : '<span class="hint">Checklist</span>'}</td>
+      <td>
+        <select onchange="updateTaskStatus(${t.id}, this.value)">
+          <option value="pending" ${t.status === 'pending' ? 'selected' : ''}>Pending</option>
+          <option value="in_progress" ${t.status === 'in_progress' ? 'selected' : ''}>In progress</option>
+          <option value="done" ${t.status === 'done' ? 'selected' : ''}>Done</option>
+        </select>
+      </td>
+      <td>${t.due_date ? new Date(t.due_date).toLocaleDateString() : '-'}</td>
+      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteTask(${t.id})">Delete</button>` : ''}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">No tasks yet</td></tr>';
+}
+window.deleteTask = async (id) => { await jdel(`${API}/tasks/${id}`); toast('Task removed'); refreshTasks(); };
+window.updateTaskStatus = async (id, status) => {
+  try {
+    await jput(`${API}/tasks/${id}`, { status });
+    toast('Status updated');
+  } catch (err) { toast(err.message); }
+};
+document.getElementById('taskForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  try {
+    await jpost(`${API}/tasks`, body);
+    e.target.reset();
+    toast('Task saved');
+    refreshTasks();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Partners & Drivers (masters) ---
+async function refreshPartners() {
+  const rows = await jget(`${API}/partners`);
+  document.getElementById('partnerTableBody').innerHTML = rows.map((p) => `
+    <tr>
+      <td>${p.category}</td>
+      <td>${p.name}</td>
+      <td>${p.contact_person || '-'}</td>
+      <td>${p.phone || '-'}</td>
+      <td>${canDelete() ? `<button class="btn danger small" onclick="deletePartner(${p.id})">Delete</button>` : ''}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No partners yet</td></tr>';
+
+  const opts = rows.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
+  document.getElementById('driverPartnerSelect').innerHTML = '<option value="">-- none --</option>' + opts;
+}
+window.deletePartner = async (id) => { await jdel(`${API}/partners/${id}`); toast('Partner removed'); refreshPartners(); };
+document.getElementById('partnerForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await jpost(`${API}/partners`, Object.fromEntries(new FormData(e.target).entries()));
+  e.target.reset();
+  toast('Partner saved');
+  refreshPartners();
+});
+
+async function refreshDrivers() {
+  const rows = await jget(`${API}/drivers`);
+  document.getElementById('driverTableBody').innerHTML = rows.map((d) => `
+    <tr>
+      <td>${d.name}</td>
+      <td>${d.phone || '-'}</td>
+      <td>${d.vehicle_type || ''} ${d.vehicle_number || ''}</td>
+      <td>${d.partner_name || '-'}</td>
+      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteDriver(${d.id})">Delete</button>` : ''}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No drivers yet</td></tr>';
+}
+window.deleteDriver = async (id) => { await jdel(`${API}/drivers/${id}`); toast('Driver removed'); refreshDrivers(); };
+document.getElementById('driverForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = Object.fromEntries(fd.entries());
+  if (!body.partner_id) delete body.partner_id;
+  await jpost(`${API}/drivers`, body);
+  e.target.reset();
+  toast('Driver saved');
+  refreshDrivers();
+});
+
 // --- Export ---
 document.getElementById('exportBtn').addEventListener('click', async () => {
   const data = await jget(`${API}/export/voice-agent`);
@@ -547,6 +881,14 @@ function loadAllData() {
   refreshParts();
   refreshMediaAdmin();
   refreshHappeningsAdmin();
+  refreshItinerary();
+  refreshHostMembers();
+  refreshCommittees();
+  refreshAssignmentDropdowns();
+  refreshAssignments();
+  refreshTasks();
+  refreshPartners();
+  refreshDrivers();
   if (CURRENT_USER && CURRENT_USER.role === 'super_admin') refreshUsersAdmin();
 }
 

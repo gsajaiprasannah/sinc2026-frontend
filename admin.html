@@ -61,6 +61,12 @@
   <button data-tab="participants">Participants</button>
   <button data-tab="media">Media (Video/Poster)</button>
   <button data-tab="happenings">Happenings</button>
+  <button data-tab="itinerary">Itinerary</button>
+  <button data-tab="hostmembers">Host Members</button>
+  <button data-tab="committees">Committees</button>
+  <button data-tab="assignments">Delegate Assistance</button>
+  <button data-tab="hosttasks">Checklists &amp; Milestones</button>
+  <button data-tab="partners">Partners &amp; Drivers</button>
   <button data-tab="export">Voice Agent Export</button>
   <button data-tab="settings" id="settingsTabBtn" style="display:none;">Settings</button>
 </nav>
@@ -273,6 +279,208 @@
 
     <div class="section-title">Timeline</div>
     <div class="card" id="happeningsList"></div>
+  </section>
+
+  <!-- ITINERARY TAB -->
+  <section class="tab-panel" id="tab-itinerary">
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="itinFormTitle">Add itinerary item</div>
+      <form id="itinForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Day label *</label><input name="day_label" required placeholder="12 Aug · Thu" /></div>
+          <div class="field"><label>Time label</label><input name="time_label" placeholder="Evening · 7:00 PM" /></div>
+          <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="0" /></div>
+        </div>
+        <div class="field"><label>Title *</label><input name="title" required /></div>
+        <div class="field"><label>Description</label><textarea name="description"></textarea></div>
+        <button class="btn gold" type="submit" id="itinSubmitBtn">Save Item</button>
+        <button type="button" class="btn outline" id="itinCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="section-title">Congress agenda (shown on public dashboard)</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Day</th><th>Time</th><th>Title</th><th>Description</th><th></th></tr></thead>
+        <tbody id="itinTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- HOST MEMBERS TAB -->
+  <section class="tab-panel" id="tab-hostmembers">
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="hmFormTitle">Add host member</div>
+      <form id="hmForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Full name *</label><input name="name" required /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+          <div class="field"><label>Company</label><input name="company" /></div>
+          <div class="field"><label>Designation</label><input name="designation" /></div>
+          <div class="field"><label>Category</label><input name="category" placeholder="Hotel / Travel / Transport / Other" /></div>
+        </div>
+        <div class="section-title" style="font-size:12px;margin:16px 0 8px;">₹5,000 host-club payment</div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Payment status</label>
+            <select name="payment_status"><option value="pending">Pending</option><option value="paid">Paid</option></select>
+          </div>
+          <div class="field"><label>Amount (₹)</label><input name="payment_amount" type="number" value="5000" /></div>
+          <div class="field"><label>Payment mode</label><input name="payment_mode" placeholder="UPI / Bank transfer / Others" /></div>
+          <div class="field"><label>Payment date</label><input name="payment_date" type="date" /></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="hmSubmitBtn">Save Host Member</button>
+        <button type="button" class="btn outline" id="hmCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="section-title" style="margin-top:0">Bulk upload (CSV)</div>
+      <p class="hint">Columns: <code>name, email, phone, company, designation, category</code></p>
+      <form id="hmCsvForm">
+        <input type="file" name="file" accept=".csv" required />
+        <button class="btn" type="submit" style="margin-top:10px;">Upload CSV</button>
+      </form>
+    </div>
+
+    <div class="section-title">All host members</div>
+    <div class="field"><input id="hmSearch" placeholder="Search by name, phone, or company..." /></div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Committees</th><th>Payment</th><th>Login</th><th></th></tr></thead>
+        <tbody id="hmTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- COMMITTEES TAB -->
+  <section class="tab-panel" id="tab-committees">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Add committee</div>
+      <form id="committeeForm">
+        <div class="form-grid cols-2">
+          <div class="field"><label>Committee name *</label><input name="name" required /></div>
+          <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="0" /></div>
+        </div>
+        <button class="btn gold" type="submit">Save Committee</button>
+      </form>
+    </div>
+    <div class="card" style="margin-top:14px;">
+      <div class="section-title" style="margin-top:0">Assign a host member to a committee</div>
+      <form id="committeeAssignForm">
+        <div class="form-grid cols-2">
+          <div class="field"><label>Committee</label><select name="committee_id" id="committeeSelect" required></select></div>
+          <div class="field"><label>Host member</label><select name="host_member_id" id="committeeHmSelect" required></select></div>
+        </div>
+        <button class="btn gold" type="submit">Add to committee</button>
+      </form>
+    </div>
+    <div class="section-title">All committees</div>
+    <div id="committeesList"></div>
+  </section>
+
+  <!-- DELEGATE ASSISTANCE ASSIGNMENTS TAB -->
+  <section class="tab-panel" id="tab-assignments">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Assign a host member to a delegate</div>
+      <p class="hint">Tracks who is responsible for assisting which delegate, and the progress of that assistance.</p>
+      <form id="assignForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Host member *</label><select name="host_member_id" id="assignHmSelect" required></select></div>
+          <div class="field"><label>Delegate (participant) *</label><select name="participant_id" id="assignPartSelect" required></select></div>
+          <div class="field"><label>Role</label><input name="role" placeholder="pickup / accommodation / general assistance" value="assistance" /></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit">Create Assignment</button>
+      </form>
+    </div>
+    <div class="section-title">All assignments</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Host member</th><th>Delegate</th><th>Club</th><th>Reg #</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+        <tbody id="assignTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- CHECKLISTS & MILESTONES TAB -->
+  <section class="tab-panel" id="tab-hosttasks">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Add checklist item / milestone</div>
+      <form id="taskForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Host member *</label><select name="host_member_id" id="taskHmSelect" required></select></div>
+          <div class="field"><label>Title *</label><input name="title" required /></div>
+          <div class="field"><label>Due date</label><input name="due_date" type="date" /></div>
+          <div class="field"><label>Is this a milestone?</label>
+            <select name="is_milestone"><option value="0">No — routine checklist item</option><option value="1">Yes — milestone</option></select>
+          </div>
+          <div class="field"><label>Status</label>
+            <select name="status"><option value="pending">Pending</option><option value="in_progress">In progress</option><option value="done">Done</option></select>
+          </div>
+        </div>
+        <div class="field"><label>Description</label><textarea name="description"></textarea></div>
+        <button class="btn gold" type="submit">Save Task</button>
+      </form>
+    </div>
+    <div class="section-title">All checklist items &amp; milestones</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Host member</th><th>Title</th><th>Type</th><th>Status</th><th>Due</th><th></th></tr></thead>
+        <tbody id="taskTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- PARTNERS & DRIVERS (MASTERS) TAB -->
+  <section class="tab-panel" id="tab-partners">
+    <div class="two-col">
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Add partner organization</div>
+        <form id="partnerForm">
+          <div class="field"><label>Category</label>
+            <select name="category">
+              <option value="transport">Transport</option>
+              <option value="hotel">Hotel / Accommodation</option>
+              <option value="catering">Catering</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="field"><label>Organization name *</label><input name="name" required /></div>
+          <div class="field"><label>Contact person</label><input name="contact_person" /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+          <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+          <button class="btn gold" type="submit">Save Partner</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Add driver</div>
+        <form id="driverForm">
+          <div class="field"><label>Driver name *</label><input name="name" required /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Vehicle number</label><input name="vehicle_number" placeholder="KA-05-AB-1234" /></div>
+          <div class="field"><label>Vehicle type</label><input name="vehicle_type" placeholder="Innova / Sedan / Bus" /></div>
+          <div class="field"><label>Transport partner</label><select name="partner_id" id="driverPartnerSelect"><option value="">-- none --</option></select></div>
+          <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+          <button class="btn gold" type="submit">Save Driver</button>
+        </form>
+      </div>
+    </div>
+    <div class="section-title">Partner organizations</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Category</th><th>Name</th><th>Contact</th><th>Phone</th><th></th></tr></thead>
+        <tbody id="partnerTableBody"></tbody>
+      </table>
+    </div>
+    <div class="section-title">Drivers</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Vehicle</th><th>Partner</th><th></th></tr></thead>
+        <tbody id="driverTableBody"></tbody>
+      </table>
+    </div>
   </section>
 
   <!-- EXPORT TAB -->
