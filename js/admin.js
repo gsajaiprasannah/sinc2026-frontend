@@ -181,6 +181,25 @@ async function tryResumeSession() {
   }
 }
 
+// --- Sidebar hide/expand toggle (state remembered across visits) ---
+const SIDEBAR_HIDDEN_KEY = 'sinc_admin_sidebar_hidden';
+const adminShell = document.getElementById('adminShell');
+const sidebarToggleBtn = document.getElementById('sidebarToggle');
+function applySidebarState() {
+  if (!adminShell) return;
+  let hidden = localStorage.getItem(SIDEBAR_HIDDEN_KEY);
+  if (hidden === null) hidden = window.innerWidth < 860 ? '1' : '0'; // sensible default on small screens
+  adminShell.classList.toggle('sidebar-hidden', hidden === '1');
+}
+if (sidebarToggleBtn) {
+  sidebarToggleBtn.addEventListener('click', () => {
+    const nowHidden = !adminShell.classList.contains('sidebar-hidden');
+    localStorage.setItem(SIDEBAR_HIDDEN_KEY, nowHidden ? '1' : '0');
+    applySidebarState();
+  });
+}
+applySidebarState();
+
 // --- Tabs ---
 document.getElementById('tabNav').addEventListener('click', (e) => {
   const btn = e.target.closest('button');
@@ -190,6 +209,12 @@ document.getElementById('tabNav').addEventListener('click', (e) => {
   btn.classList.add('active');
   document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
   if (btn.dataset.tab === 'settings') refreshUsersAdmin();
+  // On phone/tablet widths the sidebar overlays the content, so tuck it away
+  // again once a section has been picked (matches the standard mobile pattern).
+  if (window.innerWidth < 860 && adminShell) {
+    localStorage.setItem(SIDEBAR_HIDDEN_KEY, '1');
+    applySidebarState();
+  }
 });
 
 // --- Clubs ---

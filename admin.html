@@ -10,11 +10,14 @@
 
 <header class="topbar">
   <div class="topbar-inner">
-    <div class="brand">
-      <img src="img/skal-logo.png" alt="Skål International" class="logo-mark" />
-      <div>
-        <h1>Congress Admin</h1>
-        <span>Data &amp; media management</span>
+    <div class="topbar-left">
+      <button class="icon-btn" id="sidebarToggle" type="button" aria-label="Toggle sidebar" title="Toggle sidebar">☰</button>
+      <div class="brand">
+        <img src="img/skal-logo.png" alt="Skål International" class="logo-mark" />
+        <div>
+          <h1>Congress Admin</h1>
+          <span>Data &amp; media management</span>
+        </div>
       </div>
     </div>
     <nav id="topbarNav">
@@ -55,24 +58,45 @@
 <!-- MAIN APP (hidden until logged in) -->
 <div id="appShell" style="display:none;">
 
-<nav class="admin-nav" id="tabNav">
-  <button data-tab="clubs" class="active">Clubs &amp; Members</button>
-  <button data-tab="registrations">Registrations &amp; Payments</button>
-  <button data-tab="participants">Participants</button>
-  <button data-tab="media">Media (Video/Poster)</button>
-  <button data-tab="happenings">Happenings</button>
-  <button data-tab="itinerary">Itinerary</button>
-  <button data-tab="hostmembers">Host Members</button>
-  <button data-tab="hostpayments">Host Registration &amp; Payments</button>
-  <button data-tab="committees">Committees</button>
-  <button data-tab="assignments">Delegate Assistance</button>
-  <button data-tab="hosttasks">Checklists &amp; Milestones</button>
-  <button data-tab="partners">Partners &amp; Drivers</button>
-  <button data-tab="export">Voice Agent Export</button>
-  <button data-tab="settings" id="settingsTabBtn" style="display:none;">Settings</button>
-</nav>
+<div class="admin-shell" id="adminShell">
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+      <nav id="tabNav">
+        <details class="nav-group" open>
+          <summary class="nav-group-label">Congress <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="clubs" class="active">Clubs &amp; Members</button>
+            <button data-tab="registrations">Registrations &amp; Payments</button>
+            <button data-tab="participants">Participants</button>
+            <button data-tab="media">Media (Video/Poster)</button>
+            <button data-tab="happenings">Happenings</button>
+            <button data-tab="itinerary">Itinerary</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
+          <summary class="nav-group-label">Host Club <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="hostmembers">Host Members</button>
+            <button data-tab="hostpayments">Host Registration &amp; Payments</button>
+            <button data-tab="committees">Committees</button>
+            <button data-tab="assignments">Delegate Assistance</button>
+            <button data-tab="hosttasks">Checklists &amp; Milestones</button>
+            <button data-tab="partners">Partners &amp; Drivers</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
+          <summary class="nav-group-label">Tools <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="export">Voice Agent Export</button>
+            <button data-tab="settings" id="settingsTabBtn" style="display:none;">Settings</button>
+          </div>
+        </details>
+      </nav>
+    </div>
+  </aside>
 
-<main class="container">
+  <div class="admin-main">
+  <main class="container">
 
   <!-- CLUBS TAB -->
   <section class="tab-panel active" id="tab-clubs">
@@ -575,7 +599,9 @@
     </div>
   </section>
 
-</main>
+  </main>
+  </div><!-- /admin-main -->
+</div><!-- /adminShell -->
 
 </div><!-- /appShell -->
 
