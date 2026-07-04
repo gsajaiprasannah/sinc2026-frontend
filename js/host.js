@@ -47,8 +47,15 @@ async function jget(url) {
 async function jput(url, body) {
   const r = await fetch(url, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) });
   if (r.status === 401) { handleUnauthorized(); throw new UnauthorizedError('Please log in again.'); }
-  const data = await r.json();
-  if (!r.ok) { const err = new Error(data.error || 'Request failed'); err.data = data; err.status = r.status; throw err; }
+  const text = await r.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; }
+  catch (e) {
+    throw new Error(!r.ok
+      ? `Server returned HTTP ${r.status} instead of JSON — the backend may not have this endpoint deployed yet.`
+      : 'Server returned an unexpected (non-JSON) response.');
+  }
+  if (!r.ok) { const err = new Error(data.error || `Request failed (HTTP ${r.status})`); err.data = data; err.status = r.status; throw err; }
   return data;
 }
 

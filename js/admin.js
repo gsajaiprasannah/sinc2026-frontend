@@ -44,30 +44,49 @@ function handleUnauthorized() {
   showAuthGate();
 }
 
+// Parses a fetch Response as JSON, but falls back to a readable error
+// instead of letting a non-JSON body (e.g. an HTML 404/500 page from a
+// backend that hasn't picked up the latest deploy yet) throw an opaque
+// "unexpected token" / "string did not match the expected pattern" parse
+// error that gives no clue what actually went wrong.
+async function parseJsonResponse(r) {
+  const text = await r.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch (e) {
+    const hint = !r.ok
+      ? `Server returned HTTP ${r.status} instead of JSON — the backend may not have this endpoint deployed yet. Try a fresh Render deploy of the latest commit.`
+      : 'Server returned an unexpected (non-JSON) response.';
+    throw new Error(hint);
+  }
+}
 async function jget(url) {
   const r = await fetch(url, { headers: authHeaders() });
   if (r.status === 401) { handleUnauthorized(); throw new Error('Please log in again.'); }
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
+  const data = await parseJsonResponse(r);
+  if (!r.ok) { const err = new Error(data.error || `Request failed (HTTP ${r.status})`); err.data = data; err.status = r.status; throw err; }
+  return data;
 }
 async function jpost(url, body) {
   const r = await fetch(url, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) });
   if (r.status === 401) { handleUnauthorized(); throw new Error('Please log in again.'); }
-  const data = await r.json();
-  if (!r.ok) { const err = new Error(data.error || 'Request failed'); err.data = data; err.status = r.status; throw err; }
+  const data = await parseJsonResponse(r);
+  if (!r.ok) { const err = new Error(data.error || `Request failed (HTTP ${r.status})`); err.data = data; err.status = r.status; throw err; }
   return data;
 }
 async function jput(url, body) {
   const r = await fetch(url, { method: 'PUT', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) });
   if (r.status === 401) { handleUnauthorized(); throw new Error('Please log in again.'); }
-  const data = await r.json();
-  if (!r.ok) { const err = new Error(data.error || 'Request failed'); err.data = data; err.status = r.status; throw err; }
+  const data = await parseJsonResponse(r);
+  if (!r.ok) { const err = new Error(data.error || `Request failed (HTTP ${r.status})`); err.data = data; err.status = r.status; throw err; }
   return data;
 }
 async function jdel(url) {
   const r = await fetch(url, { method: 'DELETE', headers: authHeaders() });
   if (r.status === 401) { handleUnauthorized(); throw new Error('Please log in again.'); }
-  return r.json();
+  const data = await parseJsonResponse(r);
+  if (!r.ok) { const err = new Error(data.error || `Request failed (HTTP ${r.status})`); err.data = data; err.status = r.status; throw err; }
+  return data;
 }
 async function uploadFile(url, formEl) {
   let r;
