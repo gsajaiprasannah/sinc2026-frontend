@@ -1887,19 +1887,27 @@ async function refreshChecklistTemplates() {
   if (!filterSel) return;
   populateCommitteeSelects();
   const ownerType = filterSel.value || 'sponsor';
-  const rows = await jget(`${API}/checklist-templates?owner_type=${encodeURIComponent(ownerType)}`);
-  document.getElementById('checklistTemplateTableBody').innerHTML = rows.map((t) => `
-    <tr>
-      <td>${t.category || '-'}</td>
-      <td>${t.label}</td>
-      <td>${t.responsible_committee_name || 'Unassigned'}</td>
-      <td>${t.sort_order}</td>
-      <td class="sticky-actions">
-        <button class="btn small" onclick="editChecklistTemplate(${t.id})">Edit</button>
-        ${canDelete() ? `<button class="btn danger small" onclick="deleteChecklistTemplate(${t.id})">Delete</button>` : ''}
-      </td>
-    </tr>
-  `).join('') || '<tr><td colspan="5" class="empty">No template items yet for this category — add one above.</td></tr>';
+  try {
+    const rows = await jget(`${API}/checklist-templates?owner_type=${encodeURIComponent(ownerType)}`);
+    document.getElementById('checklistTemplateTableBody').innerHTML = rows.map((t) => `
+      <tr>
+        <td>${t.category || '-'}</td>
+        <td>${t.label}</td>
+        <td>${t.responsible_committee_name || 'Unassigned'}</td>
+        <td>${t.sort_order}</td>
+        <td class="sticky-actions">
+          <button class="btn small" onclick="editChecklistTemplate(${t.id})">Edit</button>
+          ${canDelete() ? `<button class="btn danger small" onclick="deleteChecklistTemplate(${t.id})">Delete</button>` : ''}
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" class="empty">No template items yet for this category — add one above.</td></tr>';
+  } catch (err) {
+    // Previously a failed fetch here silently left the PREVIOUS category's
+    // rows on screen with no indication anything went wrong — looking like
+    // switching "Viewing category" did nothing. Surface it instead.
+    toast(`Couldn't load templates for this category: ${err.message}`);
+    document.getElementById('checklistTemplateTableBody').innerHTML = `<tr><td colspan="5" class="empty">Failed to load — ${err.message}</td></tr>`;
+  }
 }
 document.getElementById('checklistTemplateFilterSelect')?.addEventListener('change', refreshChecklistTemplates);
 
@@ -1989,10 +1997,19 @@ const BULK_ASSIGN_ROW_MAP = {
 let BULK_ASSIGN_ROWS = []; // last-fetched, mapped recipients for the currently selected category
 
 async function refreshBulkAssignRecipients() {
-  const ownerType = document.getElementById('bulkAssignTypeSelect').value;
-  const rows = await jget(`${API}/${BULK_ASSIGN_ENDPOINT[ownerType]}`);
-  BULK_ASSIGN_ROWS = rows.map(BULK_ASSIGN_ROW_MAP[ownerType]);
-  renderBulkAssignRecipients();
+  const typeSel = document.getElementById('bulkAssignTypeSelect');
+  if (!typeSel) return;
+  const ownerType = typeSel.value;
+  try {
+    const rows = await jget(`${API}/${BULK_ASSIGN_ENDPOINT[ownerType]}`);
+    BULK_ASSIGN_ROWS = rows.map(BULK_ASSIGN_ROW_MAP[ownerType]);
+    renderBulkAssignRecipients();
+  } catch (err) {
+    BULK_ASSIGN_ROWS = [];
+    const list = document.getElementById('bulkAssignRecipientList');
+    if (list) list.innerHTML = `<p class="hint" style="margin:4px 2px;">Failed to load — ${err.message}</p>`;
+    toast(`Couldn't load recipients: ${err.message}`);
+  }
 }
 function renderBulkAssignRecipients() {
   const list = document.getElementById('bulkAssignRecipientList');
@@ -2002,8 +2019,8 @@ function renderBulkAssignRecipients() {
     : BULK_ASSIGN_ROWS;
   list.innerHTML = visible.map((r) => `
     <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:13.5px;">
-      <input type="checkbox" class="bulkAssignRecipientCb" value="${r.id}" />
-      <span>${r.primary}${r.secondary ? ` <span class="hint">(${r.secondary})</span>` : ''}</span>
+      <input type="checkbox" class="bulkAssignRecipientCb" value="${r.id}" style="width:auto;flex:0 0 auto;" />
+      <span style="flex:1;min-width:0;">${r.primary}${r.secondary ? ` <span class="hint">(${r.secondary})</span>` : ''}</span>
     </label>
   `).join('') || '<p class="hint" style="margin:4px 2px;">No matches</p>';
   updateBulkAssignCount();
