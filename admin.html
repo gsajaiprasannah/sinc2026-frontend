@@ -90,6 +90,15 @@
             <button data-tab="vehicles">Vehicles</button>
             <button data-tab="transport">Transport Planning</button>
             <button data-tab="pretours">Pre Tours</button>
+            <button data-tab="accommodation">Accommodation &amp; Rooms</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
+          <summary class="nav-group-label">Sponsors &amp; Guests <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="sponsors">Sponsors</button>
+            <button data-tab="speakers">Guest Speakers</button>
+            <button data-tab="guestvisitors">Guest Visitors</button>
           </div>
         </details>
         <details class="nav-group" open>
@@ -750,6 +759,219 @@
     </div>
   </section>
 
+  <!-- ACCOMMODATION & ROOMS TAB -->
+  <section class="tab-panel" id="tab-accommodation">
+    <p class="hint" style="margin-top:0;">Hotel master + per-person room assignment for delegates and host members, so everyone's room is on record.</p>
+    <div class="two-col">
+      <div class="card">
+        <div class="section-title" style="margin-top:0" id="hotelFormTitle">Add hotel</div>
+        <form id="hotelForm">
+          <div class="field"><label>Hotel name *</label><input name="name" required /></div>
+          <div class="field"><label>Address</label><textarea name="address"></textarea></div>
+          <div class="field"><label>Contact person</label><input name="contact_person" /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+          <button class="btn gold" type="submit" id="hotelSubmitBtn">Save Hotel</button>
+          <button type="button" class="btn outline" id="hotelCancelEditBtn" style="display:none;">Cancel edit</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0" id="roomFormTitle">Assign a room</div>
+        <form id="roomForm">
+          <div class="field"><label>Hotel *</label><select name="hotel_id" id="roomHotelSelect" required></select></div>
+          <div class="form-grid cols-2">
+            <div class="field"><label>Room number *</label><input name="room_number" required /></div>
+            <div class="field"><label>Room type</label>
+              <select name="room_type">
+                <option value="single">Single</option>
+                <option value="double">Double</option>
+                <option value="twin">Twin</option>
+                <option value="suite">Suite</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+          <div class="field"><label>Occupant type</label>
+            <select id="roomOccupantTypeSelect">
+              <option value="participant">Delegate</option>
+              <option value="host_member">Host member</option>
+            </select>
+          </div>
+          <div class="field"><label>Delegate</label><select id="roomParticipantSelect"></select></div>
+          <div class="field"><label>Host member</label><select id="roomHmSelect" style="display:none;"></select></div>
+          <div class="form-grid cols-2">
+            <div class="field"><label>Check-in</label><input name="check_in" type="date" /></div>
+            <div class="field"><label>Check-out</label><input name="check_out" type="date" /></div>
+          </div>
+          <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+          <button class="btn gold" type="submit">Save Room Assignment</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="section-title">Hotels</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Address</th><th>Contact</th><th>Occupants</th><th></th></tr></thead>
+        <tbody id="hotelTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Room assignments</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Hotel</th><th>Room</th><th>Type</th><th>Occupant</th><th>Check-in</th><th>Check-out</th><th></th></tr></thead>
+        <tbody id="roomTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SPONSORS TAB -->
+  <section class="tab-panel" id="tab-sponsors">
+    <p class="hint" style="margin-top:0;">Register a confirmed/prospective sponsor, issue their Sponsor Pass, assign a host-member Guest Relation contact, and track their benefit checklist. Sponsorship rates are deliberately not shown here.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="sponsorFormTitle">Add sponsor</div>
+      <form id="sponsorForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Sponsor / organization name *</label><input name="name" required /></div>
+          <div class="field"><label>Tier</label>
+            <input name="tier" list="tierSuggestions" placeholder="e.g. Title, Platinum, Gold..." />
+            <datalist id="tierSuggestions">
+              <option value="Title Sponsor"></option>
+              <option value="Platinum Sponsor"></option>
+              <option value="Gold Sponsor"></option>
+              <option value="Silver Sponsor"></option>
+              <option value="Associate Sponsor"></option>
+              <option value="Supporting Sponsor"></option>
+              <option value="Exhibitor"></option>
+            </datalist>
+          </div>
+          <div class="field"><label>Status</label>
+            <select name="status">
+              <option value="lead">Lead</option>
+              <option value="confirmed" selected>Confirmed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Contact person</label><input name="contact_person" /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+        </div>
+        <div class="field">
+          <label>Guest Relation member (host member liaison)</label>
+          <select name="guest_relation_host_member_id" id="sponsorHmSelect"><option value="">-- none --</option></select>
+          <span class="hint">Shows up on this host member's own portal as a responsibility.</span>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="sponsorSubmitBtn">Save Sponsor</button>
+        <button type="button" class="btn outline" id="sponsorCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="section-title">All sponsors</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Sponsor Pass</th><th>Name</th><th>Tier</th><th>Guest Relation</th><th>Benefit checklist</th><th>Status</th><th></th></tr></thead>
+        <tbody id="sponsorTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- GUEST SPEAKERS TAB -->
+  <section class="tab-panel" id="tab-speakers">
+    <p class="hint" style="margin-top:0;">Register of guest/celebrity speakers and moderators — what they're speaking on, plus a customizable checklist of what must reach them and what we need to arrange.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="speakerFormTitle">Add guest speaker</div>
+      <form id="speakerForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Name *</label><input name="name" required /></div>
+          <div class="field"><label>Designation</label><input name="designation" /></div>
+          <div class="field"><label>Organization</label><input name="organization" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+          <div class="field"><label>Role</label>
+            <select name="session_type">
+              <option value="Speaker">Speaker</option>
+              <option value="Moderator">Moderator</option>
+              <option value="Panelist">Panelist</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>Topic / session</label><textarea name="topic" placeholder="What they'll speak on or moderate"></textarea></div>
+        <div class="field"><label>Status</label>
+          <select name="status">
+            <option value="invited">Invited</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="speakerSubmitBtn">Save Speaker</button>
+        <button type="button" class="btn outline" id="speakerCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="section-title">All guest speakers</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Role</th><th>Topic</th><th>Checklist</th><th>Status</th><th></th></tr></thead>
+        <tbody id="speakerTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- GUEST VISITORS TAB -->
+  <section class="tab-panel" id="tab-guestvisitors">
+    <p class="hint" style="margin-top:0;">VIP / dignitary guest visitors (distinct from delegates, sponsors, and speakers) and what we're offering/providing to each of them.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="gvFormTitle">Add guest visitor</div>
+      <form id="gvForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Name *</label><input name="name" required /></div>
+          <div class="field"><label>Designation</label><input name="designation" /></div>
+          <div class="field"><label>Organization</label><input name="organization" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+          <div class="field"><label>Category</label>
+            <input name="category" list="gvCategorySuggestions" placeholder="e.g. Dignitary, Government, Media..." />
+            <datalist id="gvCategorySuggestions">
+              <option value="Dignitary"></option>
+              <option value="Government"></option>
+              <option value="Media"></option>
+              <option value="Industry Leader"></option>
+              <option value="Other"></option>
+            </datalist>
+          </div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Visit date</label><input name="visit_date" type="date" /></div>
+          <div class="field"><label>Status</label>
+            <select name="status">
+              <option value="invited">Invited</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="gvSubmitBtn">Save Guest Visitor</button>
+        <button type="button" class="btn outline" id="gvCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="section-title">All guest visitors</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Category</th><th>Organization</th><th>Visit date</th><th>Offerings</th><th>Status</th><th></th></tr></thead>
+        <tbody id="gvTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
   <!-- EXPORT TAB -->
   <section class="tab-panel" id="tab-export">
     <div class="card">
@@ -826,6 +1048,20 @@
 </div><!-- /appShell -->
 
 <div class="toast" id="toast"></div>
+
+<!-- Shared, reusable customizable-checklist modal — used by Sponsors (benefit
+     checklist), Guest Speakers (checklist), Guest Visitors (offerings), and
+     the goodies/kit handover checklist on Participants + Host Members. Items
+     are free-text so new ones can always be added later. -->
+<div class="modal-overlay" id="checklistModal" style="display:none;" onclick="if(event.target===this) closeChecklistModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="section-title" style="margin:0;" id="checklistModalTitle">Checklist</div>
+      <button type="button" class="modal-close" onclick="closeChecklistModal()">&times;</button>
+    </div>
+    <div id="checklistModalBody"></div>
+  </div>
+</div>
 
 <script src="js/config.js"></script>
 <script src="js/admin.js"></script>

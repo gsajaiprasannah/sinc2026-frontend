@@ -129,6 +129,8 @@ async function loadMe() {
   renderCommittees(data.committees);
   renderAssignments(data.assignments);
   renderTasks(data.tasks);
+  renderSponsorRelations(data.sponsorRelations);
+  renderGoodiesChecklist(data.goodiesChecklist);
 }
 
 function renderProfile(p) {
@@ -198,6 +200,43 @@ function renderTasks(rows) {
 }
 window.updateTaskStatus = async (id, status) => {
   try { await jput(`${API}/host/tasks/${id}`, { status }); toast('Status updated'); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
+
+// --- Sponsors I'm the Guest Relation contact for (with their benefit checklist) ---
+function checklistRowsHtml(items) {
+  return (items || []).map((it) => `
+    <div class="checklist-row status-${it.status}">
+      <select onchange="updateHostChecklistStatus(${it.id}, this.value)">
+        <option value="pending" ${it.status === 'pending' ? 'selected' : ''}>Pending</option>
+        <option value="in_progress" ${it.status === 'in_progress' ? 'selected' : ''}>In progress</option>
+        <option value="done" ${it.status === 'done' ? 'selected' : ''}>Done</option>
+      </select>
+      <span class="checklist-label">${it.label}</span>
+    </div>
+  `).join('') || '<p class="hint">Nothing on this checklist yet.</p>';
+}
+
+function renderSponsorRelations(sponsors) {
+  const card = document.getElementById('sponsorRelationsCard');
+  if (!sponsors || !sponsors.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById('sponsorRelationsBody').innerHTML = sponsors.map((s) => `
+    <div style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line);">
+      <p style="margin:0 0 6px;"><strong>${s.name}</strong>${s.tier ? ' <span class="hint">(' + s.tier + ')</span>' : ''}</p>
+      <p class="hint" style="margin:0 0 8px;">${[s.contact_person, s.phone, s.email].filter(Boolean).join(' · ') || 'No contact details on file'}</p>
+      ${checklistRowsHtml(s.checklist)}
+    </div>
+  `).join('');
+}
+
+// --- My kit / souvenir handover checklist ---
+function renderGoodiesChecklist(items) {
+  document.getElementById('goodiesBody').innerHTML = checklistRowsHtml(items);
+}
+
+window.updateHostChecklistStatus = async (id, status) => {
+  try { await jput(`${API}/host/checklist/${id}`, { status }); toast('Status updated'); }
   catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
 };
 

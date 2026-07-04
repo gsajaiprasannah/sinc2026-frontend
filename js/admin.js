@@ -344,6 +344,7 @@ async function refreshParts(query) {
       <td>${paymentPill(p.payment_status)}</td>
       <td>
         <button class="btn small" onclick="editPart(${p.id})">Edit</button>
+        <button class="btn small" onclick="openChecklistModal('participant', ${p.id})">Kit</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deletePart(${p.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -617,6 +618,7 @@ async function refreshHostMembers(query) {
       <td>${h.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createHostLogin(${h.id}, '${(h.name || '').replace(/'/g, '')}')">Create login</button>`}</td>
       <td class="sticky-actions">
         <button class="btn small" onclick="editHm(${h.id})">Edit</button>
+        <button class="btn small" onclick="openChecklistModal('host_member', ${h.id})">Kit</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteHm(${h.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -625,7 +627,7 @@ async function refreshHostMembers(query) {
 
   // Keep every other tab's host-member dropdowns in sync with the latest list.
   const opts = rows.map((h) => `<option value="${h.id}">${h.name}${h.company ? ' (' + h.company + ')' : ''}</option>`).join('');
-  ['committeeHmSelect', 'assignHmSelect', 'taskHmSelect', 'createUserHmSelect', 'partSpocHmSelect', 'tripPassengerHmSelect', 'tourPartHmSelect'].forEach((id) => {
+  ['committeeHmSelect', 'assignHmSelect', 'taskHmSelect', 'createUserHmSelect', 'partSpocHmSelect', 'tripPassengerHmSelect', 'tourPartHmSelect', 'roomHmSelect', 'sponsorHmSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<option value="">-- select --</option>' + opts;
   });
@@ -887,7 +889,7 @@ window.updateAssignmentStatus = async (id, status) => {
 async function refreshAssignmentDropdowns() {
   const parts = await jget(`${API}/participants`);
   const opts = parts.map((p) => `<option value="${p.id}">${p.name} — ${p.participant_code || ''} (${p.club_name || 'no club'})</option>`).join('');
-  ['assignPartSelect', 'tripPassengerParticipantSelect', 'tourPartParticipantSelect'].forEach((id) => {
+  ['assignPartSelect', 'tripPassengerParticipantSelect', 'tourPartParticipantSelect', 'roomParticipantSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = opts;
   });
@@ -1437,6 +1439,431 @@ document.getElementById('tourTripForm').addEventListener('submit', async (e) => 
   } catch (err) { toast(err.message); }
 });
 
+// --- Shared, reusable customizable checklist modal ---
+// Used by Sponsors (benefit checklist), Guest Speakers (checklist), Guest
+// Visitors (offerings), and the goodies/kit handover checklist on
+// Participants + Host Members. Suggested labels are just a starting point —
+// admins can add/edit/remove anything, since the exact list keeps growing.
+const CHECKLIST_BASE = { sponsor: 'sponsors', speaker: 'speakers', guest_visitor: 'guestvisitors', participant: 'participants', host_member: 'hostmembers' };
+const CHECKLIST_TEMPLATES = {
+  sponsor: [
+    'Sponsor Branding on Main LED Screen', 'Branding in LED at Hall Entrance', 'Branding in Main Arch',
+    'Advertisement in Program Booklet', 'Advertisement/Hoardings at Event Evening', 'Banner Inside Dining Area',
+    'Banner Near Hall Entrance', 'Bunting on Driveway', 'Certificate with SKAL India Recognition',
+    'Advertisement in Newspaper', 'Complimentary Exhibition Stall (6x6 ft)', 'Cinema Hall Advertisement',
+    'Standees at Mall', 'Airport Advertisement', 'FM & Radio Promotion', 'Social Media Promotion',
+    'YouTube Campaign', 'Instagram Promotion', 'Google/Meta Ads', 'Bus Back Ads', 'Road Show',
+    'Auto Advertisement', 'T-Shirt Branding', 'Event Passes Issued', 'Complimentary Room'
+  ],
+  speaker: [
+    'Formal Invitation Letter Sent', 'Travel Tickets Booked', 'Hotel Booking Confirmed', 'Session Briefing Note Shared',
+    'Airport Pickup Arranged', 'Green Room Arranged', 'Presentation/AV Received', 'Bio & Photo for Program Booklet',
+    'Honorarium/Reimbursement Processed', 'Thank-you Note & Certificate Sent'
+  ],
+  guest_visitor: [
+    'Invitation Sent', 'Welcome Kit Prepared', 'Reserved Seating Arranged', 'Photo-op Arranged',
+    'Escort/Host Assigned', 'Memento/Certificate Prepared'
+  ],
+  participant: ['Congress Kit / Delegate Bag', 'ID Badge', 'Souvenir', 'Welcome Letter', 'Gala Dinner Pass'],
+  host_member: ['Host Committee T-Shirt/Uniform', 'ID Badge', 'Souvenir', 'Volunteer Kit']
+};
+
+let checklistCtx = { ownerType: null, ownerId: null };
+
+window.openChecklistModal = async (ownerType, ownerId) => {
+  checklistCtx = { ownerType, ownerId };
+  const base = CHECKLIST_BASE[ownerType];
+  let titleLabel = '';
+  try {
+    const owner = await jget(`${API}/${base}/${ownerId}`);
+    titleLabel = owner.name || '';
+  } catch (e) { /* title just won't show a name */ }
+  document.getElementById('checklistModalTitle').textContent = titleLabel ? `Checklist — ${titleLabel}` : 'Checklist';
+  document.getElementById('checklistModal').style.display = '';
+  await renderChecklistBody();
+};
+window.closeChecklistModal = () => {
+  document.getElementById('checklistModal').style.display = 'none';
+  checklistCtx = { ownerType: null, ownerId: null };
+};
+
+async function renderChecklistBody() {
+  const { ownerType, ownerId } = checklistCtx;
+  if (!ownerType || !ownerId) return;
+  const base = CHECKLIST_BASE[ownerType];
+  const items = await jget(`${API}/${base}/${ownerId}/checklist`);
+  const rowsHtml = items.map((it) => `
+    <div class="checklist-row status-${it.status}">
+      <select onchange="updateChecklistItemStatus(${it.id}, this.value)">
+        <option value="pending" ${it.status === 'pending' ? 'selected' : ''}>Pending</option>
+        <option value="in_progress" ${it.status === 'in_progress' ? 'selected' : ''}>In progress</option>
+        <option value="done" ${it.status === 'done' ? 'selected' : ''}>Done</option>
+      </select>
+      <span class="checklist-label">${it.label}</span>
+      ${canDelete() ? `<button class="btn danger small" onclick="deleteChecklistItem(${it.id})">Delete</button>` : ''}
+    </div>
+  `).join('') || '<p class="empty">No checklist items yet — add one below.</p>';
+
+  const templates = CHECKLIST_TEMPLATES[ownerType] || [];
+  const existingLabels = new Set(items.map((it) => it.label));
+  const suggestions = templates.filter((t) => !existingLabels.has(t));
+
+  document.getElementById('checklistModalBody').innerHTML = `
+    ${rowsHtml}
+    <form onsubmit="return submitChecklistItem(event)" style="margin-top:12px;display:flex;gap:8px;">
+      <input name="label" placeholder="Add a checklist item..." required style="flex:1;" />
+      <button class="btn gold small" type="submit">Add</button>
+    </form>
+    ${suggestions.length ? `
+      <div style="margin-top:10px;">
+        <span class="hint">Quick add suggestions:</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">
+          ${suggestions.map((s) => `<button type="button" class="btn outline small" onclick="quickAddChecklistItem('${s.replace(/'/g, "\\'")}')">+ ${s}</button>`).join('')}
+        </div>
+        <button type="button" class="btn small" style="margin-top:8px;" onclick="quickAddAllChecklistItems()">+ Add all suggested items</button>
+      </div>
+    ` : ''}
+  `;
+}
+
+window.updateChecklistItemStatus = async (itemId, status) => {
+  try { await jput(`${API}/checklist-items/${itemId}`, { status }); await renderChecklistBody(); refreshOwnerListForChecklist(); }
+  catch (err) { toast(err.message); }
+};
+window.deleteChecklistItem = async (itemId) => {
+  await jdel(`${API}/checklist-items/${itemId}`);
+  await renderChecklistBody();
+  refreshOwnerListForChecklist();
+};
+window.submitChecklistItem = async (e) => {
+  e.preventDefault();
+  const { ownerType, ownerId } = checklistCtx;
+  const base = CHECKLIST_BASE[ownerType];
+  const label = e.target.elements.label.value.trim();
+  if (!label) return false;
+  try {
+    await jpost(`${API}/${base}/${ownerId}/checklist`, { label });
+    e.target.reset();
+    await renderChecklistBody();
+    refreshOwnerListForChecklist();
+  } catch (err) { toast(err.message); }
+  return false;
+};
+window.quickAddChecklistItem = async (label) => {
+  const { ownerType, ownerId } = checklistCtx;
+  const base = CHECKLIST_BASE[ownerType];
+  try {
+    await jpost(`${API}/${base}/${ownerId}/checklist`, { label });
+    await renderChecklistBody();
+    refreshOwnerListForChecklist();
+  } catch (err) { toast(err.message); }
+};
+window.quickAddAllChecklistItems = async () => {
+  const { ownerType, ownerId } = checklistCtx;
+  const base = CHECKLIST_BASE[ownerType];
+  const templates = CHECKLIST_TEMPLATES[ownerType] || [];
+  try {
+    await jpost(`${API}/${base}/${ownerId}/checklist/bulk`, { items: templates.map((label) => ({ label })) });
+    await renderChecklistBody();
+    refreshOwnerListForChecklist();
+  } catch (err) { toast(err.message); }
+};
+// Refreshes whichever admin table shows a checklist progress count, after the
+// modal makes a change. Harmless no-op for tabs whose table isn't in the DOM.
+function refreshOwnerListForChecklist() {
+  const t = checklistCtx.ownerType;
+  if (t === 'sponsor') refreshSponsors();
+  if (t === 'speaker') refreshSpeakers();
+  if (t === 'guest_visitor') refreshGuestVisitors();
+}
+
+// --- Sponsors ---
+async function refreshSponsors() {
+  const rows = await jget(`${API}/sponsors`);
+  document.getElementById('sponsorTableBody').innerHTML = rows.map((s) => `
+    <tr>
+      <td><strong>${s.sponsor_pass_code || '-'}</strong></td>
+      <td>${s.name}</td>
+      <td>${s.tier || '-'}</td>
+      <td>${s.guest_relation_name || '-'}</td>
+      <td>${s.checklist_done}/${s.checklist_total}</td>
+      <td><span class="pill ${s.status === 'confirmed' ? 'paid' : s.status === 'cancelled' ? 'pending' : 'not_started'}">${s.status}</span></td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editSponsor(${s.id})">Edit</button>
+        <button class="btn small" onclick="openChecklistModal('sponsor', ${s.id})">Checklist</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteSponsor(${s.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No sponsors yet</td></tr>';
+}
+window.deleteSponsor = async (id) => { await jdel(`${API}/sponsors/${id}`); toast('Sponsor deleted'); refreshSponsors(); };
+
+const SPONSOR_FORM_FIELDS = ['name', 'tier', 'contact_person', 'phone', 'email', 'guest_relation_host_member_id', 'status', 'notes'];
+window.editSponsor = async (id) => {
+  const s = await jget(`${API}/sponsors/${id}`);
+  const form = document.getElementById('sponsorForm');
+  SPONSOR_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = s[f] !== null && s[f] !== undefined ? s[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('sponsorFormTitle').textContent = 'Edit sponsor';
+  document.getElementById('sponsorSubmitBtn').textContent = 'Update Sponsor';
+  document.getElementById('sponsorCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('sponsorCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('sponsorForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('sponsorFormTitle').textContent = 'Add sponsor';
+  document.getElementById('sponsorSubmitBtn').textContent = 'Save Sponsor';
+  document.getElementById('sponsorCancelEditBtn').style.display = 'none';
+});
+document.getElementById('sponsorForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/sponsors/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('sponsorFormTitle').textContent = 'Add sponsor';
+      document.getElementById('sponsorSubmitBtn').textContent = 'Save Sponsor';
+      document.getElementById('sponsorCancelEditBtn').style.display = 'none';
+      toast('Sponsor updated');
+    } else {
+      const res = await jpost(`${API}/sponsors`, body);
+      form.reset();
+      toast(`Sponsor saved — pass code ${res.sponsor_pass_code}`);
+    }
+    refreshSponsors();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Guest Speakers ---
+async function refreshSpeakers() {
+  const rows = await jget(`${API}/speakers`);
+  document.getElementById('speakerTableBody').innerHTML = rows.map((s) => `
+    <tr>
+      <td>${s.name}${s.designation ? ' <span class="hint">(' + s.designation + ')</span>' : ''}</td>
+      <td>${s.session_type}</td>
+      <td style="white-space:normal;max-width:260px;">${s.topic || '-'}</td>
+      <td>${s.checklist_done}/${s.checklist_total}</td>
+      <td><span class="pill ${s.status === 'confirmed' ? 'paid' : s.status === 'cancelled' ? 'pending' : 'not_started'}">${s.status}</span></td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editSpeaker(${s.id})">Edit</button>
+        <button class="btn small" onclick="openChecklistModal('speaker', ${s.id})">Checklist</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteSpeaker(${s.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">No guest speakers yet</td></tr>';
+}
+window.deleteSpeaker = async (id) => { await jdel(`${API}/speakers/${id}`); toast('Speaker deleted'); refreshSpeakers(); };
+
+const SPEAKER_FORM_FIELDS = ['name', 'designation', 'organization', 'phone', 'email', 'topic', 'session_type', 'status', 'notes'];
+window.editSpeaker = async (id) => {
+  const s = await jget(`${API}/speakers/${id}`);
+  const form = document.getElementById('speakerForm');
+  SPEAKER_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = s[f] !== null && s[f] !== undefined ? s[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('speakerFormTitle').textContent = 'Edit guest speaker';
+  document.getElementById('speakerSubmitBtn').textContent = 'Update Speaker';
+  document.getElementById('speakerCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('speakerCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('speakerForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('speakerFormTitle').textContent = 'Add guest speaker';
+  document.getElementById('speakerSubmitBtn').textContent = 'Save Speaker';
+  document.getElementById('speakerCancelEditBtn').style.display = 'none';
+});
+document.getElementById('speakerForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/speakers/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('speakerFormTitle').textContent = 'Add guest speaker';
+      document.getElementById('speakerSubmitBtn').textContent = 'Save Speaker';
+      document.getElementById('speakerCancelEditBtn').style.display = 'none';
+      toast('Speaker updated');
+    } else {
+      await jpost(`${API}/speakers`, body);
+      form.reset();
+      toast('Speaker saved');
+    }
+    refreshSpeakers();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Guest Visitors ---
+async function refreshGuestVisitors() {
+  const rows = await jget(`${API}/guestvisitors`);
+  document.getElementById('gvTableBody').innerHTML = rows.map((g) => `
+    <tr>
+      <td>${g.name}${g.designation ? ' <span class="hint">(' + g.designation + ')</span>' : ''}</td>
+      <td>${g.category || '-'}</td>
+      <td>${g.organization || '-'}</td>
+      <td>${g.visit_date || '-'}</td>
+      <td>${g.checklist_done}/${g.checklist_total}</td>
+      <td><span class="pill ${g.status === 'confirmed' ? 'paid' : g.status === 'cancelled' ? 'pending' : 'not_started'}">${g.status}</span></td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editGv(${g.id})">Edit</button>
+        <button class="btn small" onclick="openChecklistModal('guest_visitor', ${g.id})">Offerings</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteGv(${g.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No guest visitors yet</td></tr>';
+}
+window.deleteGv = async (id) => { await jdel(`${API}/guestvisitors/${id}`); toast('Guest visitor deleted'); refreshGuestVisitors(); };
+
+const GV_FORM_FIELDS = ['name', 'designation', 'organization', 'phone', 'email', 'category', 'visit_date', 'status', 'notes'];
+window.editGv = async (id) => {
+  const g = await jget(`${API}/guestvisitors/${id}`);
+  const form = document.getElementById('gvForm');
+  GV_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = g[f] !== null && g[f] !== undefined ? g[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('gvFormTitle').textContent = 'Edit guest visitor';
+  document.getElementById('gvSubmitBtn').textContent = 'Update Guest Visitor';
+  document.getElementById('gvCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('gvCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('gvForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('gvFormTitle').textContent = 'Add guest visitor';
+  document.getElementById('gvSubmitBtn').textContent = 'Save Guest Visitor';
+  document.getElementById('gvCancelEditBtn').style.display = 'none';
+});
+document.getElementById('gvForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/guestvisitors/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('gvFormTitle').textContent = 'Add guest visitor';
+      document.getElementById('gvSubmitBtn').textContent = 'Save Guest Visitor';
+      document.getElementById('gvCancelEditBtn').style.display = 'none';
+      toast('Guest visitor updated');
+    } else {
+      await jpost(`${API}/guestvisitors`, body);
+      form.reset();
+      toast('Guest visitor saved');
+    }
+    refreshGuestVisitors();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Accommodation: Hotels + Room Assignments ---
+async function refreshHotels() {
+  const rows = await jget(`${API}/hotels`);
+  document.getElementById('hotelTableBody').innerHTML = rows.map((h) => `
+    <tr>
+      <td><strong>${h.name}</strong></td>
+      <td style="white-space:normal;max-width:220px;">${h.address || '-'}</td>
+      <td>${h.contact_person || '-'}${h.phone ? ' <span class="hint">' + h.phone + '</span>' : ''}</td>
+      <td>${h.occupant_count} occupant(s) / ${h.room_count} room(s)</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editHotel(${h.id})">Edit</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteHotel(${h.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No hotels yet</td></tr>';
+
+  const opts = rows.map((h) => `<option value="${h.id}">${h.name}</option>`).join('');
+  const sel = document.getElementById('roomHotelSelect');
+  if (sel) sel.innerHTML = '<option value="">-- select hotel --</option>' + opts;
+}
+window.deleteHotel = async (id) => { await jdel(`${API}/hotels/${id}`); toast('Hotel removed'); refreshHotels(); refreshRooms(); };
+
+const HOTEL_FORM_FIELDS = ['name', 'address', 'contact_person', 'phone', 'notes'];
+window.editHotel = async (id) => {
+  const rows = await jget(`${API}/hotels`);
+  const h = rows.find((r) => r.id === id);
+  if (!h) return;
+  const form = document.getElementById('hotelForm');
+  HOTEL_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = h[f] !== null && h[f] !== undefined ? h[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('hotelFormTitle').textContent = 'Edit hotel';
+  document.getElementById('hotelSubmitBtn').textContent = 'Update Hotel';
+  document.getElementById('hotelCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('hotelCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('hotelForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('hotelFormTitle').textContent = 'Add hotel';
+  document.getElementById('hotelSubmitBtn').textContent = 'Save Hotel';
+  document.getElementById('hotelCancelEditBtn').style.display = 'none';
+});
+document.getElementById('hotelForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/hotels/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('hotelFormTitle').textContent = 'Add hotel';
+      document.getElementById('hotelSubmitBtn').textContent = 'Save Hotel';
+      document.getElementById('hotelCancelEditBtn').style.display = 'none';
+      toast('Hotel updated');
+    } else {
+      await jpost(`${API}/hotels`, body);
+      form.reset();
+      toast('Hotel saved');
+    }
+    refreshHotels();
+  } catch (err) { toast(err.message); }
+});
+
+async function refreshRooms() {
+  const rows = await jget(`${API}/rooms`);
+  document.getElementById('roomTableBody').innerHTML = rows.map((r) => `
+    <tr>
+      <td>${r.hotel_name}</td>
+      <td>${r.room_number}</td>
+      <td style="text-transform:capitalize;">${r.room_type || '-'}</td>
+      <td>${r.participant_name ? r.participant_name + ' <span class="hint">(delegate' + (r.participant_code ? ' · ' + r.participant_code : '') + ')</span>' : (r.host_member_name ? r.host_member_name + ' <span class="hint">(host member)</span>' : '-')}</td>
+      <td>${r.check_in || '-'}</td>
+      <td>${r.check_out || '-'}</td>
+      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteRoom(${r.id})">Delete</button>` : ''}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No room assignments yet</td></tr>';
+}
+window.deleteRoom = async (id) => { await jdel(`${API}/rooms/${id}`); toast('Room assignment removed'); refreshRooms(); refreshHotels(); };
+
+document.getElementById('roomOccupantTypeSelect').addEventListener('change', (e) => {
+  const isParticipant = e.target.value === 'participant';
+  document.getElementById('roomParticipantSelect').style.display = isParticipant ? '' : 'none';
+  document.getElementById('roomHmSelect').style.display = isParticipant ? 'none' : '';
+});
+
+document.getElementById('roomForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  const occupantType = document.getElementById('roomOccupantTypeSelect').value;
+  if (occupantType === 'participant') {
+    body.participant_id = document.getElementById('roomParticipantSelect').value || null;
+  } else {
+    body.host_member_id = document.getElementById('roomHmSelect').value || null;
+  }
+  try {
+    await jpost(`${API}/rooms`, body);
+    form.reset();
+    toast('Room assignment saved');
+    refreshRooms();
+    refreshHotels();
+  } catch (err) { toast(err.message); }
+});
+
 // --- Export ---
 document.getElementById('exportBtn').addEventListener('click', async () => {
   const data = await jget(`${API}/export/voice-agent`);
@@ -1575,6 +2002,11 @@ function loadAllData() {
   loadNextVehicleCode();
   refreshTransportTrips();
   refreshPreTours();
+  refreshHotels();
+  refreshRooms();
+  refreshSponsors();
+  refreshSpeakers();
+  refreshGuestVisitors();
   if (CURRENT_USER && CURRENT_USER.role === 'super_admin') refreshUsersAdmin();
 }
 
