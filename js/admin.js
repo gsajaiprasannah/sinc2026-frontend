@@ -625,7 +625,7 @@ async function refreshHostMembers(query) {
 
   // Keep every other tab's host-member dropdowns in sync with the latest list.
   const opts = rows.map((h) => `<option value="${h.id}">${h.name}${h.company ? ' (' + h.company + ')' : ''}</option>`).join('');
-  ['committeeHmSelect', 'assignHmSelect', 'taskHmSelect', 'createUserHmSelect', 'partSpocHmSelect'].forEach((id) => {
+  ['committeeHmSelect', 'assignHmSelect', 'taskHmSelect', 'createUserHmSelect', 'partSpocHmSelect', 'tripPassengerHmSelect', 'tourPartHmSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<option value="">-- select --</option>' + opts;
   });
@@ -887,8 +887,10 @@ window.updateAssignmentStatus = async (id, status) => {
 async function refreshAssignmentDropdowns() {
   const parts = await jget(`${API}/participants`);
   const opts = parts.map((p) => `<option value="${p.id}">${p.name} — ${p.participant_code || ''} (${p.club_name || 'no club'})</option>`).join('');
-  const el = document.getElementById('assignPartSelect');
-  if (el) el.innerHTML = opts;
+  ['assignPartSelect', 'tripPassengerParticipantSelect', 'tourPartParticipantSelect'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = opts;
+  });
 }
 
 document.getElementById('assignForm').addEventListener('submit', async (e) => {
@@ -954,7 +956,10 @@ async function refreshPartners() {
   `).join('') || '<tr><td colspan="5" class="empty">No partners yet</td></tr>';
 
   const opts = rows.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
-  document.getElementById('driverPartnerSelect').innerHTML = '<option value="">-- none --</option>' + opts;
+  ['driverPartnerSelect', 'vehiclePartnerSelect'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '<option value="">-- none --</option>' + opts;
+  });
 }
 window.deletePartner = async (id) => { await jdel(`${API}/partners/${id}`); toast('Partner removed'); refreshPartners(); };
 async function savePartnerForm(form, force) {
@@ -985,16 +990,25 @@ async function refreshDrivers() {
     <tr>
       <td>${d.name}</td>
       <td>${d.phone || '-'}</td>
-      <td>${d.vehicle_type || ''} ${d.vehicle_number || ''}</td>
+      <td>${d.vehicle_code
+        ? `${d.vehicle_code} <span class="hint">(${d.vehicle_master_type}, ${d.seating_capacity} seats)</span>`
+        : (`${d.vehicle_type || ''} ${d.vehicle_number || ''}`.trim() || '<span class="hint">none</span>')}</td>
       <td>${d.partner_name || '-'}</td>
       <td>${canDelete() ? `<button class="btn danger small" onclick="deleteDriver(${d.id})">Delete</button>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="5" class="empty">No drivers yet</td></tr>';
+
+  const driverOpts = rows.map((d) => `<option value="${d.id}">${d.name}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}</option>`).join('');
+  ['tripDriverSelect', 'tourTripDriverSelect'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '<option value="">-- none --</option>' + driverOpts;
+  });
 }
 window.deleteDriver = async (id) => { await jdel(`${API}/drivers/${id}`); toast('Driver removed'); refreshDrivers(); };
 async function saveDriverForm(form, force) {
   const body = Object.fromEntries(new FormData(form).entries());
   if (!body.partner_id) delete body.partner_id;
+  if (!body.vehicle_id) delete body.vehicle_id;
   if (force) body.force = true;
   try {
     await jpost(`${API}/drivers`, body);
@@ -1013,6 +1027,414 @@ async function saveDriverForm(form, force) {
 document.getElementById('driverForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   await saveDriverForm(e.target, false);
+});
+
+// --- Operations: Vehicles (masters) ---
+async function refreshVehicles() {
+  const rows = await jget(`${API}/vehicles`);
+  document.getElementById('vehicleTableBody').innerHTML = rows.map((v) => `
+    <tr>
+      <td><strong>${v.vehicle_code}</strong></td>
+      <td style="text-transform:capitalize;">${v.vehicle_type}</td>
+      <td>${v.model || '-'}</td>
+      <td>${v.seating_capacity}</td>
+      <td>${v.registration_number || '-'}</td>
+      <td>${v.partner_name || '-'}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editVehicle(${v.id})">Edit</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteVehicle(${v.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No vehicles yet</td></tr>';
+
+  const opts = rows.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join('');
+  document.getElementById('driverVehicleSelect').innerHTML = '<option value="">-- none --</option>' + opts;
+  ['tripVehicleSelect', 'tourTripVehicleSelect'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '<option value="">-- select vehicle --</option>' + opts;
+  });
+}
+window.deleteVehicle = async (id) => { await jdel(`${API}/vehicles/${id}`); toast('Vehicle removed'); refreshVehicles(); refreshDrivers(); };
+
+async function loadNextVehicleCode() {
+  const form = document.getElementById('vehicleForm');
+  if (form.dataset.editId) return; // don't touch the code of an existing vehicle mid-edit
+  try {
+    const type = document.getElementById('vehicleTypeSelect').value;
+    const { vehicle_code } = await jget(`${API}/vehicles/next-code?type=${type}`);
+    document.getElementById('vehicleCodeField').value = vehicle_code;
+  } catch (e) { /* preview only — ignore failures */ }
+}
+document.getElementById('vehicleTypeSelect').addEventListener('change', loadNextVehicleCode);
+
+const VEHICLE_FORM_FIELDS = ['vehicle_type', 'vehicle_code', 'model', 'seating_capacity', 'registration_number', 'partner_id', 'notes'];
+window.editVehicle = async (id) => {
+  const rows = await jget(`${API}/vehicles`);
+  const v = rows.find((r) => r.id === id);
+  if (!v) return;
+  const form = document.getElementById('vehicleForm');
+  VEHICLE_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = v[f] !== null && v[f] !== undefined ? v[f] : ''; });
+  form.dataset.editId = id;
+  // The code's prefix is tied to the type — lock type editing so the two can't drift apart silently.
+  document.getElementById('vehicleTypeSelect').disabled = true;
+  document.getElementById('vehicleFormTitle').textContent = `Edit vehicle — ${v.vehicle_code}`;
+  document.getElementById('vehicleSubmitBtn').textContent = 'Update Vehicle';
+  document.getElementById('vehicleCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+window.cancelEditVehicle = () => {
+  const form = document.getElementById('vehicleForm');
+  form.reset();
+  delete form.dataset.editId;
+  document.getElementById('vehicleTypeSelect').disabled = false;
+  document.getElementById('vehicleFormTitle').textContent = 'Add vehicle';
+  document.getElementById('vehicleSubmitBtn').textContent = 'Save Vehicle';
+  document.getElementById('vehicleCancelEditBtn').style.display = 'none';
+  loadNextVehicleCode();
+};
+document.getElementById('vehicleCancelEditBtn').addEventListener('click', (e) => { e.preventDefault(); window.cancelEditVehicle(); });
+async function saveVehicleForm(form) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  if (!body.partner_id) delete body.partner_id;
+  const editId = form.dataset.editId;
+  try {
+    if (editId) {
+      delete body.vehicle_code;
+      await jput(`${API}/vehicles/${editId}`, body);
+      toast('Vehicle updated');
+      window.cancelEditVehicle();
+    } else {
+      await jpost(`${API}/vehicles`, body);
+      form.reset();
+      toast('Vehicle saved');
+      loadNextVehicleCode();
+    }
+    refreshVehicles();
+    refreshDrivers();
+  } catch (err) {
+    if (err.status === 409) toast(err.data && err.data.message || err.message);
+    else toast(err.message);
+  }
+}
+document.getElementById('vehicleForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await saveVehicleForm(e.target);
+});
+
+// --- Operations: Transport Planning (shuttle/trip manifests) ---
+function capacityBadge(count, capacity) {
+  if (!capacity) return String(count);
+  return `<span class="pill ${count > capacity ? 'pending' : 'paid'}">${count}/${capacity}</span>`;
+}
+function tripStatusPill(status) {
+  const cls = status === 'completed' ? 'completed' : status === 'cancelled' ? 'pending' : status === 'in_progress' ? 'in_progress' : 'not_started';
+  return `<span class="pill ${cls}">${(status || '').replace('_', ' ')}</span>`;
+}
+
+async function refreshTransportTrips() {
+  const rows = await jget(`${API}/transport?pre_tour_id=none`);
+  document.getElementById('tripTableBody').innerHTML = rows.map((t) => `
+    <tr>
+      <td>${t.trip_date || '-'}</td>
+      <td>${t.depart_time || '-'}</td>
+      <td>${t.from_location} → ${t.to_location}</td>
+      <td>${t.purpose || '-'}</td>
+      <td>${t.vehicle_code ? `${t.vehicle_code} <span class="hint">(${t.vehicle_type})</span>` : '<span class="hint">unassigned</span>'}</td>
+      <td>${t.driver_name || '-'}</td>
+      <td>${capacityBadge(Number(t.passenger_count), t.seating_capacity)}</td>
+      <td>${tripStatusPill(t.status)}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="manageTripPassengers(${t.id}, '${(t.from_location + ' → ' + t.to_location).replace(/'/g, '')}')">Passengers</button>
+        <button class="btn small" onclick="editTrip(${t.id})">Edit</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteTrip(${t.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="9" class="empty">No trips planned yet</td></tr>';
+}
+window.deleteTrip = async (id) => {
+  await jdel(`${API}/transport/${id}`);
+  toast('Trip removed');
+  refreshTransportTrips();
+  if (currentTripId === id) { currentTripId = null; document.getElementById('tripPassengerCard').style.display = 'none'; }
+};
+
+const TRIP_FORM_FIELDS = ['trip_date', 'depart_time', 'from_location', 'to_location', 'purpose', 'vehicle_id', 'driver_id', 'status', 'notes'];
+window.editTrip = async (id) => {
+  const rows = await jget(`${API}/transport?pre_tour_id=none`);
+  const t = rows.find((r) => r.id === id);
+  if (!t) return;
+  const form = document.getElementById('tripForm');
+  TRIP_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = t[f] !== null && t[f] !== undefined ? t[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('tripFormTitle').textContent = 'Edit trip';
+  document.getElementById('tripSubmitBtn').textContent = 'Update Trip';
+  document.getElementById('tripCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+window.cancelEditTrip = () => {
+  const form = document.getElementById('tripForm');
+  form.reset();
+  delete form.dataset.editId;
+  document.getElementById('tripFormTitle').textContent = 'Add trip';
+  document.getElementById('tripSubmitBtn').textContent = 'Save Trip';
+  document.getElementById('tripCancelEditBtn').style.display = 'none';
+};
+document.getElementById('tripCancelEditBtn').addEventListener('click', (e) => { e.preventDefault(); window.cancelEditTrip(); });
+async function saveTripForm(form) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  if (!body.driver_id) delete body.driver_id;
+  const editId = form.dataset.editId;
+  try {
+    if (editId) {
+      await jput(`${API}/transport/${editId}`, body);
+      toast('Trip updated');
+      window.cancelEditTrip();
+    } else {
+      await jpost(`${API}/transport`, body);
+      form.reset();
+      toast('Trip saved');
+    }
+    refreshTransportTrips();
+  } catch (err) { toast(err.message); }
+}
+document.getElementById('tripForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await saveTripForm(e.target);
+});
+
+// Passenger manifest for whichever trip is currently selected for management.
+let currentTripId = null;
+window.manageTripPassengers = async (id, label) => {
+  currentTripId = id;
+  document.getElementById('tripPassengerTripLabel').textContent = label;
+  document.getElementById('tripPassengerCard').style.display = '';
+  await refreshTripPassengers();
+  document.getElementById('tripPassengerCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+async function refreshTripPassengers() {
+  if (!currentTripId) return;
+  const trip = await jget(`${API}/transport/${currentTripId}`);
+  document.getElementById('tripPassengerTableBody').innerHTML = (trip.passengers || []).map((p) => `
+    <tr>
+      <td>${p.participant_name || p.host_member_name}</td>
+      <td>${p.participant_id ? 'Delegate' : 'Host member'}</td>
+      <td>${p.participant_phone || p.host_member_phone || '-'}</td>
+      <td>${p.pickup_point || '-'}</td>
+      <td>${canDelete() ? `<button class="btn danger small" onclick="removeTripPassenger(${p.id})">Remove</button>` : ''}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No passengers added yet</td></tr>';
+}
+window.removeTripPassenger = async (passengerId) => {
+  await jdel(`${API}/transport/${currentTripId}/passengers/${passengerId}`);
+  toast('Passenger removed');
+  refreshTripPassengers();
+  refreshTransportTrips();
+};
+document.getElementById('tripPassengerTypeSelect').addEventListener('change', (e) => {
+  const isHm = e.target.value === 'host_member';
+  document.getElementById('tripPassengerParticipantSelect').style.display = isHm ? 'none' : '';
+  document.getElementById('tripPassengerHmSelect').style.display = isHm ? '' : 'none';
+});
+document.getElementById('tripPassengerForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!currentTripId) { toast('Select a trip first — click "Passengers" on a row below.'); return; }
+  const isHm = document.getElementById('tripPassengerTypeSelect').value === 'host_member';
+  const body = {
+    participant_id: isHm ? null : (document.getElementById('tripPassengerParticipantSelect').value || null),
+    host_member_id: isHm ? (document.getElementById('tripPassengerHmSelect').value || null) : null,
+    pickup_point: document.getElementById('tripPassengerPickup').value
+  };
+  if (!body.participant_id && !body.host_member_id) { toast('Choose a delegate or a host member'); return; }
+  try {
+    await jpost(`${API}/transport/${currentTripId}/passengers`, body);
+    document.getElementById('tripPassengerPickup').value = '';
+    toast('Passenger added');
+    refreshTripPassengers();
+    refreshTransportTrips();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Operations: Pre Tours ---
+async function refreshPreTours() {
+  const rows = await jget(`${API}/pretours`);
+  document.getElementById('tourTableBody').innerHTML = rows.map((t) => `
+    <tr>
+      <td><strong>${t.name}</strong></td>
+      <td>${t.start_date || '-'}${t.end_date ? ' → ' + t.end_date : ''}</td>
+      <td>${t.hotel || '-'}</td>
+      <td>${t.capacity ? `${t.participant_count}/${t.capacity}` : t.participant_count}</td>
+      <td>${t.trip_count}</td>
+      <td><span class="pill ${t.status === 'confirmed' || t.status === 'completed' ? 'paid' : t.status === 'cancelled' ? 'pending' : 'not_started'}">${t.status}</span></td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="manageTour(${t.id}, '${(t.name || '').replace(/'/g, '')}')">Manage</button>
+        <button class="btn small" onclick="editTour(${t.id})">Edit</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteTour(${t.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No pre tours yet</td></tr>';
+}
+window.deleteTour = async (id) => {
+  await jdel(`${API}/pretours/${id}`);
+  toast('Pre tour removed');
+  refreshPreTours();
+  if (currentTourId === id) { currentTourId = null; document.getElementById('tourManageCard').style.display = 'none'; }
+};
+
+const TOUR_FORM_FIELDS = ['name', 'start_date', 'end_date', 'hotel', 'capacity', 'price', 'attractions', 'description', 'status', 'notes'];
+window.editTour = async (id) => {
+  const rows = await jget(`${API}/pretours`);
+  const t = rows.find((r) => r.id === id);
+  if (!t) return;
+  const form = document.getElementById('tourForm');
+  TOUR_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = t[f] !== null && t[f] !== undefined ? t[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('tourFormTitle').textContent = `Edit pre tour — ${t.name}`;
+  document.getElementById('tourSubmitBtn').textContent = 'Update Pre Tour';
+  document.getElementById('tourCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+window.cancelEditTour = () => {
+  const form = document.getElementById('tourForm');
+  form.reset();
+  delete form.dataset.editId;
+  document.getElementById('tourFormTitle').textContent = 'Add pre tour';
+  document.getElementById('tourSubmitBtn').textContent = 'Save Pre Tour';
+  document.getElementById('tourCancelEditBtn').style.display = 'none';
+};
+document.getElementById('tourCancelEditBtn').addEventListener('click', (e) => { e.preventDefault(); window.cancelEditTour(); });
+async function saveTourForm(form) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  const editId = form.dataset.editId;
+  try {
+    if (editId) {
+      await jput(`${API}/pretours/${editId}`, body);
+      toast('Pre tour updated');
+      window.cancelEditTour();
+    } else {
+      await jpost(`${API}/pretours`, body);
+      form.reset();
+      toast('Pre tour saved');
+    }
+    refreshPreTours();
+  } catch (err) { toast(err.message); }
+}
+document.getElementById('tourForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await saveTourForm(e.target);
+});
+
+// Manage panel (itinerary + signups + transport) for whichever tour is selected.
+let currentTourId = null;
+window.manageTour = async (id, name) => {
+  currentTourId = id;
+  document.getElementById('tourManageLabel').textContent = name;
+  document.getElementById('tourManageCard').style.display = '';
+  await Promise.all([refreshTourItinerary(), refreshTourParticipants(), refreshTourTrips()]);
+  document.getElementById('tourManageCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+async function refreshTourItinerary() {
+  if (!currentTourId) return;
+  const rows = await jget(`${API}/pretours/${currentTourId}/itinerary`);
+  document.getElementById('tourItinTableBody').innerHTML = rows.map((i) => `
+    <tr>
+      <td>${i.day_label}</td><td>${i.time_label || '-'}</td><td>${i.title}</td><td>${i.location || '-'}</td>
+      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteTourItinItem(${i.id})">Delete</button>` : ''}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No itinerary items yet</td></tr>';
+}
+window.deleteTourItinItem = async (itemId) => {
+  await jdel(`${API}/pretours/itinerary/${itemId}`);
+  toast('Itinerary item removed');
+  refreshTourItinerary();
+};
+document.getElementById('tourItinForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  try {
+    await jpost(`${API}/pretours/${currentTourId}/itinerary`, body);
+    e.target.reset();
+    toast('Itinerary item added');
+    refreshTourItinerary();
+  } catch (err) { toast(err.message); }
+});
+
+async function refreshTourParticipants() {
+  if (!currentTourId) return;
+  const rows = await jget(`${API}/pretours/${currentTourId}/participants`);
+  document.getElementById('tourPartTableBody').innerHTML = rows.map((r) => `
+    <tr>
+      <td>${r.participant_name || r.host_member_name}</td>
+      <td>${r.participant_id ? 'Delegate' : 'Host member'}</td>
+      <td>${r.participant_phone || r.host_member_phone || '-'}</td>
+      <td><select onchange="updateTourParticipantPayment(${r.id}, this.value)">
+        <option value="pending" ${r.payment_status === 'pending' ? 'selected' : ''}>Pending</option>
+        <option value="paid" ${r.payment_status === 'paid' ? 'selected' : ''}>Paid</option>
+      </select></td>
+      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteTourParticipant(${r.id})">Remove</button>` : ''}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No signups yet</td></tr>';
+  refreshPreTours(); // keep the signup counts on the tours table fresh
+}
+window.updateTourParticipantPayment = async (rowId, payment_status) => {
+  try { await jput(`${API}/pretours/participants/${rowId}`, { payment_status }); toast('Payment status updated'); } catch (err) { toast(err.message); }
+};
+window.deleteTourParticipant = async (rowId) => {
+  await jdel(`${API}/pretours/participants/${rowId}`);
+  toast('Removed from tour');
+  refreshTourParticipants();
+};
+document.getElementById('tourPartTypeSelect').addEventListener('change', (e) => {
+  const isHm = e.target.value === 'host_member';
+  document.getElementById('tourPartParticipantSelect').style.display = isHm ? 'none' : '';
+  document.getElementById('tourPartHmSelect').style.display = isHm ? '' : 'none';
+});
+document.getElementById('tourPartForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
+  const isHm = document.getElementById('tourPartTypeSelect').value === 'host_member';
+  const body = {
+    participant_id: isHm ? null : (document.getElementById('tourPartParticipantSelect').value || null),
+    host_member_id: isHm ? (document.getElementById('tourPartHmSelect').value || null) : null,
+    payment_status: document.getElementById('tourPartPaymentSelect').value
+  };
+  if (!body.participant_id && !body.host_member_id) { toast('Choose a delegate or a host member'); return; }
+  try {
+    await jpost(`${API}/pretours/${currentTourId}/participants`, body);
+    toast('Added to tour');
+    refreshTourParticipants();
+  } catch (err) { toast(err.message); }
+});
+
+async function refreshTourTrips() {
+  if (!currentTourId) return;
+  const rows = await jget(`${API}/transport?pre_tour_id=${currentTourId}`);
+  document.getElementById('tourTripTableBody').innerHTML = rows.map((t) => `
+    <tr>
+      <td>${t.trip_date || '-'}</td>
+      <td>${t.from_location} → ${t.to_location}</td>
+      <td>${t.vehicle_code || '-'}</td>
+      <td>${t.driver_name || '-'}</td>
+      <td>${capacityBadge(Number(t.passenger_count), t.seating_capacity)}</td>
+      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteTourTrip(${t.id})">Delete</button>` : ''}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">No transport planned yet</td></tr>';
+}
+window.deleteTourTrip = async (id) => { await jdel(`${API}/transport/${id}`); toast('Trip removed'); refreshTourTrips(); refreshPreTours(); };
+document.getElementById('tourTripForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  if (!body.driver_id) delete body.driver_id;
+  body.pre_tour_id = currentTourId;
+  try {
+    await jpost(`${API}/transport`, body);
+    e.target.reset();
+    toast('Trip added');
+    refreshTourTrips();
+    refreshPreTours();
+  } catch (err) { toast(err.message); }
 });
 
 // --- Export ---
@@ -1149,6 +1571,10 @@ function loadAllData() {
   refreshTasks();
   refreshPartners();
   refreshDrivers();
+  refreshVehicles();
+  loadNextVehicleCode();
+  refreshTransportTrips();
+  refreshPreTours();
   if (CURRENT_USER && CURRENT_USER.role === 'super_admin') refreshUsersAdmin();
 }
 
