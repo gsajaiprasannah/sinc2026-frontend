@@ -792,7 +792,7 @@ let ALL_COMMITTEES_CACHE = [];
 // the checklist modal (see committeeSelectOptions()).
 function populateCommitteeSelects() {
   const opts = ALL_COMMITTEES_CACHE.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
-  ['checklistTemplateCommitteeSelect'].forEach((id) => {
+  ['checklistTemplateCommitteeSelect', 'bulkAssignCommitteeSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
     const cur = el.value;
@@ -1970,6 +1970,85 @@ window.deleteChecklistTemplate = async (id) => {
     await refreshChecklistTemplates();
   } catch (err) { toast(err.message); }
 };
+
+// --- Bulk assign a single checklist item to a hand-picked group ---
+// One-off action, separate from Master Checklist Templates above: instead of
+// opening each Sponsor/Speaker/Guest Visitor/Delegate/Host Member and adding
+// the item there, tick the ones who need it and assign in one call. Existing
+// per-person "Checklist"/"Kit" editing (openChecklistModal) is untouched.
+const BULK_ASSIGN_ENDPOINT = { sponsor: 'sponsors', speaker: 'speakers', guest_visitor: 'guestvisitors', participant: 'participants', host_member: 'hostmembers' };
+// Each entry maps a raw list row to { id, primary, secondary } for rendering
+// a checkbox label — reuses the same field names each tab's own table uses.
+const BULK_ASSIGN_ROW_MAP = {
+  participant: (p) => ({ id: p.id, primary: p.name, secondary: p.club_name || p.participant_code || '' }),
+  host_member: (h) => ({ id: h.id, primary: h.name, secondary: h.company || h.phone || '' }),
+  sponsor: (s) => ({ id: s.id, primary: s.name, secondary: s.tier || '' }),
+  speaker: (s) => ({ id: s.id, primary: s.name, secondary: s.session_type || '' }),
+  guest_visitor: (g) => ({ id: g.id, primary: g.name, secondary: g.category || g.organization || '' })
+};
+let BULK_ASSIGN_ROWS = []; // last-fetched, mapped recipients for the currently selected category
+
+async function refreshBulkAssignRecipients() {
+  const ownerType = document.getElementById('bulkAssignTypeSelect').value;
+  const rows = await jget(`${API}/${BULK_ASSIGN_ENDPOINT[ownerType]}`);
+  BULK_ASSIGN_ROWS = rows.map(BULK_ASSIGN_ROW_MAP[ownerType]);
+  renderBulkAssignRecipients();
+}
+function renderBulkAssignRecipients() {
+  const list = document.getElementById('bulkAssignRecipientList');
+  const q = (document.getElementById('bulkAssignSearch').value || '').toLowerCase();
+  const visible = q
+    ? BULK_ASSIGN_ROWS.filter((r) => [r.primary, r.secondary].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
+    : BULK_ASSIGN_ROWS;
+  list.innerHTML = visible.map((r) => `
+    <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:13.5px;">
+      <input type="checkbox" class="bulkAssignRecipientCb" value="${r.id}" />
+      <span>${r.primary}${r.secondary ? ` <span class="hint">(${r.secondary})</span>` : ''}</span>
+    </label>
+  `).join('') || '<p class="hint" style="margin:4px 2px;">No matches</p>';
+  updateBulkAssignCount();
+}
+function updateBulkAssignCount() {
+  const total = document.querySelectorAll('#bulkAssignRecipientList .bulkAssignRecipientCb').length;
+  const checked = document.querySelectorAll('#bulkAssignRecipientList .bulkAssignRecipientCb:checked').length;
+  document.getElementById('bulkAssignCount').textContent = total ? `(${checked} of ${total} selected)` : '';
+}
+document.getElementById('bulkAssignTypeSelect')?.addEventListener('change', refreshBulkAssignRecipients);
+document.getElementById('bulkAssignSearch')?.addEventListener('input', renderBulkAssignRecipients);
+document.getElementById('bulkAssignRecipientList')?.addEventListener('change', (e) => {
+  if (e.target.classList.contains('bulkAssignRecipientCb')) updateBulkAssignCount();
+});
+document.getElementById('bulkAssignSelectAllBtn')?.addEventListener('click', () => {
+  document.querySelectorAll('#bulkAssignRecipientList .bulkAssignRecipientCb').forEach((cb) => { cb.checked = true; });
+  updateBulkAssignCount();
+});
+document.getElementById('bulkAssignSelectNoneBtn')?.addEventListener('click', () => {
+  document.querySelectorAll('#bulkAssignRecipientList .bulkAssignRecipientCb').forEach((cb) => { cb.checked = false; });
+  updateBulkAssignCount();
+});
+document.getElementById('bulkAssignForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const owner_type = document.getElementById('bulkAssignTypeSelect').value;
+  const label = document.getElementById('bulkAssignLabel').value.trim();
+  const category = document.getElementById('bulkAssignCategory').value.trim();
+  const responsible_committee_id = document.getElementById('bulkAssignCommitteeSelect').value || null;
+  const due_date = document.getElementById('bulkAssignDueDate').value || null;
+  const owner_ids = Array.from(document.querySelectorAll('#bulkAssignRecipientList .bulkAssignRecipientCb:checked')).map((cb) => Number(cb.value));
+  if (!label) { toast('Checklist item label is required'); return; }
+  if (!owner_ids.length) { toast('Select at least one person to assign this to'); return; }
+  try {
+    const res = await jpost(`${API}/checklist-items/bulk-assign`, { owner_type, owner_ids, label, category, responsible_committee_id, due_date });
+    toast(`Assigned to ${res.created} — ${res.skipped} already had this item, skipped.`);
+    document.getElementById('bulkAssignLabel').value = '';
+    document.getElementById('bulkAssignCategory').value = '';
+    document.getElementById('bulkAssignDueDate').value = '';
+    document.getElementById('bulkAssignCommitteeSelect').value = '';
+    // Refresh whichever entity table is showing so its checklist done/total
+    // count reflects the newly-assigned items right away.
+    ({ participant: refreshParts, host_member: refreshHostMembers, sponsor: refreshSponsors, speaker: refreshSpeakers, guest_visitor: refreshGuestVisitors })[owner_type]?.();
+    refreshDeliveryMonitor();
+  } catch (err) { toast(err.message); }
+});
 // Refreshes whichever admin table shows a checklist progress count, after the
 // modal makes a change. Harmless no-op for tabs whose table isn't in the DOM.
 function refreshOwnerListForChecklist() {
@@ -2787,6 +2866,7 @@ function loadAllData() {
   refreshAssignments();
   refreshTasks();
   refreshChecklistTemplates();
+  refreshBulkAssignRecipients();
   refreshDeliveryMonitor();
   refreshPartners();
   refreshDrivers();

@@ -601,6 +601,42 @@
         <tbody id="checklistTemplateTableBody"></tbody>
       </table>
     </div>
+
+    <div class="section-title">Bulk assign a checklist item</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">One-off: assign a single checklist item to a hand-picked group of people right now, instead of opening each one individually and adding it. This doesn't touch or replace Master Checklist Templates above — use whichever fits: a template if every future person of this category should always get the item, this if you just need to push one item out to a specific group today.</p>
+      <form id="bulkAssignForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Category *</label>
+            <select id="bulkAssignTypeSelect" required>
+              <option value="participant">Delegates</option>
+              <option value="host_member">Host Members</option>
+              <option value="sponsor">Sponsors</option>
+              <option value="speaker">Guest Speakers</option>
+              <option value="guest_visitor">Guest Visitors</option>
+            </select>
+          </div>
+          <div class="field"><label>Checklist item label *</label><input id="bulkAssignLabel" required placeholder="e.g. Welcome Kit" /></div>
+          <div class="field"><label>Sub-category (optional)</label><input id="bulkAssignCategory" placeholder="e.g. Benefit, Logistics" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Responsible committee</label>
+            <select id="bulkAssignCommitteeSelect"><option value="">Unassigned</option></select>
+          </div>
+          <div class="field"><label>Due date</label><input id="bulkAssignDueDate" type="date" /></div>
+        </div>
+        <div class="field">
+          <label>Who should get this? <span class="hint" id="bulkAssignCount"></span></label>
+          <div style="margin-bottom:6px;">
+            <button type="button" class="btn small outline" id="bulkAssignSelectAllBtn">Select all</button>
+            <button type="button" class="btn small outline" id="bulkAssignSelectNoneBtn">Select none</button>
+            <input type="text" id="bulkAssignSearch" placeholder="Filter by name / club / company..." style="max-width:260px;display:inline-block;margin-left:10px;" />
+          </div>
+          <div id="bulkAssignRecipientList" style="max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
+        </div>
+        <button class="btn gold" type="submit">Bulk Assign</button>
+      </form>
+    </div>
   </section>
 
   <!-- PARTNERS & DRIVERS (MASTERS) TAB -->
