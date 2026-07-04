@@ -1287,6 +1287,7 @@ async function refreshTransportTrips() {
       <td>${tripStatusPill(t.status)}</td>
       <td class="sticky-actions">
         <button class="btn small" onclick="manageTripPassengers(${t.id}, '${(t.from_location + ' → ' + t.to_location).replace(/'/g, '')}')">Passengers</button>
+        <button class="btn small" onclick="downloadTripPdf(${t.id})">PDF</button>
         <button class="btn small" onclick="editTrip(${t.id})">Edit</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteTrip(${t.id})">Delete</button>` : ''}
       </td>
@@ -1409,6 +1410,7 @@ async function refreshPreTours() {
       <td><span class="pill ${t.status === 'confirmed' || t.status === 'completed' ? 'paid' : t.status === 'cancelled' ? 'pending' : 'not_started'}">${t.status}</span></td>
       <td class="sticky-actions">
         <button class="btn small" onclick="manageTour(${t.id}, '${(t.name || '').replace(/'/g, '')}')">Manage</button>
+        <button class="btn small" onclick="downloadPreTourPdf(${t.id})">PDF</button>
         <button class="btn small" onclick="editTour(${t.id})">Edit</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteTour(${t.id})">Delete</button>` : ''}
       </td>
@@ -1559,7 +1561,10 @@ async function refreshTourTrips() {
       <td>${t.vehicle_code || '-'}</td>
       <td>${t.driver_name || '-'}</td>
       <td>${capacityBadge(Number(t.passenger_count), t.seating_capacity)}</td>
-      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteTourTrip(${t.id})">Delete</button>` : ''}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="downloadTripPdf(${t.id})">PDF</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteTourTrip(${t.id})">Delete</button>` : ''}
+      </td>
     </tr>
   `).join('') || '<tr><td colspan="6" class="empty">No transport planned yet</td></tr>';
 }
@@ -1578,6 +1583,158 @@ document.getElementById('tourTripForm').addEventListener('submit', async (e) => 
     refreshPreTours();
   } catch (err) { toast(err.message); }
 });
+
+// --- Handover manifest PDFs (Transport trips + Pre Tours) ---
+// Pure client-side (jsPDF, loaded via CDN in admin.html) — no backend
+// involved. Purpose: a printable paper the representative can carry to
+// physically confirm who is travelling in which vehicle, with driver +
+// passenger mobile numbers, for signature/handover on the day.
+function pdfDoc() {
+  const { jsPDF } = window.jspdf;
+  return new jsPDF({ unit: 'pt', format: 'a4' });
+}
+function pdfMaybeNewPage(doc, y, needed) {
+  if (y + needed > 780) { doc.addPage(); return 44; }
+  return y;
+}
+function pdfTitle(doc, title, subtitle) {
+  doc.setFont(undefined, 'bold'); doc.setFontSize(16);
+  doc.text(title, 40, 44);
+  if (subtitle) {
+    doc.setFont(undefined, 'normal'); doc.setFontSize(10);
+    doc.text(subtitle, 40, 60);
+  }
+  return subtitle ? 84 : 70;
+}
+function pdfSectionLabel(doc, y, label) {
+  y = pdfMaybeNewPage(doc, y, 24);
+  doc.setFont(undefined, 'bold'); doc.setFontSize(11);
+  doc.text(label, 40, y);
+  return y + 16;
+}
+function pdfKeyValues(doc, y, pairs) {
+  doc.setFontSize(9.5);
+  pairs.forEach(([k, v]) => {
+    y = pdfMaybeNewPage(doc, y, 14);
+    doc.setFont(undefined, 'bold'); doc.text(`${k}:`, 40, y);
+    doc.setFont(undefined, 'normal'); doc.text(String(v || '-'), 130, y, { maxWidth: 420 });
+    y += 14;
+  });
+  return y + 8;
+}
+// Simple hand-drawn table (no plugin dependency) — fixed column widths,
+// re-draws the header row after each page break.
+function pdfTable(doc, y, columns, rows) {
+  const startX = 40;
+  const xs = [];
+  let x = startX;
+  columns.forEach((c) => { xs.push(x); x += c.width; });
+  const rowHeight = 15;
+  function drawHeader() {
+    doc.setFont(undefined, 'bold'); doc.setFontSize(8.5);
+    columns.forEach((c, i) => doc.text(c.label, xs[i], y));
+    y += 3;
+    doc.setDrawColor(190);
+    doc.line(startX, y, xs[xs.length - 1] + columns[columns.length - 1].width, y);
+    y += 11;
+    doc.setFont(undefined, 'normal'); doc.setFontSize(9);
+  }
+  y = pdfMaybeNewPage(doc, y, 30);
+  drawHeader();
+  if (!rows.length) {
+    doc.setTextColor(130);
+    doc.text('None', startX, y);
+    doc.setTextColor(0);
+    return y + rowHeight;
+  }
+  rows.forEach((row) => {
+    if (y > 780) { doc.addPage(); y = 44; drawHeader(); }
+    row.forEach((cell, i) => {
+      const w = i < columns.length - 1 ? (xs[i + 1] - xs[i] - 6) : 500;
+      doc.text(String(cell === null || cell === undefined || cell === '' ? '-' : cell), xs[i], y, { maxWidth: w });
+    });
+    y += rowHeight;
+  });
+  return y + 10;
+}
+function pdfSignatureBlock(doc, y) {
+  y = pdfMaybeNewPage(doc, y, 60);
+  y += 14;
+  doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
+  doc.text('Confirmed by (representative): ______________________________', 40, y); y += 22;
+  doc.text('Signature: __________________________     Date: ______________', 40, y);
+  return y;
+}
+function pdfAddTripBlock(doc, y, trip) {
+  y = pdfMaybeNewPage(doc, y, 90);
+  y = pdfKeyValues(doc, y, [
+    ['Route', `${trip.from_location} → ${trip.to_location}`],
+    ['Date / Time', `${trip.trip_date || '-'} ${trip.depart_time || ''}`.trim()],
+    ['Purpose', trip.purpose],
+    ['Vehicle', trip.vehicle_code ? `${trip.vehicle_code} — ${trip.vehicle_type}${trip.vehicle_model ? ' (' + trip.vehicle_model + ')' : ''}` : 'Unassigned'],
+    ['Driver', trip.driver_name ? `${trip.driver_name} — ${trip.driver_phone || 'no phone on file'}` : 'Unassigned']
+  ]);
+  const passengerRows = (trip.passengers || []).map((p, i) => [
+    i + 1,
+    p.participant_name || p.host_member_name,
+    p.participant_id ? 'Delegate' : 'Host Member',
+    p.participant_phone || p.host_member_phone,
+    p.pickup_point
+  ]);
+  y = pdfTable(doc, y, [
+    { label: '#', width: 22 },
+    { label: 'Name', width: 150 },
+    { label: 'Type', width: 75 },
+    { label: 'Mobile', width: 95 },
+    { label: 'Pickup point', width: 150 }
+  ], passengerRows);
+  return y + 6;
+}
+window.downloadTripPdf = async (tripId) => {
+  try {
+    const trip = await jget(`${API}/transport/${tripId}`);
+    const doc = pdfDoc();
+    let y = pdfTitle(doc, 'Transport Trip Manifest', `${trip.from_location} → ${trip.to_location}  ·  SINC2026`);
+    y = pdfAddTripBlock(doc, y, trip);
+    pdfSignatureBlock(doc, y);
+    doc.save(`trip-manifest-${tripId}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadPreTourPdf = async (tourId) => {
+  try {
+    const tour = await jget(`${API}/pretours/${tourId}`);
+    const participants = await jget(`${API}/pretours/${tourId}/participants`);
+    const tripsList = await jget(`${API}/transport?pre_tour_id=${tourId}`);
+    const trips = await Promise.all(tripsList.map((t) => jget(`${API}/transport/${t.id}`)));
+
+    const doc = pdfDoc();
+    let y = pdfTitle(doc, `Pre Tour Manifest — ${tour.name}`,
+      [tour.start_date && tour.end_date ? `${tour.start_date} to ${tour.end_date}` : (tour.start_date || ''), tour.hotel].filter(Boolean).join('  ·  '));
+
+    y = pdfSectionLabel(doc, y, 'Signed-up delegates / host members');
+    const partRows = participants.map((p, i) => [
+      i + 1,
+      p.participant_name || p.host_member_name,
+      p.participant_id ? 'Delegate' : 'Host Member',
+      p.participant_phone || p.host_member_phone,
+      p.payment_status
+    ]);
+    y = pdfTable(doc, y, [
+      { label: '#', width: 22 }, { label: 'Name', width: 160 }, { label: 'Type', width: 80 },
+      { label: 'Mobile', width: 100 }, { label: 'Payment', width: 80 }
+    ], partRows);
+    y += 10;
+
+    if (trips.length) {
+      y = pdfSectionLabel(doc, y, 'Transport');
+      for (const trip of trips) {
+        y = pdfAddTripBlock(doc, y, trip);
+      }
+    }
+    pdfSignatureBlock(doc, y);
+    doc.save(`pretour-manifest-${tourId}.pdf`);
+  } catch (err) { toast(err.message); }
+};
 
 // --- Shared, reusable customizable checklist modal ---
 // Used by Sponsors (benefit checklist), Guest Speakers (checklist), Guest
