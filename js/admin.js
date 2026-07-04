@@ -646,7 +646,7 @@ async function refreshHostMembers(query) {
 
   // Keep every other tab's host-member dropdowns in sync with the latest list.
   const opts = rows.map((h) => `<option value="${h.id}">${h.name}${h.company ? ' (' + h.company + ')' : ''}</option>`).join('');
-  ['committeeHmSelect', 'assignHmSelect', 'taskHmSelect', 'createUserHmSelect', 'partSpocHmSelect', 'tripPassengerHmSelect', 'tourPartHmSelect', 'roomHmSelect', 'sponsorHmSelect'].forEach((id) => {
+  ['committeeHmSelect', 'assignHmSelect', 'taskHmSelect', 'createUserHmSelect', 'partSpocHmSelect', 'tripPassengerHmSelect', 'tourPartHmSelect', 'roomHmSelect', 'sponsorHmSelect', 'speakerHmSelect', 'gvHmSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<option value="">-- select --</option>' + opts;
   });
@@ -1763,6 +1763,7 @@ async function refreshSpeakers() {
       <td>${s.name}${s.designation ? ' <span class="hint">(' + s.designation + ')</span>' : ''}</td>
       <td>${s.session_type}</td>
       <td style="white-space:normal;max-width:260px;">${s.topic || '-'}</td>
+      <td>${s.guest_relation_name || '-'}</td>
       <td>${s.checklist_done}/${s.checklist_total}</td>
       <td><span class="pill ${s.status === 'confirmed' ? 'paid' : s.status === 'cancelled' ? 'pending' : 'not_started'}">${s.status}</span></td>
       <td class="sticky-actions">
@@ -1771,11 +1772,11 @@ async function refreshSpeakers() {
         ${canDelete() ? `<button class="btn danger small" onclick="deleteSpeaker(${s.id})">Delete</button>` : ''}
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="6" class="empty">No guest speakers yet</td></tr>';
+  `).join('') || '<tr><td colspan="7" class="empty">No guest speakers yet</td></tr>';
 }
 window.deleteSpeaker = async (id) => { await jdel(`${API}/speakers/${id}`); toast('Speaker deleted'); refreshSpeakers(); };
 
-const SPEAKER_FORM_FIELDS = ['name', 'designation', 'organization', 'phone', 'email', 'topic', 'session_type', 'status', 'notes'];
+const SPEAKER_FORM_FIELDS = ['name', 'designation', 'organization', 'phone', 'email', 'topic', 'session_type', 'guest_relation_host_member_id', 'status', 'notes'];
 window.editSpeaker = async (id) => {
   const s = await jget(`${API}/speakers/${id}`);
   const form = document.getElementById('speakerForm');
@@ -1824,6 +1825,7 @@ async function refreshGuestVisitors() {
       <td>${g.category || '-'}</td>
       <td>${g.organization || '-'}</td>
       <td>${g.visit_date || '-'}</td>
+      <td>${g.guest_relation_name || '-'}</td>
       <td>${g.checklist_done}/${g.checklist_total}</td>
       <td><span class="pill ${g.status === 'confirmed' ? 'paid' : g.status === 'cancelled' ? 'pending' : 'not_started'}">${g.status}</span></td>
       <td class="sticky-actions">
@@ -1832,11 +1834,11 @@ async function refreshGuestVisitors() {
         ${canDelete() ? `<button class="btn danger small" onclick="deleteGv(${g.id})">Delete</button>` : ''}
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="7" class="empty">No guest visitors yet</td></tr>';
+  `).join('') || '<tr><td colspan="8" class="empty">No guest visitors yet</td></tr>';
 }
 window.deleteGv = async (id) => { await jdel(`${API}/guestvisitors/${id}`); toast('Guest visitor deleted'); refreshGuestVisitors(); };
 
-const GV_FORM_FIELDS = ['name', 'designation', 'organization', 'phone', 'email', 'category', 'visit_date', 'status', 'notes'];
+const GV_FORM_FIELDS = ['name', 'designation', 'organization', 'phone', 'email', 'category', 'visit_date', 'guest_relation_host_member_id', 'status', 'notes'];
 window.editGv = async (id) => {
   const g = await jget(`${API}/guestvisitors/${id}`);
   const form = document.getElementById('gvForm');
