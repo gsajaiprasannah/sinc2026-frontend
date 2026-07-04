@@ -857,9 +857,43 @@ window.toggleCommitteeTasks = async (committeeId) => {
 async function renderCommitteeTasksPanel(committeeId) {
   const panel = document.getElementById(`committeeTasksPanel-${committeeId}`);
   if (!panel) return;
-  const tasks = await jget(`${API}/committees/${committeeId}/tasks`);
+  // Two different things live under this one panel, and it's easy to
+  // conflate them: (1) checklist items from Sponsors/Speakers/Guest
+  // Visitors/Delegates/Host Members whose "Responsible committee" has been
+  // set to THIS committee (assigned per-item in that owner's checklist
+  // modal, or via a template's default committee) — this is the delivery
+  // accountability feature; and (2) this committee's OWN internal
+  // tasks/milestones (a separate, older feature, tracked per-member here).
+  // Without both sections, assigning a checklist item to a committee has no
+  // visible home inside the Committees tab itself, which is the first place
+  // an admin looks for "the committee's checklist".
+  const [tasks, deliveryItems] = await Promise.all([
+    jget(`${API}/committees/${committeeId}/tasks`),
+    jget(`${API}/checklist-items/monitor?committee_id=${committeeId}`).catch(() => [])
+  ]);
   panel.innerHTML = `
-    <form onsubmit="return submitCommitteeTask(event, ${committeeId})" style="margin-bottom:10px;">
+    <div style="margin-bottom:16px;">
+      <strong>Delivery checklist assigned to this committee</strong>
+      <p class="hint" style="margin:2px 0 8px;">Items from Sponsors, Speakers, Guest Visitors, Delegates and Host Members whose checklist "Responsible committee" is set to this committee.</p>
+      ${deliveryItems.length ? `
+        <table class="table">
+          <thead><tr><th>Owner</th><th>Item</th><th>Status</th><th>Due</th></tr></thead>
+          <tbody>
+            ${deliveryItems.map((it) => `
+              <tr class="${it.is_overdue ? 'row-overdue' : ''}">
+                <td>${it.owner_name || '—'} <span class="hint">(${(it.owner_type || '').replace('_', ' ')})</span></td>
+                <td>${it.label}</td>
+                <td><span class="pill ${it.status}">${(it.status || '').replace('_', ' ')}</span></td>
+                <td>${it.due_date || '—'}${it.is_overdue ? ' <span class="pill overdue">Overdue</span>' : ''}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : '<p class="hint">No delivery checklist items assigned to this committee yet. Assign one from any Sponsor/Speaker/Guest Visitor/Delegate/Host Member checklist, or from Checklists &amp; Milestones → Delivery monitor.</p>'}
+    </div>
+    <div style="border-top:1px solid var(--line);padding-top:12px;">
+    <strong>Committee's own tasks &amp; milestones</strong>
+    <form onsubmit="return submitCommitteeTask(event, ${committeeId})" style="margin:10px 0;">
       <div class="form-grid cols-3">
         <div class="field"><label>Title *</label><input name="title" required /></div>
         <div class="field"><label>Due date</label><input name="due_date" type="date" /></div>
@@ -898,6 +932,7 @@ async function renderCommitteeTasksPanel(committeeId) {
         </div>
       `;
     }).join('') || '<p class="hint">No checklist items or milestones yet.</p>'}
+    </div>
   `;
 }
 window.submitCommitteeTask = async (e, committeeId) => {
@@ -1822,7 +1857,16 @@ async function refreshDeliveryMonitorSummary() {
     </tr>
   `).join('') || '<tr><td colspan="7" class="empty">No checklist items yet.</td></tr>';
 
-  const committeeOptions = rows.filter((r) => r.committee_id).map((r) => `<option value="${r.committee_id}">${r.committee_name}</option>`).join('');
+  // Committee options for reassignment/filtering must include EVERY
+  // committee that exists — not just ones that already own a checklist
+  // item — otherwise a committee with nothing assigned to it yet (which is
+  // most/all of them the first time this is used) could never be picked as
+  // a reassignment target.
+  let committees = ALL_COMMITTEES_CACHE;
+  if (!committees.length) {
+    try { committees = await jget(`${API}/committees`); ALL_COMMITTEES_CACHE = committees; } catch (e) { committees = []; }
+  }
+  const committeeOptions = committees.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
   const fromSel = document.getElementById('monitorFromCommitteeSelect');
   const toSel = document.getElementById('monitorToCommitteeSelect');
   if (fromSel) { const cur = fromSel.value; fromSel.innerHTML = '<option value="">Unassigned</option>' + committeeOptions; fromSel.value = cur; }
