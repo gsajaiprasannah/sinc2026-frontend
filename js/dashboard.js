@@ -2,6 +2,38 @@ const API = ((window.SINC_CONFIG && window.SINC_CONFIG.API_BASE_URL) || '/api').
 const MEDIA_ORIGIN = API.replace(/\/api\/?$/, ''); // '' when API is relative, backend origin when API is absolute
 const HAS_BACKEND = !!(window.SINC_CONFIG && window.SINC_CONFIG.API_BASE_URL);
 
+// This dashboard is now admin/super_admin only — see the login gate below.
+// Separate token key from admin.js/host.js so all three logins can coexist
+// in the same browser (e.g. testing) without clobbering each other.
+const TOKEN_KEY = 'sinc_dashboard_token';
+let CURRENT_USER = null;
+
+function getToken() { return localStorage.getItem(TOKEN_KEY) || ''; }
+function setToken(t) { if (t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY); }
+function authHeaders(extra) {
+  const h = Object.assign({}, extra || {});
+  const t = getToken();
+  if (t) h['Authorization'] = 'Bearer ' + t;
+  return h;
+}
+
+let toastTimer = null;
+function toast(msg, durationMs) {
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), durationMs || 2200);
+}
+
+function handleUnauthorized() {
+  setToken('');
+  CURRENT_USER = null;
+  showAuthGate();
+  toast('Your session expired — please log in again.');
+}
+
 function mediaUrl(p) {
   if (!p) return p;
   if (/^https?:\/\//.test(p)) return p;
@@ -22,8 +54,11 @@ let videoIndex = 0, posterIndex = 0;
 let videoTimer = null, posterTimer = null;
 let staticDataCache = null;
 
+// Dashboard data routes now require an admin/super_admin session — send the
+// token on every request, and bounce back to the login gate on a 401.
 async function jget(url) {
-  const r = await fetch(url);
+  const r = await fetch(url, { headers: authHeaders() });
+  if (r.status === 401) { handleUnauthorized(); throw new Error('Please log in again.'); }
   if (!r.ok) throw new Error('Request failed: ' + url);
   return r.json();
 }
@@ -370,9 +405,85 @@ async function refreshItinerary() {
   `).join('');
 }
 
-refreshStats();
-refreshMedia();
-refreshItinerary();
-setInterval(refreshStats, 30000);
-setInterval(refreshMedia, 5 * 60000); // re-check for newly uploaded media every 5 min without disrupting playback
-setInterval(refreshItinerary, 5 * 60000);
+// --- Auth gate: this dashboard is admin/super_admin only ---
+function showAuthGate() {
+  document.getElementById('authGate').style.display = 'block';
+  document.getElementById('appShell').style.display = 'none';
+  document.getElementById('logoutLink').style.display = 'none';
+  document.getElementById('whoami').textContent = '';
+}
+
+let dashboardStarted = false;
+function showApp() {
+  document.getElementById('authGate').style.display = 'none';
+  document.getElementById('appShell').style.display = 'block';
+  document.getElementById('logoutLink').style.display = '';
+  document.getElementById('whoami').textContent = CURRENT_USER ? CURRENT_USER.username : '';
+  if (dashboardStarted) return; // don't re-register intervals on repeat logins
+  dashboardStarted = true;
+  refreshStats();
+  refreshMedia();
+  refreshItinerary();
+  setInterval(refreshStats, 30000);
+  setInterval(refreshMedia, 5 * 60000); // re-check for newly uploaded media every 5 min without disrupting playback
+  setInterval(refreshItinerary, 5 * 60000);
+}
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('loginError');
+  errEl.style.display = 'none';
+  const fd = new FormData(e.target);
+  try {
+    const r = await fetch(`${API}/auth/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.fromEntries(fd.entries()))
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Login failed');
+    if (!['admin', 'super_admin'].includes(data.user.role)) {
+      throw new Error('This dashboard is for admin accounts only. Host members should use the Host Member Login link above.');
+    }
+    setToken(data.token);
+    CURRENT_USER = data.user;
+    e.target.reset();
+    showApp();
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+  }
+});
+
+document.getElementById('logoutLink').addEventListener('click', (e) => {
+  e.preventDefault();
+  setToken('');
+  CURRENT_USER = null;
+  showAuthGate();
+});
+
+async function tryResumeSession() {
+  const t = getToken();
+  if (!t) { showAuthGate(); return; }
+  try {
+    const r = await fetch(`${API}/auth/me`, { headers: authHeaders() });
+    if (!r.ok) { showAuthGate(); return; }
+    const user = await r.json();
+    if (!['admin', 'super_admin'].includes(user.role)) { setToken(''); showAuthGate(); return; }
+    CURRENT_USER = user;
+    showApp();
+  } catch (e) {
+    showAuthGate();
+  }
+}
+
+if (HAS_BACKEND) {
+  tryResumeSession();
+} else {
+  // No backend configured (static-data mode) — nothing to authenticate
+  // against, so just show the dashboard straight from the static JSON.
+  document.getElementById('authGate').style.display = 'none';
+  document.getElementById('appShell').style.display = 'block';
+  refreshStats();
+  refreshMedia();
+  refreshItinerary();
+}

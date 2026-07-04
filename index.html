@@ -19,13 +19,31 @@
       </div>
     </div>
     <nav>
+      <span id="whoami" class="hint" style="margin-right:10px;"></span>
       <a href="host.html">Host Member Login</a>
-      <a href="admin.html">Login</a>
+      <a href="admin.html">Admin Panel</a>
+      <a href="#" id="logoutLink" style="display:none;">Log out</a>
     </nav>
   </div>
 </header>
 
-<main class="container">
+<!-- LOGIN GATE — this dashboard contains congress data and is restricted to -->
+<!-- admin / super_admin accounts. Host members have their own portal above. -->
+<div class="container" id="authGate" style="max-width:420px;">
+  <div class="card" id="loginCard">
+    <div class="section-title" style="margin-top:0">Admin log in</div>
+    <p class="hint" style="margin-top:-6px;">This dashboard is restricted to the congress admin team. Host members should use the Host Member Login link above instead.</p>
+    <div class="field" id="loginError" style="color:var(--red);font-size:12.5px;display:none;"></div>
+    <form id="loginForm">
+      <div class="field"><label>Username</label><input name="username" required autocomplete="username" /></div>
+      <div class="field"><label>Password</label><input name="password" type="password" required autocomplete="current-password" /></div>
+      <button class="btn gold" type="submit" style="width:100%;">Log in</button>
+    </form>
+  </div>
+</div>
+
+<!-- MAIN DASHBOARD (hidden until logged in as admin/super_admin) -->
+<main class="container" id="appShell" style="display:none;">
 
   <div class="section-title">Congress at a glance</div>
   <div class="grid-stats" id="statCards"></div>
@@ -147,6 +165,8 @@
 </main>
 
 <footer>SINC2026 · Skål Club Congress · Skålleagues connecting tourism globally · Dashboard auto-refreshes every 30s</footer>
+
+<div id="toast" class="toast"></div>
 
 <script src="js/config.js"></script>
 <script src="js/dashboard.js"></script>
