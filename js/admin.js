@@ -1786,21 +1786,30 @@ document.getElementById('checklistTemplateForm')?.addEventListener('submit', asy
   };
   if (!body.label) return;
   try {
+    // Saving a template immediately applies to every existing entity of that
+    // category — creating the item where missing and, for items still on no
+    // committee of their own, adopting this one — so the committee shows up
+    // right away in that committee's own checklist, not just for brand-new
+    // items added after this point. syncMsg reports what actually happened.
+    let sync;
     if (form.dataset.editId) {
-      await jput(`${API}/checklist-templates/${form.dataset.editId}`, body);
-      toast('Checklist template item updated.');
+      const r = await jput(`${API}/checklist-templates/${form.dataset.editId}`, body);
+      sync = r && r.sync;
       delete form.dataset.editId;
       document.getElementById('checklistTemplateSubmitBtn').textContent = 'Add template item';
       document.getElementById('checklistTemplateCancelEditBtn').style.display = 'none';
     } else {
-      await jpost(`${API}/checklist-templates`, body);
-      toast('Checklist template item added.');
+      const r = await jpost(`${API}/checklist-templates`, body);
+      sync = r && r.sync;
     }
+    const syncMsg = sync ? ` (${sync.created} item(s) created, ${sync.updated} synced to this committee)` : '';
+    toast(`Checklist template item saved.${syncMsg}`);
     const ownerType = body.owner_type;
     form.reset();
     form.elements.owner_type.value = ownerType;
     document.getElementById('checklistTemplateFilterSelect').value = ownerType;
     await refreshChecklistTemplates();
+    refreshDeliveryMonitor();
   } catch (err) { toast(err.message); }
 });
 document.getElementById('checklistTemplateCancelEditBtn')?.addEventListener('click', () => {
