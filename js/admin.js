@@ -2187,6 +2187,288 @@ document.getElementById('roomForm').addEventListener('submit', async (e) => {
   } catch (err) { toast(err.message); }
 });
 
+// --- Goodies & Inventory: procurement stock list + per-recipient delivery ---
+// --- tracking (who it went to, who was assigned, who actually delivered). ---
+const RECIPIENT_TYPE_LABELS = OWNER_TYPE_LABELS; // same 5 categories, reused
+
+function inventoryCommitteeOptions(selectedId) {
+  const opts = ALL_COMMITTEES_CACHE.map((c) =>
+    `<option value="${c.id}" ${String(selectedId) === String(c.id) ? 'selected' : ''}>${c.name}</option>`
+  ).join('');
+  return `<option value="">Unassigned</option>${opts}`;
+}
+
+async function fetchHostMemberOptions(selectedId) {
+  let rows = [];
+  try { rows = await jget(`${API}/hostmembers`); } catch (e) { rows = []; }
+  const opts = rows.map((h) =>
+    `<option value="${h.id}" ${String(selectedId) === String(h.id) ? 'selected' : ''}>${h.name}</option>`
+  ).join('');
+  return `<option value="">-- unassigned --</option>${opts}`;
+}
+
+async function fetchRecipientOptions(recipientType, selectedId) {
+  const base = CHECKLIST_BASE[recipientType];
+  if (!base) return '';
+  let rows = [];
+  try { rows = await jget(`${API}/${base}`); } catch (e) { rows = []; }
+  const opts = rows.map((r) =>
+    `<option value="${r.id}" ${String(selectedId) === String(r.id) ? 'selected' : ''}>${r.name}</option>`
+  ).join('');
+  return `<option value="">-- select --</option>${opts}`;
+}
+
+async function refreshInventoryItems() {
+  const sel = document.getElementById('inventoryCommitteeSelect');
+  if (sel) { const cur = sel.value; sel.innerHTML = inventoryCommitteeOptions(null); if (cur) sel.value = cur; }
+  const rows = await jget(`${API}/inventory`);
+  document.getElementById('inventoryTableBody').innerHTML = rows.map((i) => `
+    <tr class="${i.low_stock ? 'row-overdue' : ''}">
+      <td><strong>${i.name}</strong>${i.notes ? `<br><span class="hint">${i.notes}</span>` : ''}</td>
+      <td>${i.category || '-'}</td>
+      <td>${i.responsible_committee_name || 'Unassigned'}</td>
+      <td>${i.quantity_procured} ${i.unit}</td>
+      <td>${i.quantity_distributed} ${i.unit}</td>
+      <td>${i.quantity_remaining} ${i.unit}${i.low_stock ? ' <span class="pill overdue">Low stock</span>' : ''}</td>
+      <td><span class="pill ${i.procurement_status === 'completed' ? 'done' : i.procurement_status === 'planned' ? 'not_started' : 'in_progress'}">${i.procurement_status}</span>
+        <br><span class="hint">${i.delivered_count}/${i.recipient_count} delivered</span></td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editInventoryItem(${i.id})">Edit</button>
+        <button class="btn small" onclick="openInventoryDistModal(${i.id}, '${(i.name || '').replace(/'/g, "\\'")}')">Deliveries</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteInventoryItem(${i.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="8" class="empty">No inventory items yet — add one above.</td></tr>';
+}
+
+const INVENTORY_FORM_FIELDS = ['name', 'category', 'unit', 'quantity_procured', 'reorder_threshold', 'vendor_name', 'unit_cost', 'procurement_status', 'responsible_committee_id', 'notes'];
+window.editInventoryItem = async (id) => {
+  const rows = await jget(`${API}/inventory`);
+  const item = rows.find((r) => r.id === id);
+  if (!item) return;
+  const form = document.getElementById('inventoryForm');
+  INVENTORY_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = item[f] !== null && item[f] !== undefined ? item[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('inventoryFormTitle').textContent = 'Edit inventory item';
+  document.getElementById('inventorySubmitBtn').textContent = 'Update item';
+  document.getElementById('inventoryCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('inventoryCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('inventoryForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('inventoryFormTitle').textContent = 'Add inventory item';
+  document.getElementById('inventorySubmitBtn').textContent = 'Save item';
+  document.getElementById('inventoryCancelEditBtn').style.display = 'none';
+});
+document.getElementById('inventoryForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/inventory/${form.dataset.editId}`, body);
+      toast('Inventory item updated');
+    } else {
+      await jpost(`${API}/inventory`, body);
+      toast('Inventory item saved');
+    }
+    delete form.dataset.editId;
+    form.reset();
+    document.getElementById('inventoryFormTitle').textContent = 'Add inventory item';
+    document.getElementById('inventorySubmitBtn').textContent = 'Save item';
+    document.getElementById('inventoryCancelEditBtn').style.display = 'none';
+    refreshInventoryItems();
+    refreshInventoryMonitor();
+  } catch (err) { toast(err.message); }
+});
+window.deleteInventoryItem = async (id) => {
+  await jdel(`${API}/inventory/${id}`);
+  toast('Inventory item removed');
+  refreshInventoryItems();
+  refreshInventoryMonitor();
+};
+
+// --- Manage one item's deliveries: bulk-assign, individual add, per-row status ---
+let inventoryDistCtx = { itemId: null, itemName: '' };
+
+window.openInventoryDistModal = async (itemId, itemName) => {
+  inventoryDistCtx = { itemId, itemName };
+  document.getElementById('inventoryDistModalTitle').textContent = itemName ? `Deliveries — ${itemName}` : 'Deliveries';
+  document.getElementById('inventoryDistModal').style.display = '';
+  await renderInventoryDistBody();
+};
+window.closeInventoryDistModal = () => {
+  document.getElementById('inventoryDistModal').style.display = 'none';
+  inventoryDistCtx = { itemId: null, itemName: '' };
+};
+
+async function renderInventoryDistBody() {
+  const { itemId } = inventoryDistCtx;
+  if (!itemId) return;
+  const rows = await jget(`${API}/inventory/${itemId}/distributions`);
+  // Fetch host members ONCE and reuse for every row's "assigned to" select,
+  // rather than re-fetching per row.
+  let hostMembers = [];
+  try { hostMembers = await jget(`${API}/hostmembers`); } catch (e) { hostMembers = []; }
+  const hostMemberOptionsFor = (selectedId) => {
+    const opts = hostMembers.map((h) =>
+      `<option value="${h.id}" ${String(selectedId) === String(h.id) ? 'selected' : ''}>${h.name}</option>`
+    ).join('');
+    return `<option value="">-- unassigned --</option>${opts}`;
+  };
+  const hostMemberOptionsHtml = hostMemberOptionsFor(null);
+  const rowsHtml = rows.map((d) => `
+    <div class="checklist-row status-${d.status}">
+      <span class="checklist-label">
+        <span class="pill single" style="margin-right:6px;">${RECIPIENT_TYPE_LABELS[d.recipient_type] || d.recipient_type}</span>
+        ${d.recipient_name || 'Unknown'}${d.quantity > 1 ? ` ×${d.quantity}` : ''}
+      </span>
+      <select style="max-width:160px;" title="Assigned to" onchange="updateInventoryDistField(${d.id}, 'assigned_host_member_id', this.value || null)">
+        ${hostMemberOptionsFor(d.assigned_host_member_id)}
+      </select>
+      <select onchange="updateInventoryDistField(${d.id}, 'status', this.value)">
+        <option value="pending" ${d.status === 'pending' ? 'selected' : ''}>Pending</option>
+        <option value="delivered" ${d.status === 'delivered' ? 'selected' : ''}>Delivered</option>
+        <option value="cancelled" ${d.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+      </select>
+      ${d.status === 'delivered' && d.delivered_by_name ? `<span class="hint">✓ ${d.delivered_by_name}${d.delivered_at ? ' on ' + new Date(d.delivered_at).toLocaleDateString() : ''}</span>` : ''}
+      ${canDelete() ? `<button class="btn danger small" onclick="deleteInventoryDist(${d.id})">Delete</button>` : ''}
+    </div>
+  `).join('') || '<p class="empty">No recipients added yet.</p>';
+
+  const recipientTypeOptions = Object.entries(RECIPIENT_TYPE_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+
+  document.getElementById('inventoryDistModalBody').innerHTML = `
+    ${rowsHtml}
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+      <strong>Assign to everyone in a category</strong>
+      <form onsubmit="return submitInventoryBulkAssign(event)" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <select name="recipient_type" required>${recipientTypeOptions}</select>
+        <input name="quantity" type="number" min="1" value="1" style="max-width:80px;" title="Quantity each" />
+        <select name="assigned_host_member_id" style="max-width:160px;">${hostMemberOptionsHtml}</select>
+        <button class="btn gold small" type="submit">Assign to all</button>
+      </form>
+    </div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+      <strong>Add one recipient</strong>
+      <form onsubmit="return submitInventoryAddRecipient(event)" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:flex-start;">
+        <select name="recipient_type" id="invAddRecipientType" required onchange="onInvAddRecipientTypeChange()">${recipientTypeOptions}</select>
+        <select name="recipient_id" id="invAddRecipientId" required style="min-width:160px;"><option value="">-- select --</option></select>
+        <input name="quantity" type="number" min="1" value="1" style="max-width:80px;" title="Quantity" />
+        <select name="assigned_host_member_id" style="max-width:160px;">${hostMemberOptionsHtml}</select>
+        <button class="btn small" type="submit">Add</button>
+      </form>
+    </div>
+  `;
+  await onInvAddRecipientTypeChange();
+}
+
+window.onInvAddRecipientTypeChange = async () => {
+  const sel = document.getElementById('invAddRecipientType');
+  const idSel = document.getElementById('invAddRecipientId');
+  if (!sel || !idSel) return;
+  idSel.innerHTML = await fetchRecipientOptions(sel.value, null);
+};
+
+window.updateInventoryDistField = async (distId, field, value) => {
+  try { await jput(`${API}/inventory/distributions/${distId}`, { [field]: value }); await renderInventoryDistBody(); refreshInventoryItems(); refreshInventoryMonitor(); }
+  catch (err) { toast(err.message); }
+};
+window.deleteInventoryDist = async (distId) => {
+  await jdel(`${API}/inventory/distributions/${distId}`);
+  await renderInventoryDistBody();
+  refreshInventoryItems();
+  refreshInventoryMonitor();
+};
+window.submitInventoryBulkAssign = async (e) => {
+  e.preventDefault();
+  const { itemId } = inventoryDistCtx;
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  try {
+    const r = await jpost(`${API}/inventory/${itemId}/distributions/bulk`, body);
+    toast(`Assigned to ${r.created} recipient(s) (already-assigned recipients were skipped).`);
+    e.target.reset();
+    await renderInventoryDistBody();
+    refreshInventoryItems();
+    refreshInventoryMonitor();
+  } catch (err) { toast(err.message); }
+  return false;
+};
+window.submitInventoryAddRecipient = async (e) => {
+  e.preventDefault();
+  const { itemId } = inventoryDistCtx;
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  if (!body.recipient_id) { toast('Choose a recipient'); return false; }
+  try {
+    await jpost(`${API}/inventory/${itemId}/distributions`, body);
+    toast('Recipient added');
+    e.target.reset();
+    await renderInventoryDistBody();
+    refreshInventoryItems();
+    refreshInventoryMonitor();
+  } catch (err) { toast(err.message); }
+  return false;
+};
+
+// --- Delivery monitor — by committee (mirrors the checklist Delivery Monitor) ---
+async function refreshInventoryMonitorSummary() {
+  const rows = await jget(`${API}/inventory/monitor/summary`);
+  document.getElementById('inventoryMonitorSummaryBody').innerHTML = rows.map((r) => `
+    <tr>
+      <td>${r.committee_name || 'Unassigned'}</td>
+      <td>${r.total}</td>
+      <td>${r.delivered}</td>
+      <td>${r.pending}</td>
+      <td>${r.completion_pct !== null ? r.completion_pct + '%' : '-'}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No deliveries assigned yet.</td></tr>';
+
+  // Committee filter options must include every committee, not just ones
+  // that already have a delivery recorded — same lesson learned from the
+  // checklist Delivery Monitor's reassign-dropdown bug.
+  let committees = ALL_COMMITTEES_CACHE;
+  if (!committees.length) {
+    try { committees = await jget(`${API}/committees`); ALL_COMMITTEES_CACHE = committees; } catch (e) { committees = []; }
+  }
+  const committeeOptions = committees.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+  const filterSel = document.getElementById('inventoryMonitorFilterCommittee');
+  if (filterSel) {
+    const cur = filterSel.value;
+    filterSel.innerHTML = `<option value="">All committees</option><option value="unassigned">Unassigned</option>${committeeOptions}`;
+    filterSel.value = cur;
+  }
+}
+
+async function refreshInventoryMonitorDetail() {
+  const committee = document.getElementById('inventoryMonitorFilterCommittee')?.value || '';
+  const status = document.getElementById('inventoryMonitorFilterStatus')?.value || '';
+  const recipientType = document.getElementById('inventoryMonitorFilterRecipientType')?.value || '';
+  const params = new URLSearchParams();
+  if (committee) params.set('committee_id', committee);
+  if (status) params.set('status', status);
+  if (recipientType) params.set('recipient_type', recipientType);
+  const rows = await jget(`${API}/inventory/monitor?${params.toString()}`);
+  document.getElementById('inventoryMonitorDetailBody').innerHTML = rows.map((r) => `
+    <tr>
+      <td>${r.item_name}${r.quantity > 1 ? ` ×${r.quantity}` : ''}<br><span class="hint">${r.item_category || '-'}</span></td>
+      <td>${r.recipient_name || '-'} <span class="hint">(${RECIPIENT_TYPE_LABELS[r.recipient_type] || r.recipient_type})</span></td>
+      <td>${r.committee_name || 'Unassigned'}</td>
+      <td>${r.assigned_host_member_name || '-'}</td>
+      <td><span class="pill ${r.status === 'delivered' ? 'done' : r.status === 'cancelled' ? 'refunded' : 'in_progress'}">${r.status}</span></td>
+      <td>${r.delivered_by_name ? r.delivered_by_name + (r.delivered_at ? ' on ' + new Date(r.delivered_at).toLocaleDateString() : '') : '-'}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">No deliveries match this filter.</td></tr>';
+}
+
+async function refreshInventoryMonitor() {
+  await refreshInventoryMonitorSummary();
+  await refreshInventoryMonitorDetail();
+}
+['inventoryMonitorFilterCommittee', 'inventoryMonitorFilterStatus', 'inventoryMonitorFilterRecipientType'].forEach((id) => {
+  document.getElementById(id)?.addEventListener('change', refreshInventoryMonitorDetail);
+});
+
 // --- Export ---
 document.getElementById('exportBtn').addEventListener('click', async () => {
   const data = await jget(`${API}/export/voice-agent`);
@@ -2357,6 +2639,8 @@ function loadAllData() {
   refreshPreTours();
   refreshHotels();
   refreshRooms();
+  refreshInventoryItems();
+  refreshInventoryMonitor();
   refreshSponsors();
   refreshSpeakers();
   refreshGuestVisitors();

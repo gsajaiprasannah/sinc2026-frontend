@@ -92,6 +92,7 @@
             <button data-tab="transport">Transport Planning</button>
             <button data-tab="pretours">Pre Tours</button>
             <button data-tab="accommodation">Accommodation &amp; Rooms</button>
+            <button data-tab="inventory">Goodies &amp; Inventory</button>
           </div>
         </details>
         <details class="nav-group" open>
@@ -932,6 +933,93 @@
     </div>
   </section>
 
+  <!-- GOODIES & INVENTORY: procurement stock list + per-recipient delivery tracking -->
+  <section class="tab-panel" id="tab-inventory">
+    <p class="hint" style="margin-top:0;">Track goodies and other physical items from procurement through to delivery — how many are in stock, which committee owns getting them out, who's assigned to deliver each one, and who actually delivered it.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="inventoryFormTitle">Add inventory item</div>
+      <form id="inventoryForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Item name *</label><input name="name" required placeholder="Congress Kit / Delegate Bag" /></div>
+          <div class="field"><label>Category</label><input name="category" placeholder="e.g. Kit, Merchandise, Stationery" /></div>
+          <div class="field"><label>Unit</label><input name="unit" value="pcs" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Quantity procured *</label><input name="quantity_procured" type="number" min="0" value="0" required /></div>
+          <div class="field"><label>Low-stock alert threshold</label><input name="reorder_threshold" type="number" min="0" placeholder="optional" /></div>
+          <div class="field"><label>Procurement status</label>
+            <select name="procurement_status">
+              <option value="planned">Planned</option>
+              <option value="ordered">Ordered</option>
+              <option value="received">Received</option>
+              <option value="distributing">Distributing</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Vendor</label><input name="vendor_name" placeholder="optional" /></div>
+          <div class="field"><label>Unit cost (₹)</label><input name="unit_cost" type="number" min="0" step="0.01" placeholder="optional" /></div>
+          <div class="field"><label>Responsible committee</label>
+            <select name="responsible_committee_id" id="inventoryCommitteeSelect"><option value="">Unassigned</option></select>
+            <span class="hint">Which committee is accountable for getting this delivered.</span>
+          </div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="inventorySubmitBtn">Save item</button>
+        <button type="button" class="btn outline" id="inventoryCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="section-title">Stock list</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Item</th><th>Category</th><th>Committee</th><th>Procured</th><th>Distributed</th><th>Remaining</th><th>Status</th><th></th></tr></thead>
+        <tbody id="inventoryTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Delivery monitor — by committee</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">Every recipient across every item, rolled up by which committee is responsible for delivering it.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Committee</th><th>Total</th><th>Delivered</th><th>Pending</th><th>Completion</th></tr></thead>
+          <tbody id="inventoryMonitorSummaryBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card table-scroll">
+      <div class="form-grid cols-3">
+        <div class="field"><label>Committee</label>
+          <select id="inventoryMonitorFilterCommittee"><option value="">All committees</option><option value="unassigned">Unassigned</option></select>
+        </div>
+        <div class="field"><label>Status</label>
+          <select id="inventoryMonitorFilterStatus">
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="field"><label>Category</label>
+          <select id="inventoryMonitorFilterRecipientType">
+            <option value="">All categories</option>
+            <option value="participant">Delegates</option>
+            <option value="host_member">Host Members</option>
+            <option value="sponsor">Sponsors</option>
+            <option value="speaker">Guest Speakers</option>
+            <option value="guest_visitor">Guest Visitors</option>
+          </select>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Item</th><th>Recipient</th><th>Committee</th><th>Assigned to</th><th>Status</th><th>Delivered by</th></tr></thead>
+        <tbody id="inventoryMonitorDetailBody"></tbody>
+      </table>
+    </div>
+  </section>
+
   <!-- SPONSORS TAB -->
   <section class="tab-panel" id="tab-sponsors">
     <p class="hint" style="margin-top:0;">Register a confirmed/prospective sponsor, issue their Sponsor Pass, assign a host-member Guest Relation contact, and track their benefit checklist. Sponsorship rates are deliberately not shown here.</p>
@@ -1183,6 +1271,18 @@
       <button type="button" class="modal-close" onclick="closeChecklistModal()">&times;</button>
     </div>
     <div id="checklistModalBody"></div>
+  </div>
+</div>
+
+<!-- Manage deliveries for one inventory item — recipients, bulk-assign, -->
+<!-- individual add, per-recipient assigned/delivered/status tracking. -->
+<div class="modal-overlay" id="inventoryDistModal" style="display:none;" onclick="if(event.target===this) closeInventoryDistModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="section-title" style="margin:0;" id="inventoryDistModalTitle">Deliveries</div>
+      <button type="button" class="modal-close" onclick="closeInventoryDistModal()">&times;</button>
+    </div>
+    <div id="inventoryDistModalBody"></div>
   </div>
 </div>
 

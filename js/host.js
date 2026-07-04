@@ -135,6 +135,7 @@ async function loadMe() {
   renderPayment(data.profile);
   renderCommittees(data.committeeTasks || []);
   renderCommitteeChecklists(data.committeeChecklists);
+  renderCommitteeDeliveries(data.committeeDeliveries);
   renderAssignments(data.assignments);
   renderTasks(data.tasks);
   renderGuestRelations(data.guestRelations);
@@ -266,6 +267,35 @@ function renderCommitteeChecklists(groups) {
     </div>
   `).join('');
 }
+
+// --- Goodies/Inventory deliveries my committee(s) are responsible for ---
+function renderCommitteeDeliveries(groups) {
+  const card = document.getElementById('committeeDeliveryCard');
+  if (!card) return;
+  if (!groups || !groups.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById('committeeDeliveryBody').innerHTML = groups.map((g) => `
+    <div style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line);">
+      <p style="margin:0 0 6px;"><strong>${g.committee_name}</strong></p>
+      ${(g.items && g.items.length) ? g.items.map((d) => `
+        <div class="checklist-row status-${d.status}">
+          <select onchange="updateMyDeliveryStatus(${d.id}, this.value)">
+            <option value="pending" ${d.status === 'pending' ? 'selected' : ''}>Pending</option>
+            <option value="delivered" ${d.status === 'delivered' ? 'selected' : ''}>Delivered</option>
+          </select>
+          <span class="checklist-label">
+            ${d.is_assigned_to_me ? '<span class="pill single" style="margin-right:6px;">Assigned to me</span>' : ''}
+            ${d.item_name}${d.quantity > 1 ? ` ×${d.quantity}` : ''} <span class="hint">→ ${d.recipient_name || 'Unknown recipient'}</span>
+          </span>
+        </div>
+      `).join('') : '<p class="hint">Nothing to deliver for this committee yet.</p>'}
+    </div>
+  `).join('');
+}
+window.updateMyDeliveryStatus = async (id, status) => {
+  try { await jput(`${API}/host/deliveries/${id}`, { status }); toast('Delivery status updated'); loadMe(); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
 
 function renderGuestRelations(relations) {
   const card = document.getElementById('sponsorRelationsCard');
