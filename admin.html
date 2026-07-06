@@ -1103,7 +1103,7 @@
     <div class="section-title">All sponsors</div>
     <div class="card table-scroll">
       <table>
-        <thead><tr><th>Sponsor Pass</th><th>Name</th><th>Tier</th><th>Guest Relation</th><th>Benefit checklist</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Logo</th><th>Sponsor Pass</th><th>Name</th><th>Tier</th><th>Guest Relation</th><th>Benefit checklist</th><th>Status</th><th></th></tr></thead>
         <tbody id="sponsorTableBody"></tbody>
       </table>
     </div>
@@ -1153,7 +1153,7 @@
     <div class="section-title">All guest speakers</div>
     <div class="card table-scroll">
       <table>
-        <thead><tr><th>Name</th><th>Role</th><th>Topic</th><th>Guest Relation</th><th>Checklist</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Photo</th><th>Name</th><th>Role</th><th>Topic</th><th>Guest Relation</th><th>Checklist</th><th>Status</th><th></th></tr></thead>
         <tbody id="speakerTableBody"></tbody>
       </table>
     </div>
@@ -1296,6 +1296,11 @@
 </div><!-- /appShell -->
 
 <div class="toast" id="toast"></div>
+
+<!-- Shared hidden file input used to upload a sponsor's logo or a speaker's
+     photo — one input, re-targeted per click via imgUploadTarget in admin.js,
+     instead of duplicating a file input in every table row. -->
+<input type="file" id="imgUploadInput" accept="image/*" style="display:none;" />
 
 <!-- Shared, reusable customizable-checklist modal — used by Sponsors (benefit
      checklist), Guest Speakers (checklist), Guest Visitors (offerings), and

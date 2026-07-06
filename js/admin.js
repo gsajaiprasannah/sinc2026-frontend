@@ -108,6 +108,63 @@ async function uploadFile(url, formEl) {
   return data;
 }
 
+// Same as uploadFile() but for a single File object rather than a whole
+// <form> — used by the sponsor-logo / speaker-photo uploads, which are a
+// single-click action on a table row rather than a full form submit.
+async function uploadFileBlob(url, file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  let r;
+  try {
+    r = await fetch(url, { method: 'POST', headers: authHeaders(), body: fd });
+  } catch (networkErr) {
+    throw new Error('Upload failed — the connection was interrupted. Check your internet connection and try again.');
+  }
+  if (r.status === 401) { handleUnauthorized(); throw new Error('Please log in again.'); }
+  let data;
+  try {
+    data = await r.json();
+  } catch (parseErr) {
+    throw new Error(`Server returned an unexpected response (status ${r.status}). Please try again.`);
+  }
+  if (!r.ok) throw new Error(data.error || 'Upload failed');
+  return data;
+}
+
+// Shared hidden <input type="file"> (see admin.html) re-targeted per click —
+// avoids needing a separate file input in every sponsor/speaker table row.
+let imgUploadTarget = null; // { kind: 'sponsor'|'speaker', id }
+document.getElementById('imgUploadInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  const target = imgUploadTarget;
+  e.target.value = ''; // reset so picking the same file again still fires 'change'
+  imgUploadTarget = null;
+  if (!file || !target) return;
+  try {
+    if (target.kind === 'sponsor') {
+      await uploadFileBlob(`${API}/sponsors/${target.id}/logo`, file);
+      toast('Sponsor logo updated');
+      refreshSponsors();
+    } else if (target.kind === 'speaker') {
+      await uploadFileBlob(`${API}/speakers/${target.id}/photo`, file);
+      toast('Speaker photo updated');
+      refreshSpeakers();
+    }
+  } catch (err) {
+    toast(err.message);
+  }
+});
+window.triggerSponsorLogoUpload = (id) => { imgUploadTarget = { kind: 'sponsor', id }; document.getElementById('imgUploadInput').click(); };
+window.triggerSpeakerPhotoUpload = (id) => { imgUploadTarget = { kind: 'speaker', id }; document.getElementById('imgUploadInput').click(); };
+window.removeSponsorLogo = async (id) => {
+  try { await jdel(`${API}/sponsors/${id}/logo`); toast('Logo removed'); refreshSponsors(); }
+  catch (err) { toast(err.message); }
+};
+window.removeSpeakerPhoto = async (id) => {
+  try { await jdel(`${API}/speakers/${id}/photo`); toast('Photo removed'); refreshSpeakers(); }
+  catch (err) { toast(err.message); }
+};
+
 // --- Auth: login / signup / logout ---
 function showAuthGate() {
   document.getElementById('authGate').style.display = 'block';
@@ -2156,6 +2213,17 @@ async function refreshSponsors() {
   const rows = await jget(`${API}/sponsors`);
   document.getElementById('sponsorTableBody').innerHTML = rows.map((s) => `
     <tr>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          ${s.logo_url
+            ? `<img src="${mediaUrl(s.logo_url)}" alt="${s.name} logo" style="width:36px;height:36px;object-fit:contain;border-radius:6px;background:#fff;border:1px solid var(--border,#ddd);" />`
+            : `<div style="width:36px;height:36px;border-radius:6px;background:var(--bg2,#f2f2f2);"></div>`}
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <button type="button" class="btn small" onclick="triggerSponsorLogoUpload(${s.id})">${s.logo_url ? 'Replace' : 'Upload'}</button>
+            ${s.logo_url ? `<button type="button" class="btn small" onclick="removeSponsorLogo(${s.id})">Remove</button>` : ''}
+          </div>
+        </div>
+      </td>
       <td><strong>${s.sponsor_pass_code || '-'}</strong></td>
       <td>${s.name}</td>
       <td>${s.tier || '-'}</td>
@@ -2168,7 +2236,7 @@ async function refreshSponsors() {
         ${canDelete() ? `<button class="btn danger small" onclick="deleteSponsor(${s.id})">Delete</button>` : ''}
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="7" class="empty">No sponsors yet</td></tr>';
+  `).join('') || '<tr><td colspan="8" class="empty">No sponsors yet</td></tr>';
 }
 window.deleteSponsor = async (id) => { await jdel(`${API}/sponsors/${id}`); toast('Sponsor deleted'); refreshSponsors(); };
 
@@ -2217,6 +2285,17 @@ async function refreshSpeakers() {
   const rows = await jget(`${API}/speakers`);
   document.getElementById('speakerTableBody').innerHTML = rows.map((s) => `
     <tr>
+      <td>
+        <div style="display:flex;align-items:center;gap:6px;">
+          ${s.photo_url
+            ? `<img src="${mediaUrl(s.photo_url)}" alt="${s.name} photo" style="width:36px;height:36px;object-fit:cover;border-radius:50%;border:1px solid var(--border,#ddd);" />`
+            : `<div style="width:36px;height:36px;border-radius:50%;background:var(--bg2,#f2f2f2);"></div>`}
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <button type="button" class="btn small" onclick="triggerSpeakerPhotoUpload(${s.id})">${s.photo_url ? 'Replace' : 'Upload'}</button>
+            ${s.photo_url ? `<button type="button" class="btn small" onclick="removeSpeakerPhoto(${s.id})">Remove</button>` : ''}
+          </div>
+        </div>
+      </td>
       <td>${s.name}${s.designation ? ' <span class="hint">(' + s.designation + ')</span>' : ''}</td>
       <td>${s.session_type}</td>
       <td style="white-space:normal;max-width:260px;">${s.topic || '-'}</td>
@@ -2229,7 +2308,7 @@ async function refreshSpeakers() {
         ${canDelete() ? `<button class="btn danger small" onclick="deleteSpeaker(${s.id})">Delete</button>` : ''}
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="7" class="empty">No guest speakers yet</td></tr>';
+  `).join('') || '<tr><td colspan="8" class="empty">No guest speakers yet</td></tr>';
 }
 window.deleteSpeaker = async (id) => { await jdel(`${API}/speakers/${id}`); toast('Speaker deleted'); refreshSpeakers(); };
 

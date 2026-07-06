@@ -227,9 +227,82 @@ async function refreshItinerary() {
   `).join('');
 }
 
+function initials(name) {
+  return String(name || '').trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase();
+}
+
+// Guest speakers — photo (or initials placeholder), name, role/org, topic.
+// Uses /api/public/speakers (name/topic/photo only — no phone/email/notes;
+// see server/routes/publicDirectory.js) so no login is required. Shows "TBA"
+// when nothing's been added yet, rather than an empty section.
+async function refreshSpeakersPublic() {
+  const grid = document.getElementById('speakersGrid');
+  if (!grid) return;
+  let rows = [];
+  try {
+    if (!HAS_BACKEND) { grid.innerHTML = '<div class="empty">Speakers to be announced (TBA).</div>'; return; }
+    rows = await jget(`${API}/public/speakers`);
+  } catch (e) {
+    console.error(e);
+    grid.innerHTML = '<div class="empty">Speakers to be announced (TBA).</div>';
+    return;
+  }
+  if (!rows.length) {
+    grid.innerHTML = '<div class="empty">Speakers to be announced (TBA).</div>';
+    return;
+  }
+  grid.innerHTML = rows.map((s) => {
+    const roleLine = [s.designation, s.organization].filter(Boolean).map(escapeHtml).join(', ');
+    return `
+      <div class="card speaker-card">
+        ${s.photo_url
+          ? `<img class="avatar" src="${mediaUrl(s.photo_url)}" alt="${escapeHtml(s.name)}" />`
+          : `<div class="avatar-placeholder">${escapeHtml(initials(s.name))}</div>`}
+        <div class="name">${escapeHtml(s.name)}</div>
+        ${roleLine ? `<div class="role">${roleLine}</div>` : ''}
+        ${s.topic ? `<div class="topic">${escapeHtml(s.topic)}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+// Sponsors — logo (or initials placeholder), name, tier. Uses
+// /api/public/sponsors (name/tier/logo only) so no login is required. Shows
+// "TBA" when nothing's been added yet.
+async function refreshSponsorsPublic() {
+  const grid = document.getElementById('sponsorsGrid');
+  if (!grid) return;
+  let rows = [];
+  try {
+    if (!HAS_BACKEND) { grid.innerHTML = '<div class="empty">Sponsors to be announced (TBA).</div>'; return; }
+    rows = await jget(`${API}/public/sponsors`);
+  } catch (e) {
+    console.error(e);
+    grid.innerHTML = '<div class="empty">Sponsors to be announced (TBA).</div>';
+    return;
+  }
+  if (!rows.length) {
+    grid.innerHTML = '<div class="empty">Sponsors to be announced (TBA).</div>';
+    return;
+  }
+  grid.innerHTML = rows.map((s) => `
+    <div class="card sponsor-card">
+      ${s.logo_url
+        ? `<img class="logo" src="${mediaUrl(s.logo_url)}" alt="${escapeHtml(s.name)}" />`
+        : `<div class="logo-placeholder">${escapeHtml(s.name)}</div>`}
+      <div class="name">${escapeHtml(s.name)}</div>
+      ${s.tier ? `<div class="tier">${escapeHtml(s.tier)}</div>` : ''}
+    </div>
+  `).join('');
+}
+
 refreshMedia();
 refreshHappenings();
 refreshItinerary();
+refreshSpeakersPublic();
+refreshSponsorsPublic();
 setInterval(refreshMedia, 5 * 60000); // re-check for newly uploaded media every 5 min without disrupting playback
 setInterval(refreshHappenings, 30000);
 setInterval(refreshItinerary, 5 * 60000);
+setInterval(refreshSpeakersPublic, 5 * 60000);
+setInterval(refreshSponsorsPublic, 5 * 60000);
