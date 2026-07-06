@@ -205,9 +205,9 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Login failed');
-    const RESTRICTED_PORTALS = { host_member: 'host.html', media: 'media.html', transporter: 'transporter.html', driver: 'driver.html' };
-    if (RESTRICTED_PORTALS[data.user.role]) {
-      throw new Error(`This login is for the ${data.user.role.replace('_', ' ')} portal — use ${RESTRICTED_PORTALS[data.user.role]} instead.`);
+    const RESTRICTED_ROLES = ['host_member', 'media', 'transporter', 'driver'];
+    if (RESTRICTED_ROLES.includes(data.user.role)) {
+      throw new Error(`This login is for the ${data.user.role.replace('_', ' ')} portal — use login.html instead.`);
     }
     setToken(data.token);
     CURRENT_USER = data.user;
@@ -722,7 +722,7 @@ window.createHostLogin = async (id, name) => {
   if (!password || password.length < 6) { toast('Password must be at least 6 characters'); return; }
   try {
     await jpost(`${API}/auth/users`, { username, password, role: 'host_member', host_member_id: id });
-    toast(`Login created for ${name}. Share the username/password with them — they log in at host.html.`, 6000);
+    toast(`Login created for ${name}. Share the username/password with them — they log in at login.html.`, 6000);
     refreshHostMembers();
   } catch (err) { toast(err.message); }
 };
