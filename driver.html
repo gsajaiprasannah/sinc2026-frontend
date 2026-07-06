@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>SINC2026 — Driver Login</title>
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <img src="img/skal-logo.png" alt="Skål International" class="logo-mark" />
+      <div>
+        <h1>Driver Login</h1>
+        <span>Your assigned trips</span>
+      </div>
+    </div>
+    <nav id="topbarNav">
+      <span id="whoami" class="hint" style="margin-right:10px;"></span>
+      <a href="index.html">← Home</a>
+      <a href="#" id="logoutLink" style="display:none;">Log out</a>
+    </nav>
+  </div>
+</header>
+
+<!-- LOGIN GATE -->
+<div class="container" id="authGate" style="max-width:420px;">
+  <div class="card" id="loginCard">
+    <div class="section-title" style="margin-top:0">Driver log in</div>
+    <p class="hint" style="margin-top:-6px;">Use the username and password given to you by the congress admin team.</p>
+    <div class="field" id="loginError" style="color:var(--red);font-size:12.5px;display:none;"></div>
+    <form id="loginForm">
+      <div class="field"><label>Username</label><input name="username" required autocomplete="username" /></div>
+      <div class="field"><label>Password</label><input name="password" type="password" required autocomplete="current-password" /></div>
+      <button class="btn gold" type="submit" style="width:100%;">Log in</button>
+    </form>
+  </div>
+</div>
+
+<!-- MAIN APP (hidden until logged in) -->
+<div id="appShell" style="display:none;">
+  <div class="container">
+
+    <div class="card" id="profileCard">
+      <div class="section-title" style="margin-top:0">My profile</div>
+      <div id="profileBody"></div>
+    </div>
+
+    <div class="section-title">My trips</div>
+    <p class="hint" style="margin-top:-6px;">Vehicle, passengers, and route for each trip you've been assigned. Update the status as you carry it out.</p>
+    <div id="tripsBody"></div>
+
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="js/config.js"></script>
+<script src="js/driver.js"></script>
+</body>
+</html>

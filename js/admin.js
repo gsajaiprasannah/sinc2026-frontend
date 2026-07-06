@@ -205,6 +205,10 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Login failed');
+    const RESTRICTED_PORTALS = { host_member: 'host.html', media: 'media.html', transporter: 'transporter.html', driver: 'driver.html' };
+    if (RESTRICTED_PORTALS[data.user.role]) {
+      throw new Error(`This login is for the ${data.user.role.replace('_', ' ')} portal — use ${RESTRICTED_PORTALS[data.user.role]} instead.`);
+    }
     setToken(data.token);
     CURRENT_USER = data.user;
     e.target.reset();
@@ -250,6 +254,7 @@ async function tryResumeSession() {
   if (!t) { showAuthGate(); return; }
   try {
     const user = await jget(`${API}/auth/me`);
+    if (['host_member', 'media', 'transporter', 'driver'].includes(user.role)) { setToken(''); showAuthGate(); return; }
     CURRENT_USER = user;
     showApp();
   } catch (e) {
@@ -1154,11 +1159,13 @@ async function refreshPartners() {
     </tr>
   `).join('') || '<tr><td colspan="5" class="empty">No partners yet</td></tr>';
 
-  const opts = rows.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
+  const opts = rows.map((p) => `<option value="${p.id}">${p.name}${p.category ? ' (' + p.category + ')' : ''}</option>`).join('');
   ['driverPartnerSelect', 'vehiclePartnerSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<option value="">-- none --</option>' + opts;
   });
+  const createUserPartnerSelect = document.getElementById('createUserPartnerSelect');
+  if (createUserPartnerSelect) createUserPartnerSelect.innerHTML = '<option value="">-- select --</option>' + opts;
 }
 window.deletePartner = async (id) => { await jdel(`${API}/partners/${id}`); toast('Partner removed'); refreshPartners(); };
 async function savePartnerForm(form, force) {
@@ -1202,6 +1209,8 @@ async function refreshDrivers() {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<option value="">-- none --</option>' + driverOpts;
   });
+  const createUserDriverSelect = document.getElementById('createUserDriverSelect');
+  if (createUserDriverSelect) createUserDriverSelect.innerHTML = '<option value="">-- select --</option>' + driverOpts;
 }
 window.deleteDriver = async (id) => { await jdel(`${API}/drivers/${id}`); toast('Driver removed'); refreshDrivers(); };
 async function saveDriverForm(form, force) {
@@ -2892,10 +2901,11 @@ async function refreshUsersAdmin() {
     </tr>
   `).join('') || '<tr><td colspan="4" class="empty">No pending requests</td></tr>';
 
+  const linkedProfile = (u) => u.host_member_name || u.driver_name || u.partner_name || '<span class="hint">-</span>';
   document.getElementById('allUsersBody').innerHTML = users.map((u) => `
     <tr>
       <td>${u.username}</td><td>${u.email || '-'}</td><td>${u.role}</td>
-      <td>${u.host_member_name || '<span class="hint">-</span>'}</td>
+      <td>${linkedProfile(u)}</td>
       <td>${userBadge(u.status)}</td>
       <td>${new Date(u.created_at).toLocaleDateString()}</td>
       <td>${u.id === CURRENT_USER.id ? '<span class="hint">(you)</span>' : `<button class="btn danger small" onclick="deleteUser(${u.id})">Delete</button>`}</td>
@@ -2906,15 +2916,28 @@ window.approveUser = async (id) => { await jput(`${API}/auth/users/${id}/approve
 window.rejectUser = async (id) => { await jput(`${API}/auth/users/${id}/reject`, {}); toast('Rejected'); refreshUsersAdmin(); };
 window.deleteUser = async (id) => { if (!confirm('Delete this login?')) return; await jdel(`${API}/auth/users/${id}`); toast('Login removed'); refreshUsersAdmin(); };
 
-// Show/hide + require the host-member picker only when creating a host_member login.
+// Show/hide + require the matching linked-profile picker for roles that need
+// one (host_member -> host member, driver -> driver, transporter -> partner).
+// 'media' has no linked record, so all three stay hidden for it.
 const createUserRoleSelect = document.getElementById('createUserRoleSelect');
 const createUserHmField = document.getElementById('createUserHmField');
 const createUserHmSelect = document.getElementById('createUserHmSelect');
+const createUserDriverField = document.getElementById('createUserDriverField');
+const createUserDriverSelect = document.getElementById('createUserDriverSelect');
+const createUserPartnerField = document.getElementById('createUserPartnerField');
+const createUserPartnerSelect = document.getElementById('createUserPartnerSelect');
 if (createUserRoleSelect) {
   createUserRoleSelect.addEventListener('change', () => {
-    const isHostMember = createUserRoleSelect.value === 'host_member';
+    const role = createUserRoleSelect.value;
+    const isHostMember = role === 'host_member';
+    const isDriver = role === 'driver';
+    const isTransporter = role === 'transporter';
     createUserHmField.style.display = isHostMember ? '' : 'none';
     if (createUserHmSelect) createUserHmSelect.required = isHostMember;
+    createUserDriverField.style.display = isDriver ? '' : 'none';
+    if (createUserDriverSelect) createUserDriverSelect.required = isDriver;
+    createUserPartnerField.style.display = isTransporter ? '' : 'none';
+    if (createUserPartnerSelect) createUserPartnerSelect.required = isTransporter;
   });
 }
 
@@ -2922,12 +2945,22 @@ document.getElementById('createUserForm').addEventListener('submit', async (e) =
   e.preventDefault();
   const fd = new FormData(e.target);
   const body = Object.fromEntries(fd.entries());
-  if (body.role !== 'host_member') delete body.host_member_id;
-  else if (!body.host_member_id) { toast('Choose which host member this login belongs to.'); return; }
+  const LINKED_FIELD_BY_ROLE = { host_member: 'host_member_id', driver: 'driver_id', transporter: 'partner_id' };
+  const LINKED_LABEL_BY_ROLE = { host_member: 'host member', driver: 'driver', transporter: 'transport partner' };
+  for (const field of ['host_member_id', 'driver_id', 'partner_id']) {
+    if (LINKED_FIELD_BY_ROLE[body.role] !== field) delete body[field];
+  }
+  const requiredField = LINKED_FIELD_BY_ROLE[body.role];
+  if (requiredField && !body[requiredField]) {
+    toast(`Choose which ${LINKED_LABEL_BY_ROLE[body.role]} this login belongs to.`);
+    return;
+  }
   try {
     await jpost(`${API}/auth/users`, body);
     e.target.reset();
     createUserHmField.style.display = 'none';
+    createUserDriverField.style.display = 'none';
+    createUserPartnerField.style.display = 'none';
     toast('Login created');
     refreshUsersAdmin();
     refreshHostMembers();

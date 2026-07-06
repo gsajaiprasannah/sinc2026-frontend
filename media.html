@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>SINC2026 — Media Login</title>
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <img src="img/skal-logo.png" alt="Skål International" class="logo-mark" />
+      <div>
+        <h1>Media Login</h1>
+        <span>Upload the event video reel &amp; posters</span>
+      </div>
+    </div>
+    <nav id="topbarNav">
+      <span id="whoami" class="hint" style="margin-right:10px;"></span>
+      <a href="index.html">← Home</a>
+      <a href="#" id="logoutLink" style="display:none;">Log out</a>
+    </nav>
+  </div>
+</header>
+
+<!-- LOGIN GATE -->
+<div class="container" id="authGate" style="max-width:420px;">
+  <div class="card" id="loginCard">
+    <div class="section-title" style="margin-top:0">Media log in</div>
+    <p class="hint" style="margin-top:-6px;">Use the username and password given to you by the congress admin team.</p>
+    <div class="field" id="loginError" style="color:var(--red);font-size:12.5px;display:none;"></div>
+    <form id="loginForm">
+      <div class="field"><label>Username</label><input name="username" required autocomplete="username" /></div>
+      <div class="field"><label>Password</label><input name="password" type="password" required autocomplete="current-password" /></div>
+      <button class="btn gold" type="submit" style="width:100%;">Log in</button>
+    </form>
+  </div>
+</div>
+
+<!-- MAIN APP (hidden until logged in) -->
+<div id="appShell" style="display:none;">
+  <div class="container">
+
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Upload video or poster</div>
+      <p class="hint" style="margin-top:-6px;">This is the only thing this login can do — no delegate data, no other admin tools. Uploads appear on the public homepage's video reel/posters automatically.</p>
+      <form id="mediaForm">
+        <div class="form-grid cols-2">
+          <div class="field"><label>Type</label>
+            <select name="type"><option value="video">Video (loop reel)</option><option value="poster">Poster / material</option></select>
+          </div>
+          <div class="field"><label>Title / caption</label><input name="title" /></div>
+        </div>
+        <div class="field"><label>File *</label><input name="file" type="file" accept="video/*,image/*" required /></div>
+        <button class="btn gold" type="submit">Upload</button>
+      </form>
+    </div>
+
+    <div class="section-title">Videos</div>
+    <div class="thumb-grid" id="videoThumbs"></div>
+
+    <div class="section-title">Posters</div>
+    <div class="thumb-grid" id="posterThumbs"></div>
+
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="js/config.js"></script>
+<script src="js/media.js"></script>
+</body>
+</html>

@@ -1260,11 +1260,24 @@
                 <option value="admin">Admin</option>
                 <option value="super_admin">Super Admin</option>
                 <option value="host_member">Host Member</option>
+                <option value="media">Media (designer — upload video/posters only)</option>
+                <option value="transporter">Transporter (transport vendor coordinator)</option>
+                <option value="driver">Driver</option>
               </select>
             </div>
             <div class="field" id="createUserHmField" style="display:none;">
               <label>Host member *</label>
               <select name="host_member_id" id="createUserHmSelect"><option value="">-- select --</option></select>
+            </div>
+            <div class="field" id="createUserDriverField" style="display:none;">
+              <label>Driver *</label>
+              <select name="driver_id" id="createUserDriverSelect"><option value="">-- select --</option></select>
+              <span class="hint">This login will only see this driver's own assigned trips.</span>
+            </div>
+            <div class="field" id="createUserPartnerField" style="display:none;">
+              <label>Transport partner (vendor) *</label>
+              <select name="partner_id" id="createUserPartnerSelect"><option value="">-- select --</option></select>
+              <span class="hint">This login will only see trips involving this vendor's own vehicles/drivers.</span>
             </div>
           </div>
           <button class="btn gold" type="submit">Create login</button>
@@ -1277,13 +1290,20 @@
           <div class="field"><label>New password</label><input name="new_password" type="password" required minlength="6" /></div>
           <button class="btn" type="submit">Update password</button>
         </form>
+        <div class="section-title" style="margin-top:18px;">Other login portals</div>
+        <p class="hint" style="margin-top:0;">Share the right link with each person — none of these expose the stats dashboard or delegate data.</p>
+        <p class="hint" style="margin:0;">
+          <a href="media.html" target="_blank">Media Login</a> &middot;
+          <a href="transporter.html" target="_blank">Transporter Login</a> &middot;
+          <a href="driver.html" target="_blank">Driver Login</a>
+        </p>
       </div>
     </div>
 
     <div class="section-title">All logins</div>
     <div class="card table-scroll">
       <table>
-        <thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Linked host member</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Linked profile</th><th>Status</th><th>Created</th><th></th></tr></thead>
         <tbody id="allUsersBody"></tbody>
       </table>
     </div>
