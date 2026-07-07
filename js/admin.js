@@ -180,6 +180,73 @@ function showApp() {
   document.getElementById('whoami').textContent = CURRENT_USER ? `${CURRENT_USER.username} (${CURRENT_USER.role === 'super_admin' ? 'Super Admin' : 'Admin'})` : '';
   document.getElementById('settingsTabBtn').style.display = (CURRENT_USER && CURRENT_USER.role === 'super_admin') ? '' : 'none';
   loadAllData();
+  refreshPushButton();
+}
+
+// ================= PUSH NOTIFICATIONS ("Enable notifications" + broadcast) =================
+async function refreshPushButton() {
+  const btn = document.getElementById('pushToggleBtn');
+  const statusEl = document.getElementById('pushStatusText');
+  if (!btn || !window.SincPush) return;
+  if (!window.SincPush.isSupported()) {
+    btn.disabled = true;
+    btn.textContent = 'Not supported in this browser';
+    return;
+  }
+  try {
+    const subscribed = await window.SincPush.isSubscribed();
+    btn.textContent = subscribed ? 'Disable notifications' : 'Enable notifications';
+    btn.classList.toggle('outline', subscribed);
+    if (statusEl) statusEl.textContent = subscribed
+      ? 'Notifications are on for this device.'
+      : "Get a push notification for trip assignments, checklist reminders, and event announcements — even when this tab isn't open.";
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+const pushToggleBtn = document.getElementById('pushToggleBtn');
+if (pushToggleBtn) {
+  pushToggleBtn.addEventListener('click', async () => {
+    pushToggleBtn.disabled = true;
+    try {
+      const subscribed = await window.SincPush.isSubscribed();
+      if (subscribed) {
+        await window.SincPush.disable();
+        toast('Notifications turned off');
+      } else {
+        await window.SincPush.enable();
+        toast('Notifications turned on');
+      }
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      pushToggleBtn.disabled = false;
+      refreshPushButton();
+    }
+  });
+}
+
+const broadcastForm = document.getElementById('broadcastForm');
+if (broadcastForm) {
+  broadcastForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = document.getElementById('broadcastError');
+    const okEl = document.getElementById('broadcastSuccess');
+    errEl.style.display = 'none';
+    okEl.style.display = 'none';
+    const fd = new FormData(e.target);
+    const roles = Array.from(e.target.querySelector('select[name="roles"]').selectedOptions).map((o) => o.value);
+    try {
+      const data = await jpost(`${API}/push/broadcast`, { title: fd.get('title'), body: fd.get('body'), roles: roles.length ? roles : ['all'] });
+      okEl.textContent = `Sent to ${data.sent} device(s).`;
+      okEl.style.display = 'block';
+      e.target.reset();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+    }
+  });
 }
 
 document.getElementById('showSignup').addEventListener('click', (e) => {

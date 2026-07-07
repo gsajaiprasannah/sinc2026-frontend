@@ -146,6 +146,52 @@ function showApp() {
   else if (role === 'media') startMedia();
   else if (role === 'driver') startDriver();
   else if (role === 'transporter') startTransporter();
+
+  refreshPushButton();
+}
+
+// ================= PUSH NOTIFICATIONS ("Enable notifications" button) =================
+async function refreshPushButton() {
+  const btn = document.getElementById('pushToggleBtn');
+  const statusEl = document.getElementById('pushStatusText');
+  if (!btn || !window.SincPush) return;
+  if (!window.SincPush.isSupported()) {
+    btn.disabled = true;
+    btn.textContent = 'Not supported in this browser';
+    return;
+  }
+  try {
+    const subscribed = await window.SincPush.isSubscribed();
+    btn.textContent = subscribed ? 'Disable notifications' : 'Enable notifications';
+    btn.classList.toggle('outline', subscribed);
+    if (statusEl) statusEl.textContent = subscribed
+      ? 'Notifications are on for this device.'
+      : "Get a push notification for trip assignments, checklist reminders, and event announcements — even when this tab isn't open.";
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+const pushToggleBtn = document.getElementById('pushToggleBtn');
+if (pushToggleBtn) {
+  pushToggleBtn.addEventListener('click', async () => {
+    pushToggleBtn.disabled = true;
+    try {
+      const subscribed = await window.SincPush.isSubscribed();
+      if (subscribed) {
+        await window.SincPush.disable();
+        toast('Notifications turned off');
+      } else {
+        await window.SincPush.enable();
+        toast('Notifications turned on');
+      }
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      pushToggleBtn.disabled = false;
+      refreshPushButton();
+    }
+  });
 }
 
 document.getElementById('loginForm').addEventListener('submit', async (e) => {

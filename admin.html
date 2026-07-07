@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>SINC2026 — Skål International Admin</title>
 <link rel="stylesheet" href="css/styles.css" />
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#314691" />
 </head>
 <body>
 
@@ -1296,6 +1298,33 @@
           <a href="login.html" target="_blank">Open Login</a>
         </p>
       </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Notifications</div>
+        <p class="hint" id="pushStatusText" style="margin-top:-6px;">Get a push notification for trip assignments, checklist reminders, and event announcements — even when this tab isn't open.</p>
+        <button class="btn gold" type="button" id="pushToggleBtn">Enable notifications</button>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Send announcement</div>
+        <p class="hint" style="margin-top:-6px;">A push notification to everyone (or just the roles you pick) who has notifications enabled. Requires VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY to be set on the server — see the README.</p>
+        <div class="field" id="broadcastError" style="color:var(--red);font-size:12.5px;display:none;"></div>
+        <div class="field" id="broadcastSuccess" style="color:var(--green);font-size:12.5px;display:none;"></div>
+        <form id="broadcastForm">
+          <div class="field"><label>Title *</label><input name="title" required maxlength="80" /></div>
+          <div class="field"><label>Message</label><input name="body" maxlength="200" /></div>
+          <div class="field">
+            <label>Send to</label>
+            <select name="roles" multiple size="5">
+              <option value="all" selected>Everyone</option>
+              <option value="host_member">Host members</option>
+              <option value="media">Media</option>
+              <option value="transporter">Transporters</option>
+              <option value="driver">Drivers</option>
+            </select>
+            <span class="hint">Ctrl/Cmd-click to select more than one specific role — leave "Everyone" selected to reach all of them.</span>
+          </div>
+          <button class="btn gold" type="submit">Send notification</button>
+        </form>
+      </div>
     </div>
 
     <div class="section-title">All logins</div>
@@ -1349,6 +1378,7 @@
 <script src="js/config.js"></script>
 <!-- Client-side PDF generation for Transport/Pre Tour manifests (no backend involved) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.0.0/jspdf.umd.min.js"></script>
+<script src="js/push.js"></script>
 <script src="js/admin.js"></script>
 </body>
 </html>

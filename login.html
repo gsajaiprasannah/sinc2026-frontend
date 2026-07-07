@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>SINC2026 — Login</title>
 <link rel="stylesheet" href="css/styles.css" />
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#314691" />
 </head>
 <body>
 
@@ -170,7 +172,13 @@
 
     </div>
 
-    <!-- ===== SHARED: change password (any logged-in role) ===== -->
+    <!-- ===== SHARED: notifications + change password (any logged-in role) ===== -->
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Notifications</div>
+      <p class="hint" id="pushStatusText" style="margin-top:-6px;">Get a push notification for trip assignments, checklist reminders, and event announcements — even when this tab isn't open.</p>
+      <button class="btn gold" type="button" id="pushToggleBtn">Enable notifications</button>
+    </div>
+
     <div class="card">
       <div class="section-title" style="margin-top:0">Change password</div>
       <form id="changePasswordForm">
@@ -186,6 +194,7 @@
 <div id="toast" class="toast"></div>
 
 <script src="js/config.js"></script>
+<script src="js/push.js"></script>
 <script src="js/login.js"></script>
 </body>
 </html>
