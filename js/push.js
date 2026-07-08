@@ -27,14 +27,29 @@
     return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
   }
 
-  async function registerSW() {
-    if (!('serviceWorker' in navigator)) return null;
-    return navigator.serviceWorker.register('sw.js');
+  // Cache the registration promise so we only ever call register() once,
+  // and kick it off eagerly (below) rather than waiting for the user's
+  // first click — this way a registration already exists by the time
+  // anything needs it.
+  let swRegistrationPromise = null;
+  function registerSW() {
+    if (!('serviceWorker' in navigator)) return Promise.resolve(null);
+    if (!swRegistrationPromise) swRegistrationPromise = navigator.serviceWorker.register('sw.js');
+    return swRegistrationPromise;
   }
+  if (isSupported()) registerSW().catch((e) => console.error('Service worker registration failed', e));
 
   async function currentSubscription() {
     if (!isSupported()) return null;
-    const reg = await navigator.serviceWorker.ready;
+    // Deliberately NOT navigator.serviceWorker.ready — that promise only
+    // resolves once a service worker is ACTIVE for this page, and on a
+    // brand new visit (nothing registered yet) it never resolves at all,
+    // hanging forever with no error and no visible effect whatsoever. That
+    // silent hang is exactly what broke "Enable notifications" on every
+    // browser on first use. getRegistration() resolves immediately —
+    // undefined if nothing's registered yet — so this can never hang.
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return null;
     return reg.pushManager.getSubscription();
   }
 
@@ -47,13 +62,12 @@
     if (!isSupported()) throw new Error('Push notifications are not supported in this browser.');
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') throw new Error('Notification permission was not granted.');
-    await registerSW();
+    const reg = await registerSW();
     const keyRes = await fetch(`${API}/push/public-key`);
     const keyData = await keyRes.json();
     if (!keyData.enabled || !keyData.publicKey) {
       throw new Error('Push notifications aren\'t set up on the server yet — ask an admin to configure them.');
     }
-    const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(keyData.publicKey)

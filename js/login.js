@@ -172,17 +172,28 @@ async function refreshPushButton() {
   }
 }
 
+// Safety net: if anything in the push flow ever hangs instead of rejecting
+// (as navigator.serviceWorker.ready used to, before a service worker had
+// ever been registered — see push.js), this guarantees the button unlocks
+// and the person sees SOME message instead of a silent, permanent freeze.
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms))
+  ]);
+}
+
 const pushToggleBtn = document.getElementById('pushToggleBtn');
 if (pushToggleBtn) {
   pushToggleBtn.addEventListener('click', async () => {
     pushToggleBtn.disabled = true;
     try {
-      const subscribed = await window.SincPush.isSubscribed();
+      const subscribed = await withTimeout(window.SincPush.isSubscribed(), 8000, 'Timed out checking notification status — please try again.');
       if (subscribed) {
-        await window.SincPush.disable();
+        await withTimeout(window.SincPush.disable(), 8000, 'Timed out turning off notifications — please try again.');
         toast('Notifications turned off');
       } else {
-        await window.SincPush.enable();
+        await withTimeout(window.SincPush.enable(), 15000, 'Timed out enabling notifications — please try again.');
         toast('Notifications turned on');
       }
     } catch (err) {
