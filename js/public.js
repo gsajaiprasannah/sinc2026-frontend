@@ -231,6 +231,101 @@ function initials(name) {
   return String(name || '').trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase();
 }
 
+// --- Speaker / sponsor detail popup ---------------------------------------
+// Clicking a speaker or sponsor card opens a small modal with everything the
+// public directory endpoint gives us (see server/routes/publicDirectory.js).
+// Reuses the same .modal-overlay/.modal-card classes the admin panel's
+// checklist modal uses, so it's visually consistent — but built dynamically
+// here since index.html has no static modal markup of its own.
+let lastSpeakers = [];
+let lastSponsors = [];
+
+function onProfileModalKeydown(e) {
+  if (e.key === 'Escape') closeProfileModal();
+}
+
+function closeProfileModal() {
+  const el = document.getElementById('profileModalOverlay');
+  if (el) el.remove();
+  document.removeEventListener('keydown', onProfileModalKeydown);
+}
+
+function openProfileModal(label, bodyHtml) {
+  closeProfileModal();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'profileModalOverlay';
+  overlay.innerHTML = `
+    <div class="modal-card profile-modal-card">
+      <div class="modal-header">
+        <strong>${escapeHtml(label)}</strong>
+        <button type="button" class="modal-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="profile-modal-body">${bodyHtml}</div>
+    </div>
+  `;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeProfileModal(); });
+  overlay.querySelector('.modal-close').addEventListener('click', closeProfileModal);
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', onProfileModalKeydown);
+}
+
+function openSpeakerModal(s) {
+  if (!s) return;
+  const roleLine = [s.designation, s.organization].filter(Boolean).map(escapeHtml).join(', ');
+  openProfileModal('Guest Speaker', `
+    ${s.photo_url
+      ? `<img class="profile-modal-avatar" src="${mediaUrl(s.photo_url)}" alt="${escapeHtml(s.name)}" />`
+      : `<div class="profile-modal-avatar avatar-placeholder">${escapeHtml(initials(s.name))}</div>`}
+    <div class="profile-modal-name">${escapeHtml(s.name)}</div>
+    ${roleLine ? `<div class="profile-modal-role">${roleLine}</div>` : ''}
+    ${s.session_type ? `<div class="profile-modal-tag">${escapeHtml(s.session_type)}</div>` : ''}
+    ${s.topic ? `<div class="profile-modal-topic">&ldquo;${escapeHtml(s.topic)}&rdquo;</div>` : ''}
+  `);
+}
+
+function openSponsorModal(s) {
+  if (!s) return;
+  openProfileModal('Sponsor', `
+    ${s.logo_url
+      ? `<img class="profile-modal-logo" src="${mediaUrl(s.logo_url)}" alt="${escapeHtml(s.name)}" />`
+      : `<div class="profile-modal-logo logo-placeholder">${escapeHtml(s.name)}</div>`}
+    <div class="profile-modal-name">${escapeHtml(s.name)}</div>
+    ${s.tier ? `<div class="profile-modal-tag">${escapeHtml(s.tier)} Sponsor</div>` : ''}
+  `);
+}
+
+// Delegated listeners on the grid containers — attached once, here, rather
+// than re-attached on every refresh, since the container elements themselves
+// are never replaced (only their innerHTML). Each card carries data-idx into
+// lastSpeakers/lastSponsors, which the refresh functions below keep current.
+function wireProfilePopups() {
+  const speakersGrid = document.getElementById('speakersGrid');
+  const sponsorsGrid = document.getElementById('sponsorsGrid');
+  if (speakersGrid) {
+    speakersGrid.addEventListener('click', (e) => {
+      const card = e.target.closest('.speaker-card');
+      if (card) openSpeakerModal(lastSpeakers[Number(card.dataset.idx)]);
+    });
+    speakersGrid.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const card = e.target.closest('.speaker-card');
+      if (card) { e.preventDefault(); openSpeakerModal(lastSpeakers[Number(card.dataset.idx)]); }
+    });
+  }
+  if (sponsorsGrid) {
+    sponsorsGrid.addEventListener('click', (e) => {
+      const card = e.target.closest('.sponsor-card');
+      if (card) openSponsorModal(lastSponsors[Number(card.dataset.idx)]);
+    });
+    sponsorsGrid.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const card = e.target.closest('.sponsor-card');
+      if (card) { e.preventDefault(); openSponsorModal(lastSponsors[Number(card.dataset.idx)]); }
+    });
+  }
+}
+
 // Guest speakers — photo (or initials placeholder), name, role/org, topic.
 // Uses /api/public/speakers (name/topic/photo only — no phone/email/notes;
 // see server/routes/publicDirectory.js) so no login is required. Shows "TBA"
@@ -247,14 +342,15 @@ async function refreshSpeakersPublic() {
     grid.innerHTML = '<div class="empty">Speakers to be announced (TBA).</div>';
     return;
   }
+  lastSpeakers = rows;
   if (!rows.length) {
     grid.innerHTML = '<div class="empty">Speakers to be announced (TBA).</div>';
     return;
   }
-  grid.innerHTML = rows.map((s) => {
+  grid.innerHTML = rows.map((s, i) => {
     const roleLine = [s.designation, s.organization].filter(Boolean).map(escapeHtml).join(', ');
     return `
-      <div class="card speaker-card">
+      <div class="card speaker-card" data-idx="${i}" tabindex="0" role="button" aria-label="View details for ${escapeHtml(s.name)}">
         ${s.photo_url
           ? `<img class="avatar" src="${mediaUrl(s.photo_url)}" alt="${escapeHtml(s.name)}" />`
           : `<div class="avatar-placeholder">${escapeHtml(initials(s.name))}</div>`}
@@ -281,12 +377,13 @@ async function refreshSponsorsPublic() {
     grid.innerHTML = '<div class="empty">Sponsors to be announced (TBA).</div>';
     return;
   }
+  lastSponsors = rows;
   if (!rows.length) {
     grid.innerHTML = '<div class="empty">Sponsors to be announced (TBA).</div>';
     return;
   }
-  grid.innerHTML = rows.map((s) => `
-    <div class="card sponsor-card">
+  grid.innerHTML = rows.map((s, i) => `
+    <div class="card sponsor-card" data-idx="${i}" tabindex="0" role="button" aria-label="View details for ${escapeHtml(s.name)}">
       ${s.logo_url
         ? `<img class="logo" src="${mediaUrl(s.logo_url)}" alt="${escapeHtml(s.name)}" />`
         : `<div class="logo-placeholder">${escapeHtml(s.name)}</div>`}
@@ -296,6 +393,7 @@ async function refreshSponsorsPublic() {
   `).join('');
 }
 
+wireProfilePopups();
 refreshMedia();
 refreshHappenings();
 refreshItinerary();
