@@ -260,6 +260,16 @@ a { color: inherit; }
   text-align: center;
 }
 
+.hero-banner {
+  display: block;
+  max-width: 640px;
+  width: 100%;
+  height: auto;
+  margin: 0 auto 24px;
+  border-radius: var(--radius);
+  filter: drop-shadow(0 12px 28px rgba(0,0,0,0.28));
+}
+
 .hero-eyebrow {
   display: inline-flex;
   align-items: center;
@@ -351,6 +361,54 @@ a { color: inherit; }
   font-size: 13px;
   color: var(--navy-2);
   line-height: 1.55;
+}
+
+/* Organising-body strip on the public homepage — Host Club + National       */
+/* Committee lockup logos, shown between the hero and the destination cards. */
+.org-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 28px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 18px 24px;
+  margin: 0 0 8px;
+}
+
+.org-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.org-logo img {
+  height: 34px;
+  width: auto;
+  max-width: 220px;
+  object-fit: contain;
+}
+
+.org-logo span {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+
+.org-divider {
+  width: 1px;
+  height: 34px;
+  background: var(--line-strong);
+}
+
+@media (max-width: 480px) {
+  .org-divider { display: none; }
 }
 
 .chart-scroll {
