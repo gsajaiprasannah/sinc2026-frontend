@@ -449,6 +449,56 @@ function renderDietary(rows) {
   `).join('');
 }
 
+function money(n) {
+  return '₹' + Number(n || 0).toLocaleString('en-IN');
+}
+
+function renderHostPay(o) {
+  const el = document.getElementById('hostPayCards');
+  if (!el || !o) return;
+  const hm = o.hostMembers || {};
+  el.innerHTML = [
+    { label: 'Host Team Members', value: hm.total || 0 },
+    { label: 'Payments Received', value: hm.paid || 0, cls: 'diet-veg' },
+    { label: 'Partial Payments', value: hm.partial || 0 },
+    { label: 'Payments Pending', value: hm.pending || 0, cls: 'diet-nonveg' },
+    { label: 'Amount Collected', value: money(hm.collectedAmount), cls: 'diet-veg' },
+    { label: 'Amount Pending', value: money(hm.pendingAmount), cls: 'diet-nonveg' }
+  ].map((c) => `
+    <div class="stat-card ${c.cls || ''}">
+      <div class="value">${c.value}</div>
+      <div class="label">${c.label}</div>
+    </div>
+  `).join('');
+}
+
+function renderOpsCards(o) {
+  const el = document.getElementById('opsCards');
+  if (!el || !o) return;
+  const cards = [
+    { label: 'Transporters', value: o.transporters },
+    { label: 'Drivers', value: o.drivers },
+    { label: 'Vehicles', value: o.vehicles },
+    { label: 'Hotels', value: o.hotels },
+    { label: 'Rooms Assigned', value: o.roomsAssigned },
+    { label: 'Guests in Rooms', value: o.occupantsAssigned },
+    { label: 'Sponsors', value: o.sponsors },
+    { label: 'Guest Speakers', value: o.speakers },
+    { label: 'Guest Visitors', value: o.guestVisitors },
+    { label: 'Committees', value: o.committees },
+    { label: 'Transport Trips Planned', value: o.transportTrips },
+    { label: 'Pre-Tours', value: o.preTours },
+    { label: 'Inventory Items', value: (o.inventory && o.inventory.items) || 0 },
+    { label: 'Goodies Delivered', value: (o.inventory && o.inventory.delivered) || 0 }
+  ];
+  el.innerHTML = cards.map((c) => `
+    <div class="stat-card">
+      <div class="value">${c.value}</div>
+      <div class="label">${c.label}</div>
+    </div>
+  `).join('');
+}
+
 async function refreshDashboardStats() {
   try {
     const [s, clubRows, nationRows] = await Promise.all([
@@ -465,6 +515,15 @@ async function refreshDashboardStats() {
       renderDietary(await jget(`${API}/stats/dietary`));
     } catch (e) {
       console.error('Dietary stats unavailable', e);
+    }
+    // Cross-module ops rollup (host payments, transport, hotels, guest-relation
+    // entities) — also fetched defensively so it can't break the core charts.
+    try {
+      const ops = await jget(`${API}/stats/ops-overview`);
+      renderHostPay(ops);
+      renderOpsCards(ops);
+    } catch (e) {
+      console.error('Ops overview stats unavailable', e);
     }
   } catch (e) {
     console.error('Failed to load stats dashboard', e);
