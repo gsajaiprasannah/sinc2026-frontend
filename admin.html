@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="css/styles.css" />
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#314691" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -25,7 +26,6 @@
     <nav id="topbarNav">
       <span id="whoami" class="hint" style="margin-right:10px;"></span>
       <a href="index.html">← Home</a>
-      <a href="dashboard.html">Stats Dashboard</a>
       <a href="#" id="logoutLink" style="display:none;">Log out</a>
     </nav>
   </div>
@@ -66,9 +66,15 @@
     <div class="sidebar-inner">
       <nav id="tabNav">
         <details class="nav-group" open>
+          <summary class="nav-group-label">Overview <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="dashboard" class="active">Stats Dashboard</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
           <summary class="nav-group-label">Congress <span class="chevron">›</span></summary>
           <div class="admin-nav">
-            <button data-tab="clubs" class="active">Clubs &amp; Members</button>
+            <button data-tab="clubs">Clubs &amp; Members</button>
             <button data-tab="registrations">Registrations &amp; Payments</button>
             <button data-tab="participants">Delegates</button>
             <button data-tab="media">Media (Video/Poster)</button>
@@ -120,8 +126,41 @@
   <div class="admin-main">
   <main class="container">
 
+  <!-- STATS DASHBOARD TAB -->
+  <section class="tab-panel active" id="tab-dashboard">
+    <div class="section-title" style="margin-top:0">Congress at a glance</div>
+    <div class="grid-stats" id="statCards"></div>
+
+    <div class="section-title">Membership &amp; Registrations</div>
+    <div class="two-col">
+      <div class="card">
+        <strong style="font-size:13px;color:var(--muted)">Club-wise: members vs registrations</strong>
+        <div class="chart-scroll" id="clubChartScroll">
+          <div id="clubChartInner"><canvas id="clubChart"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <strong style="font-size:13px;color:var(--muted)">Nation-wise members by state</strong>
+        <div style="height:320px;margin-top:10px;"><canvas id="stateChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="section-title">Club-wise data</div>
+    <div class="card table-scroll">
+      <table>
+        <thead>
+          <tr><th>Club</th><th>State</th><th>Members</th><th>Registrations</th><th>Delegates</th></tr>
+        </thead>
+        <tbody id="clubTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Catering &amp; Dietary Preferences</div>
+    <div class="grid-stats grid-stats-3" id="dietCards"></div>
+  </section>
+
   <!-- CLUBS TAB -->
-  <section class="tab-panel active" id="tab-clubs">
+  <section class="tab-panel" id="tab-clubs">
     <div class="two-col">
       <div class="card">
         <div class="section-title" style="margin-top:0">Add / update a club</div>

@@ -340,6 +340,141 @@ async function tryResumeSession() {
   }
 }
 
+// ================= STATS DASHBOARD (merged in from the old dashboard.html —=
+// it used to be a separate page with its own admin login; now it's just the
+// first sidebar tab, reusing this same admin session). =====================
+let clubChart, stateChart;
+let dashboardStarted = false;
+
+function renderOverview(s) {
+  const cards = [
+    { label: 'Total Members (All Clubs)', value: s.totalMembers },
+    { label: 'Total Clubs', value: s.totalClubs },
+    { label: 'Total Registrations', value: s.totalRegistrations },
+    { label: 'Single Registrations', value: s.singleRegs },
+    { label: 'Double Registrations', value: s.doubleRegs },
+    { label: 'Congress Only Registrations', value: s.congressOnlyRegs || 0 },
+    { label: 'Total Delegates (Double = 2)', value: s.totalParticipants }
+  ];
+  document.getElementById('statCards').innerHTML = cards.map((c) => `
+    <div class="stat-card">
+      <div class="value">${c.value}</div>
+      <div class="label">${c.label}</div>
+    </div>
+  `).join('');
+}
+
+function renderClubComparison(rows) {
+  const ctx = document.getElementById('clubChart');
+  const labels = rows.map((r) => r.name.replace('Skål ', '').replace('Skal ', ''));
+  const members = rows.map((r) => r.members_count);
+  const regs = rows.map((r) => r.registrations);
+
+  // Horizontal bar chart, sized to the number of clubs, inside a scrollable
+  // wrapper (.chart-scroll) — keeps the card a fixed, page-friendly height
+  // no matter how many clubs there are, instead of a giant rotated-label bar chart.
+  const inner = document.getElementById('clubChartInner');
+  const rowHeight = 26;
+  inner.style.height = Math.max(rows.length * rowHeight + 30, 200) + 'px';
+
+  if (clubChart) clubChart.destroy();
+  clubChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Members', data: members, backgroundColor: '#314691', borderRadius: 3 },
+        { label: 'Registrations', data: regs, backgroundColor: '#65A8DE', borderRadius: 3 }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { font: { size: 10 } } },
+        y: { ticks: { autoSkip: false, font: { size: 10.5 } } }
+      },
+      plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } }
+    }
+  });
+
+  document.getElementById('clubTableBody').innerHTML = rows.map((r) => `
+    <tr>
+      <td>${r.name}</td>
+      <td>${r.state || '-'}</td>
+      <td>${r.members_count}</td>
+      <td>${r.registrations}</td>
+      <td>${r.participants != null ? r.participants : '-'}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No club data yet</td></tr>';
+}
+
+function renderNationwide(rows) {
+  const ctx = document.getElementById('stateChart');
+  if (stateChart) stateChart.destroy();
+  stateChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: rows.map((r) => r.state || 'Unspecified'),
+      datasets: [{
+        data: rows.map((r) => r.members),
+        backgroundColor: ['#314691', '#65A8DE', '#60CDD2', '#C65AD8', '#EDD945', '#70DBF3', '#59595B', '#8cc0e8', '#263875', '#dc2626']
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { font: { size: 10 }, boxWidth: 10 } } }
+    }
+  });
+}
+
+function renderDietary(rows) {
+  const el = document.getElementById('dietCards');
+  if (!el) return;
+  if (!rows || !rows.length) {
+    el.innerHTML = '<div class="empty">No dietary data yet.</div>';
+    return;
+  }
+  const total = rows.reduce((sum, r) => sum + (r.count || 0), 0) || 1;
+  const classFor = (label) => (
+    label === 'Vegetarian' ? 'diet-veg' : label === 'Non-vegetarian' ? 'diet-nonveg' : 'diet-none'
+  );
+  el.innerHTML = rows.map((r) => `
+    <div class="stat-card ${classFor(r.label)}">
+      <div class="value">${r.count}</div>
+      <div class="label">${r.label} (${Math.round((r.count / total) * 100)}%)</div>
+    </div>
+  `).join('');
+}
+
+async function refreshDashboardStats() {
+  try {
+    const [s, clubRows, nationRows] = await Promise.all([
+      jget(`${API}/stats/overview`),
+      jget(`${API}/stats/club-comparison`),
+      jget(`${API}/stats/nationwide`)
+    ]);
+    renderOverview(s);
+    renderClubComparison(clubRows);
+    renderNationwide(nationRows);
+    // Dietary breakdown is optional/newer — fetch separately so an older
+    // backend without this endpoint doesn't break the rest of the dashboard.
+    try {
+      renderDietary(await jget(`${API}/stats/dietary`));
+    } catch (e) {
+      console.error('Dietary stats unavailable', e);
+    }
+  } catch (e) {
+    console.error('Failed to load stats dashboard', e);
+  }
+  if (!dashboardStarted) {
+    dashboardStarted = true;
+    setInterval(refreshDashboardStats, 30000);
+  }
+}
+
 // --- Sidebar hide/expand toggle (state remembered across visits) ---
 const SIDEBAR_HIDDEN_KEY = 'sinc_admin_sidebar_hidden';
 const adminShell = document.getElementById('adminShell');
@@ -3055,10 +3190,11 @@ document.getElementById('changePasswordForm').addEventListener('submit', async (
   } catch (err) { toast(err.message); }
 });
 
-function refreshStatsDependents() { /* hook for cross-tab refresh if needed */ }
+function refreshStatsDependents() { if (dashboardStarted) refreshDashboardStats(); }
 
 // --- Init ---
 function loadAllData() {
+  refreshDashboardStats();
   refreshClubs();
   refreshRegs();
   loadNextRegNumber();
