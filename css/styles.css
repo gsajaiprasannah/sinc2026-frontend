@@ -1,54 +1,74 @@
-/* Skål International brand palette — per official Brand Guidelines,        */
-/* restyled with an Apple (iPhone / iMac / macOS) design language: system    */
-/* font stack, soft neutral surfaces, a crisp blue interactive accent,      */
-/* frosted-glass chrome, and generous rounded corners.                      */
+/* Skål International brand palette — per official Brand Guidelines (2025    */
+/* Update): dark blue #314691, light blue #65A8DE, grey 80% #59595B, plus    */
+/* the approved secondary palette (intense blue, soft green, happy yellow,  */
+/* lavanda). Montserrat is the mandated brand typeface.                     */
+/*                                                                          */
+/* Layout language is restyled after Stripe.com: crisp white surfaces,      */
+/* bold confident headings, generous whitespace, thin precise borders,      */
+/* subtle elevation on hover rather than heavy drop shadows, and a          */
+/* restrained brand-navy accent used consistently for every interactive     */
+/* element (links, primary buttons, focus rings, active nav state).         */
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap');
 
 :root {
-  --navy: #314691;        /* Skål brand dark blue — used for wordmarks/brand text */
-  --navy-2: #263875;      /* darker shade for gradients */
-  --lightblue: #65A8DE;   /* Skål brand light blue */
-  --accent: #0071e3;      /* Apple system blue — primary interactive accent */
-  --accent-dark: #0058b8;
-  --accent-soft: rgba(0, 113, 227, 0.1);
-  --gold: var(--accent);  /* kept as an alias so existing .btn.gold etc. pick up the new accent */
-  --gold-2: #3d94e8;
-  --bg: #f5f5f7;          /* Apple's canonical off-white page background */
+  --navy: #314691;          /* Skål brand dark blue — primary interactive accent */
+  --navy-2: #263875;        /* darker shade, used in gradients */
+  --navy-deep: #202f5e;     /* hover/active state for navy buttons & links */
+  --lightblue: #65A8DE;     /* Skål brand light blue — secondary accent */
+  --intenseblue: #70DBF3;   /* Skål secondary: intense blue */
+  --green: #60CDD2;         /* Skål secondary: soft green */
+  --amber: #EDD945;         /* Skål secondary: happy yellow */
+  --purple: #C65AD8;        /* Skål secondary: lavanda */
+  --grey80: #59595B;        /* Skål brand grey 80% */
+
+  --accent: var(--navy);
+  --accent-dark: var(--navy-deep);
+  --accent-soft: rgba(49, 70, 145, 0.08);
+  --gold: var(--accent);    /* kept as an alias so existing .btn.gold etc. pick up the brand accent */
+  --gold-2: var(--lightblue);
+
+  --bg: #f6f7fa;            /* cool, crisp off-white page background */
+  --bg2: #eef1f7;
   --card: #ffffff;
-  --text: #1d1d1f;        /* Apple's near-black body text */
-  --muted: #6e6e73;       /* Apple's secondary label gray */
-  --green: #60CDD2;       /* Skål secondary: soft green */
-  --amber: #EDD945;       /* Skål secondary: happy yellow */
+  --text: #0f1a33;          /* near-black with a faint navy cast, Stripe-style body text */
+  --muted: var(--grey80);   /* Skål brand grey for secondary text */
   --red: #dc2626;
-  --purple: #C65AD8;      /* Skål secondary: lavanda */
-  --intenseblue: #70DBF3; /* Skål secondary: intense blue */
-  --line: rgba(0, 0, 0, 0.08);
-  --radius: 16px;
-  --radius-sm: 10px;
-  --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.06);
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --line: rgba(15, 26, 51, 0.09);
+  --line-strong: rgba(15, 26, 51, 0.14);
+
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-lg: 20px;
+
+  --shadow-sm: 0 1px 2px rgba(15, 26, 51, 0.05);
+  --shadow: 0 1px 2px rgba(15, 26, 51, 0.04), 0 6px 18px rgba(15, 26, 51, 0.07);
+  --shadow-lift: 0 16px 36px rgba(15, 26, 51, 0.12), 0 2px 6px rgba(15, 26, 51, 0.06);
+
+  --grad-brand: linear-gradient(90deg, var(--navy) 0%, var(--navy-2) 60%, var(--lightblue) 100%);
+  --grad-brand-soft: linear-gradient(135deg, rgba(49,70,145,0.06), rgba(101,168,222,0.10));
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Segoe UI', 'Montserrat', Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-weight: 400;
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.005em;
 }
 
 a { color: inherit; }
 
 .topbar {
-  background: rgba(255, 255, 255, 0.78);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
+  background: rgba(255, 255, 255, 0.94);
+  -webkit-backdrop-filter: blur(10px) saturate(160%);
+  backdrop-filter: blur(10px) saturate(160%);
   color: var(--text);
-  padding: 12px 16px;
+  padding: 14px 16px;
   position: sticky;
   top: 0;
   z-index: 50;
@@ -78,7 +98,7 @@ a { color: inherit; }
   height: 34px;
   border: none;
   border-radius: var(--radius-sm);
-  background: rgba(0, 0, 0, 0.04);
+  background: rgba(15, 26, 51, 0.045);
   color: var(--text);
   cursor: pointer;
   font-size: 15px;
@@ -86,7 +106,7 @@ a { color: inherit; }
   flex: 0 0 auto;
 }
 
-.icon-btn:hover { background: rgba(0, 0, 0, 0.08); }
+.icon-btn:hover { background: rgba(15, 26, 51, 0.09); }
 .icon-btn:active { transform: scale(0.92); }
 
 .brand {
@@ -96,7 +116,7 @@ a { color: inherit; }
 }
 
 .brand .logo-mark {
-  height: 40px;
+  height: 38px;
   width: auto;
   display: block;
 }
@@ -108,15 +128,15 @@ a { color: inherit; }
   font-size: 12px;
   letter-spacing: 0.5px;
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 .brand h1 {
   font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 700;
+  letter-spacing: -0.015em;
   margin: 0;
-  line-height: 1.1;
+  line-height: 1.15;
   color: var(--navy);
 }
 
@@ -124,19 +144,19 @@ a { color: inherit; }
   display: block;
   font-size: 11px;
   color: var(--muted);
-  font-weight: 400;
+  font-weight: 500;
 }
 
 .topbar nav a {
-  color: var(--accent);
+  color: var(--navy);
   text-decoration: none;
   font-size: 13px;
-  font-weight: 500;
-  margin-left: 14px;
-  transition: opacity 0.15s ease;
+  font-weight: 600;
+  margin-left: 16px;
+  transition: color 0.15s ease;
 }
 
-.topbar nav a:hover { opacity: 0.7; }
+.topbar nav a:hover { color: var(--navy-deep); }
 
 .container {
   max-width: 1200px;
@@ -145,22 +165,22 @@ a { color: inherit; }
 }
 
 .section-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.6px;
+  letter-spacing: 0.7px;
   color: var(--muted);
-  margin: 28px 0 12px;
+  margin: 32px 0 14px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
 }
 
 .section-title::before {
   content: '';
   width: 4px;
   height: 14px;
-  background: var(--accent);
+  background: var(--grad-brand);
   border-radius: 3px;
   display: inline-block;
 }
@@ -188,37 +208,129 @@ a { color: inherit; }
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 16px;
-  box-shadow: var(--shadow);
+  padding: 18px 16px;
+  box-shadow: var(--shadow-sm);
   text-align: center;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s cubic-bezier(.2,.8,.2,1), box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .stat-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0,0,0,0.04), 0 12px 28px rgba(0,0,0,0.08);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lift);
+  border-color: var(--line-strong);
 }
 
 .stat-card .value {
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-card .label {
   font-size: 11.5px;
   color: var(--muted);
   margin-top: 4px;
-  line-height: 1.3;
+  line-height: 1.35;
+  font-weight: 500;
 }
 
 .card {
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 18px;
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+}
+
+/* --- Marketing hero (public homepage) --- */
+.hero {
+  position: relative;
+  margin: 8px 0 36px;
+  padding: 56px 32px;
+  border-radius: var(--radius-lg);
+  background: var(--navy);
+  background-image:
+    linear-gradient(120deg, rgba(101,168,222,0.55) 0%, rgba(101,168,222,0) 42%),
+    linear-gradient(300deg, rgba(112,219,243,0.35) 0%, rgba(112,219,243,0) 38%),
+    linear-gradient(135deg, var(--navy) 0%, var(--navy-2) 100%);
+  color: #fff;
+  overflow: hidden;
+  text-align: center;
+}
+
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255,255,255,0.14);
+  border: 1px solid rgba(255,255,255,0.28);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  margin-bottom: 20px;
+}
+
+.hero h2 {
+  font-size: clamp(28px, 5vw, 46px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  margin: 0 0 14px;
+  max-width: 780px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.hero p {
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.6;
+  color: rgba(255,255,255,0.86);
+  max-width: 560px;
+  margin: 0 auto 26px;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hero-actions .btn {
+  padding: 12px 24px;
+  font-size: 14.5px;
+}
+
+.hero-actions .btn.on-hero-primary {
+  background: #fff;
+  color: var(--navy);
+}
+.hero-actions .btn.on-hero-primary:hover { background: #eef2fb; opacity: 1; }
+
+.hero-actions .btn.on-hero-outline {
+  background: transparent;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.5);
+}
+.hero-actions .btn.on-hero-outline:hover { background: rgba(255,255,255,0.12); opacity: 1; }
+
+/* Light-blue highlight banner — mirrors the "tip" callout bars used         */
+/* throughout the official Skål brand guidelines deck.                      */
+.callout {
+  background: rgba(101, 168, 222, 0.16);
+  border: 1px solid rgba(101, 168, 222, 0.3);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--navy-2);
+  line-height: 1.55;
 }
 
 .chart-scroll {
@@ -251,16 +363,25 @@ table {
 
 th, td {
   text-align: left;
-  padding: 8px 6px;
-  border-bottom: 1px solid #eef0f5;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
 
 th {
   color: var(--muted);
-  font-weight: 600;
-  font-size: 11.5px;
+  font-weight: 700;
+  font-size: 11px;
   text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+tbody tr {
+  transition: background 0.12s ease;
+}
+
+tbody tr:hover td {
+  background: rgba(49, 70, 145, 0.035);
 }
 
 .table-scroll {
@@ -276,7 +397,7 @@ th {
   position: sticky;
   right: 0;
   background: #fff;
-  box-shadow: -6px 0 8px -6px rgba(0,0,0,0.15);
+  box-shadow: -6px 0 8px -6px rgba(15,26,51,0.15);
   white-space: nowrap;
 }
 tr:nth-child(even) .sticky-actions { background: #fff; }
@@ -288,7 +409,7 @@ tr:nth-child(even) .sticky-actions { background: #fff; }
   position: sticky;
   left: 0;
   background: #fff;
-  box-shadow: 6px 0 8px -6px rgba(0,0,0,0.15);
+  box-shadow: 6px 0 8px -6px rgba(15,26,51,0.15);
   white-space: nowrap;
 }
 tr:nth-child(even) .sticky-col-left { background: #fff; }
@@ -312,16 +433,17 @@ tr:nth-child(even) .sticky-col-left { background: #fff; }
 
 .pill {
   display: inline-block;
-  padding: 2px 9px;
+  padding: 3px 10px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.1px;
 }
 
 .pill.paid { background: #e3f7f8; color: #1f9a86; }
 .pill.partial { background: #fdf8e0; color: #a6900a; }
 .pill.pending { background: #fdeaea; color: var(--red); }
-.pill.single { background: #e9f3fc; color: var(--navy); }
+.pill.single { background: #e9f0fc; color: var(--navy); }
 .pill.double { background: #f8ecfb; color: var(--purple); }
 .pill.congress_only { background: #eafbea; color: #1f8a3d; }
 .pill.refunded { background: #eef1f5; color: #55606e; }
@@ -383,7 +505,7 @@ tr.row-overdue td { background: #fff6f6; }
 }
 
 .media-dots span.active {
-  background: var(--gold);
+  background: var(--lightblue);
 }
 
 .media-controls {
@@ -432,7 +554,7 @@ tr.row-overdue td { background: #fff6f6; }
   flex: 1;
   min-width: 60px;
   max-width: 120px;
-  accent-color: var(--gold);
+  accent-color: var(--lightblue);
 }
 
 .feed-item {
@@ -467,7 +589,7 @@ tr.row-overdue td { background: #fff6f6; }
 .info-text {
   font-size: 13px;
   color: var(--text);
-  line-height: 1.6;
+  line-height: 1.65;
   margin: 10px 0 0;
 }
 
@@ -674,15 +796,15 @@ footer {
 }
 
 .sidebar {
-  flex: 0 0 264px;
-  width: 264px;
+  flex: 0 0 260px;
+  width: 260px;
   overflow: hidden;
   transition: width 0.28s cubic-bezier(.4,0,.2,1), flex-basis 0.28s cubic-bezier(.4,0,.2,1), opacity 0.2s ease;
   position: sticky;
-  top: 65px;
-  height: calc(100vh - 65px);
+  top: 67px;
+  height: calc(100vh - 67px);
   border-right: 1px solid var(--line);
-  background: rgba(255,255,255,0.6);
+  background: #fbfcfd;
 }
 
 .admin-shell.sidebar-hidden .sidebar {
@@ -693,7 +815,7 @@ footer {
 }
 
 .sidebar-inner {
-  width: 264px;
+  width: 260px;
   height: 100%;
   overflow-y: auto;
   padding: 18px 14px 40px;
@@ -705,14 +827,14 @@ footer {
 @media (max-width: 860px) {
   .sidebar {
     position: fixed;
-    top: 65px;
+    top: 67px;
     left: 0;
     z-index: 40;
-    box-shadow: 0 12px 32px rgba(0,0,0,0.14);
+    box-shadow: var(--shadow-lift);
   }
   .admin-shell:not(.sidebar-hidden) .sidebar {
-    width: 264px;
-    flex-basis: 264px;
+    width: 260px;
+    flex-basis: 260px;
   }
 }
 
@@ -731,7 +853,7 @@ footer {
   align-items: center;
   justify-content: space-between;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.6px;
   color: var(--muted);
@@ -770,6 +892,7 @@ footer {
   border-radius: var(--radius-sm);
   font-size: 13.5px;
   font-family: inherit;
+  font-weight: 500;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
   white-space: nowrap;
@@ -778,13 +901,13 @@ footer {
 }
 
 .admin-nav button:hover {
-  background: rgba(0, 0, 0, 0.045);
+  background: rgba(15, 26, 51, 0.05);
 }
 
 .admin-nav button.active {
   background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 600;
+  color: var(--navy);
+  font-weight: 700;
 }
 
 .tab-panel { display: none; }
@@ -803,7 +926,7 @@ footer {
 
 label {
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--muted);
   display: block;
   margin-bottom: 4px;
@@ -812,7 +935,7 @@ label {
 input, select, textarea {
   width: 100%;
   padding: 9px 11px;
-  border: 1px solid #d9d9de;
+  border: 1px solid #d7dbe3;
   border-radius: var(--radius-sm);
   font-size: 14px;
   font-family: inherit;
@@ -823,7 +946,7 @@ input, select, textarea {
 
 input:focus, select:focus, textarea:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--navy);
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
@@ -834,24 +957,24 @@ textarea { resize: vertical; min-height: 60px; }
   background: var(--text);
   color: #fff;
   border: none;
-  padding: 9px 18px;
+  padding: 10px 20px;
   border-radius: var(--radius-sm);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+  transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease, box-shadow 0.15s ease;
 }
 
-.btn:hover { opacity: 0.88; }
+.btn:hover { opacity: 0.9; transform: translateY(-1px); }
 .btn:active { transform: scale(0.97); }
 
-.btn.gold { background: var(--accent); color: #fff; }
-.btn.gold:hover { background: var(--accent-dark); opacity: 1; }
-.btn.outline { background: transparent; color: var(--text); border: 1px solid #d9d9de; }
-.btn.outline:hover { background: rgba(0,0,0,0.04); opacity: 1; }
+.btn.gold { background: var(--navy); color: #fff; }
+.btn.gold:hover { background: var(--navy-deep); opacity: 1; box-shadow: 0 6px 16px rgba(49,70,145,0.28); }
+.btn.outline { background: transparent; color: var(--text); border: 1px solid #d7dbe3; }
+.btn.outline:hover { background: rgba(15,26,51,0.04); opacity: 1; transform: none; }
 .btn.danger { background: var(--red); }
-.btn.small { padding: 6px 12px; font-size: 12.5px; border-radius: 8px; }
+.btn.small { padding: 7px 13px; font-size: 12.5px; border-radius: 7px; }
 
 .field { margin-bottom: 10px; }
 
@@ -866,15 +989,16 @@ textarea { resize: vertical; min-height: 60px; }
   bottom: 22px;
   left: 50%;
   transform: translateX(-50%) translateY(8px);
-  background: rgba(29, 29, 31, 0.92);
+  background: rgba(15, 26, 51, 0.94);
   -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
   color: #fff;
   padding: 11px 20px;
   border-radius: 999px;
   font-size: 13px;
+  font-weight: 500;
   z-index: 200;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+  box-shadow: 0 8px 30px rgba(15,26,51,0.3);
   opacity: 0;
   transition: opacity 0.25s ease, transform 0.25s ease;
   pointer-events: none;
@@ -886,7 +1010,7 @@ textarea { resize: vertical; min-height: 60px; }
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(29, 29, 31, 0.45);
+  background: rgba(15, 26, 51, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -896,12 +1020,12 @@ textarea { resize: vertical; min-height: 60px; }
 .modal-card {
   background: var(--card);
   border-radius: var(--radius);
-  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  box-shadow: 0 24px 64px rgba(15,26,51,0.32);
   width: 100%;
   max-width: 560px;
   max-height: 86vh;
   overflow-y: auto;
-  padding: 20px 22px;
+  padding: 22px 24px;
 }
 .modal-header {
   display: flex;
@@ -944,9 +1068,10 @@ textarea { resize: vertical; min-height: 60px; }
 
 .thumb {
   background: var(--card);
+  border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-sm);
   font-size: 11px;
 }
 
