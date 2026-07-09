@@ -630,6 +630,40 @@ const MODULE_CONFIG = {
       { name: 'title', label: 'Title', required: true }, { name: 'description', label: 'Description', type: 'textarea' },
       { name: 'sort_order', label: 'Sort order', type: 'number' },
     ] },
+  // Delegate registration data entry — for volunteers helping process
+  // registrations/delegates. Three sections: Clubs (so there's always
+  // somewhere to pick/add a club from), Registrations (one per booking —
+  // single/double/congress-only), and Delegates (the actual attendees,
+  // each linked to a registration). Payment fields are intentionally left
+  // off this form — those stay admin-only, same reasoning as every other
+  // module here (minimal fields, not the full admin set).
+  participants: { label: 'Delegate Registrations', sections: [
+    { path: 'clubs', label: 'Clubs',
+      columns: [['name', 'Name'], ['city', 'City'], ['state', 'State'], ['zone', 'Zone']],
+      fields: [
+        { name: 'name', label: 'Club name', required: true }, { name: 'city', label: 'City' },
+        { name: 'state', label: 'State' }, { name: 'zone', label: 'Zone' },
+      ] },
+    { path: 'registrations', label: 'Registrations',
+      columns: [['reg_number', 'Reg #'], ['reg_type', 'Type'], ['club_name', 'Club']],
+      fields: [
+        { name: 'reg_type', label: 'Registration type', type: 'select', required: true,
+          options: [['single', 'Single'], ['double', 'Double'], ['congress_only', 'Congress Only (no room)']] },
+        { name: 'club_id', label: 'Club', type: 'select', optionsFrom: 'clubs', optionLabel: (c) => c.name },
+      ] },
+    { path: 'participants', label: 'Delegates',
+      columns: [['name', 'Name'], ['phone', 'Phone'], ['club_name', 'Club'], ['reg_number', 'Reg #']],
+      fields: [
+        { name: 'registration_id', label: 'Registration', type: 'select', required: true,
+          optionsFrom: 'registrations', optionLabel: (r) => `${r.reg_number}${r.reg_type ? ' — ' + r.reg_type : ''}${r.club_name ? ' (' + r.club_name + ')' : ''}` },
+        { name: 'name', label: 'Name', required: true }, { name: 'phone', label: 'Phone' },
+        { name: 'whatsapp', label: 'WhatsApp' }, { name: 'email', label: 'Email' },
+        { name: 'club_id', label: 'Club', type: 'select', optionsFrom: 'clubs', optionLabel: (c) => c.name },
+        { name: 'designation', label: 'Designation' }, { name: 'dietary_preference', label: 'Dietary preference' },
+        { name: 'travel_mode', label: 'Travel mode' }, { name: 'travel_number', label: 'Travel number' },
+        { name: 'travel_datetime', label: 'Travel date/time' }, { name: 'arrival_point', label: 'Arrival point' },
+      ] },
+  ] },
 };
 let currentModuleKey = null, currentModuleSectionPath = null;
 
@@ -672,6 +706,16 @@ async function renderHostModuleSection(cfg, section) {
     body.innerHTML = `<p class="hint" style="color:var(--red);">${err.message}</p>`;
     return;
   }
+  // Fields of type 'select' with optionsFrom (e.g. a Delegate form's
+  // "Registration" dropdown) pull their option list from ANOTHER section's
+  // own endpoint in the same module — fetched fresh on every render so a
+  // club/registration added a moment ago shows up immediately.
+  const selectFields = section.fields.filter((f) => f.type === 'select' && f.optionsFrom);
+  const optionRows = {};
+  for (const f of selectFields) {
+    try { optionRows[f.optionsFrom] = await jget(`${API}/portal-modules/${f.optionsFrom}`); }
+    catch (err) { optionRows[f.optionsFrom] = []; }
+  }
   const sectionTabs = cfg.sections ? `
     <div style="display:flex;gap:6px;margin-bottom:10px;">
       ${cfg.sections.map((s) => `<button type="button" class="btn small ${s.path === section.path ? 'gold' : ''}" onclick="selectHostModule('${Object.keys(MODULE_CONFIG).find((k) => MODULE_CONFIG[k] === cfg)}', '${s.path}')">${s.label}</button>`).join('')}
@@ -692,7 +736,14 @@ async function renderHostModuleSection(cfg, section) {
         <div class="form-grid cols-2">
           ${section.fields.map((f) => `
             <div class="field"><label>${f.label}${f.required ? ' *' : ''}</label>
-              ${f.type === 'textarea' ? `<textarea name="${f.name}"${f.required ? ' required' : ''}></textarea>` : `<input name="${f.name}" type="${f.type || 'text'}"${f.required ? ' required' : ''} />`}
+              ${f.type === 'select' ? `
+                <select name="${f.name}"${f.required ? ' required' : ''}>
+                  <option value="">-- choose --</option>
+                  ${f.optionsFrom
+                    ? (optionRows[f.optionsFrom] || []).map((r) => `<option value="${r.id}">${escapeHtml(f.optionLabel(r))}</option>`).join('')
+                    : (f.options || []).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+                </select>
+              ` : (f.type === 'textarea' ? `<textarea name="${f.name}"${f.required ? ' required' : ''}></textarea>` : `<input name="${f.name}" type="${f.type || 'text'}"${f.required ? ' required' : ''} />`)}
             </div>
           `).join('')}
         </div>
