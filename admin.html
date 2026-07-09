@@ -464,7 +464,22 @@
           <div class="field"><label>Company</label><input name="company" /></div>
           <div class="field"><label>Designation</label><input name="designation" /></div>
           <div class="field"><label>Category</label><input name="category" placeholder="Hotel / Travel / Transport / Other" /></div>
+          <div class="field">
+            <label>Leadership role</label>
+            <select name="leadership_role">
+              <option value="">— None —</option>
+              <option value="President">President</option>
+              <option value="Secretary">Secretary</option>
+              <option value="Vice President">Vice President</option>
+              <option value="Treasurer">Treasurer</option>
+              <option value="Congress Chairman">Congress Chairman</option>
+              <option value="Congress Secretary">Congress Secretary</option>
+              <option value="Congress Joint Secretary">Congress Joint Secretary</option>
+              <option value="Congress Sponsor Chairman">Congress Sponsor Chairman</option>
+            </select>
+          </div>
         </div>
+        <p class="hint" style="margin-top:6px;">Anyone with a leadership role sees an extra read-only "Leadership Briefing" tab in their own portal login — a live rollup of registrations, payments, sponsors, checklist/committee progress, and goodies delivery across the whole congress.</p>
         <div class="section-title" style="font-size:12px;margin:16px 0 8px;">₹5,000 host-club payment</div>
         <div class="form-grid cols-3">
           <div class="field"><label>Payment status</label>
@@ -496,7 +511,7 @@
     <div class="field"><input id="hmSearch" placeholder="Search by name, phone, or company..." /></div>
     <div class="card table-scroll">
       <table>
-        <thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Committees</th><th>Payment</th><th>Login</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Leadership Role</th><th>Committees</th><th>Payment</th><th>Login</th><th></th></tr></thead>
         <tbody id="hmTableBody"></tbody>
       </table>
     </div>
