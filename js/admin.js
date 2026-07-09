@@ -1120,6 +1120,12 @@ window.saveHostPayment = async (id) => {
 
 // --- Committees ---
 let ALL_COMMITTEES_CACHE = [];
+let MODULE_KEYS_CACHE = null; // lazy-loaded catalog of the 12 assignable modules
+
+async function moduleKeysCache() {
+  if (!MODULE_KEYS_CACHE) MODULE_KEYS_CACHE = await jget(`${API}/committees/module-keys`);
+  return MODULE_KEYS_CACHE;
+}
 
 // Keeps every "which committee is responsible for this?" dropdown in sync
 // with the committee list — used by checklist templates and, per-item, by
@@ -1141,10 +1147,11 @@ async function refreshCommittees() {
   populateCommitteeSelects();
   document.getElementById('committeesList').innerHTML = rows.map((c) => `
     <div class="card" style="margin-bottom:10px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
         <strong>${c.name}</strong>
         <div>
           <button class="btn small" onclick="editCommittee(${c.id})">Edit</button>
+          <button class="btn small" onclick="toggleCommitteeModules(${c.id})">Modules (${(c.module_access || []).length})</button>
           <button class="btn small" onclick="toggleCommitteeTasks(${c.id})">Checklist &amp; Milestones (${c.tasks_completed || 0}/${c.task_count || 0})</button>
           ${canDelete() ? `<button class="btn danger small" onclick="deleteCommittee(${c.id})">Delete</button>` : ''}
         </div>
@@ -1152,11 +1159,13 @@ async function refreshCommittees() {
       ${c.description ? `<p class="hint" style="margin:6px 0 0;white-space:pre-wrap;">${c.description}</p>` : ''}
       <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">
         ${(c.members || []).map((m) => `
-          <span class="pill single" style="display:inline-flex;align-items:center;gap:6px;">
+          <span class="pill ${m.is_lead ? 'lead' : 'single'}" style="display:inline-flex;align-items:center;gap:6px;" title="${m.is_lead ? 'Committee lead — delegates tasks and verifies completions' : 'Click the star to make this person the committee lead'}">
+            ${m.is_lead ? '★' : `<a href="#" onclick="makeCommitteeLead(${c.id}, ${m.id});return false;" style="color:inherit;">☆</a>`}
             ${m.name}${canDelete() ? ` <a href="#" onclick="removeCommitteeMember(${c.id}, ${m.id});return false;" style="color:inherit;">✕</a>` : ''}
           </span>
         `).join('') || '<span class="hint">No members assigned yet</span>'}
       </div>
+      <div id="committeeModulesPanel-${c.id}" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:12px;"></div>
       <div id="committeeTasksPanel-${c.id}" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:12px;"></div>
     </div>
   `).join('') || '<div class="empty">No committees yet</div>';
@@ -1164,15 +1173,75 @@ async function refreshCommittees() {
   const opts = rows.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
   document.getElementById('committeeSelect').innerHTML = opts;
 
-  // Re-render innerHTML wipes any open checklist/milestones panels — reopen
-  // whichever ones were open before this refresh so admin actions inside
-  // them (add/delete/toggle) don't visibly close the panel each time.
+  // Re-render innerHTML wipes any open panels — reopen whichever ones were
+  // open before this refresh so admin actions inside them (add/delete/
+  // toggle/save) don't visibly close the panel each time.
   for (const id of openCommitteeTaskPanels) {
     const panel = document.getElementById(`committeeTasksPanel-${id}`);
     if (panel) { panel.style.display = ''; renderCommitteeTasksPanel(id); }
   }
+  for (const id of openCommitteeModulePanels) {
+    const panel = document.getElementById(`committeeModulesPanel-${id}`);
+    if (panel) { panel.style.display = ''; renderCommitteeModulesPanel(id); }
+  }
 }
 let openCommitteeTaskPanels = new Set();
+let openCommitteeModulePanels = new Set();
+
+window.makeCommitteeLead = async (committeeId, hostMemberId) => {
+  try {
+    await jput(`${API}/committees/${committeeId}/members/${hostMemberId}/lead`, { is_lead: true });
+    toast('Committee lead updated');
+    refreshCommittees();
+  } catch (err) { toast(err.message); }
+};
+
+window.toggleCommitteeModules = async (committeeId) => {
+  const panel = document.getElementById(`committeeModulesPanel-${committeeId}`);
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  if (isOpen) {
+    panel.style.display = 'none';
+    openCommitteeModulePanels.delete(committeeId);
+  } else {
+    panel.style.display = '';
+    openCommitteeModulePanels.add(committeeId);
+    await renderCommitteeModulesPanel(committeeId);
+  }
+};
+
+// Lets an admin grant this committee's members direct access to specific
+// operational modules from their own host portal (server/routes/
+// committeeModuleAccess.js) — a checkbox list saved all at once.
+async function renderCommitteeModulesPanel(committeeId) {
+  const panel = document.getElementById(`committeeModulesPanel-${committeeId}`);
+  if (!panel) return;
+  const c = ALL_COMMITTEES_CACHE.find((x) => x.id === committeeId);
+  const keys = await moduleKeysCache();
+  const granted = new Set(c?.module_access || []);
+  panel.innerHTML = `
+    <p class="hint" style="margin:0 0 8px;">Members of this committee can manage these modules directly from their own host portal, without going through an admin. Deletes always stay admin-only, regardless of what's granted here.</p>
+    <form onsubmit="return submitCommitteeModules(event, ${committeeId})">
+      <div class="module-checkbox-grid">
+        ${keys.map((k) => `
+          <label><input type="checkbox" value="${k.key}" ${granted.has(k.key) ? 'checked' : ''} /> ${k.label}</label>
+        `).join('')}
+      </div>
+      <button class="btn gold small" type="submit">Save module access</button>
+    </form>
+  `;
+}
+window.submitCommitteeModules = async (e, committeeId) => {
+  e.preventDefault();
+  const module_keys = Array.from(e.target.querySelectorAll('input[type=checkbox]:checked')).map((el) => el.value);
+  try {
+    await jput(`${API}/committees/${committeeId}/modules`, { module_keys });
+    toast('Module access saved');
+    openCommitteeModulePanels.add(committeeId);
+    refreshCommittees();
+  } catch (err) { toast(err.message); }
+  return false;
+};
 
 window.toggleCommitteeTasks = async (committeeId) => {
   const panel = document.getElementById(`committeeTasksPanel-${committeeId}`);
@@ -1198,6 +1267,8 @@ async function renderCommitteeTasksPanel(committeeId) {
   // Delivery" tab (cross-committee follow-up, filtering, reassignment),
   // not duplicated here.
   const tasks = await jget(`${API}/committees/${committeeId}/tasks`);
+  const c = ALL_COMMITTEES_CACHE.find((x) => x.id === committeeId);
+  const memberOpts = (c?.members || []).map((m) => `<option value="${m.id}">${m.name}</option>`).join('');
   panel.innerHTML = `
     <p class="hint" style="margin:0 0 12px;">Looking for what this committee needs to deliver (checklist items assigned to it from Sponsors/Speakers/Guest Visitors/Delegates/Host Members)? See the <strong>Committee Delivery</strong> tab.</p>
     <form onsubmit="return submitCommitteeTask(event, ${committeeId})" style="margin:10px 0;">
@@ -1208,31 +1279,41 @@ async function renderCommitteeTasksPanel(committeeId) {
           <select name="is_milestone"><option value="0">Checklist item</option><option value="1">Milestone</option></select>
         </div>
       </div>
+      <div class="field"><label>Assign to</label>
+        <select name="assigned_to_host_member_id">
+          <option value="">Whole committee (broadcast)</option>
+          ${memberOpts}
+        </select>
+      </div>
       <div class="field"><label>Description</label><textarea name="description"></textarea></div>
       <button class="btn gold small" type="submit">Add checklist item / milestone</button>
     </form>
     ${tasks.map((t) => {
       const total = Number(t.total_members) || 0;
       const done = Number(t.done_count) || 0;
-      const allDone = total > 0 && done === total;
+      const verified = Number(t.verified_count) || 0;
+      const allVerified = total > 0 && verified === total;
+      const statusClass = (m) => m.status === 'verified' ? 'verified' : (m.status === 'done' ? 'done' : 'not_started');
+      const statusIcon = (m) => m.status === 'verified' ? '✓✓' : (m.status === 'done' ? '✓' : '');
       return `
         <div style="padding:8px 0;border-bottom:1px solid var(--line);">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
             <div>
               ${Number(t.is_milestone) ? '<span class="pill double">Milestone</span> ' : ''}
+              ${t.assigned_to_name ? `<span class="pill single">Assigned: ${t.assigned_to_name}</span> ` : ''}
               <strong>${t.title}</strong>
               ${t.due_date ? ` <span class="hint">due ${t.due_date}</span>` : ''}
               ${t.description ? `<br><span class="hint">${t.description}</span>` : ''}
             </div>
             <div style="text-align:right;white-space:nowrap;">
-              <span class="pill ${allDone ? 'done' : 'in_progress'}">${done}/${total} done</span>
+              <span class="pill ${allVerified ? 'verified' : 'in_progress'}">${verified}/${total} verified</span>
               ${canDelete() ? `<button class="btn danger small" onclick="deleteCommitteeTask(${t.id}, ${committeeId})">Delete</button>` : ''}
             </div>
           </div>
           <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">
             ${(t.members || []).map((m) => `
-              <span class="pill ${m.status === 'done' ? 'done' : 'not_started'}" style="cursor:pointer;" title="Click to toggle" onclick="toggleCommitteeMemberCompletion(${m.completion_id}, '${m.status}', ${committeeId})">
-                ${m.name} ${m.status === 'done' ? '✓' : ''}
+              <span class="pill ${statusClass(m)}" style="cursor:pointer;" title="Click to cycle pending → done → verified (admin override)" onclick="toggleCommitteeMemberCompletion(${m.completion_id}, '${m.status}', ${committeeId})">
+                ${m.name} ${statusIcon(m)}
               </span>
             `).join('')}
           </div>
@@ -1244,6 +1325,7 @@ async function renderCommitteeTasksPanel(committeeId) {
 window.submitCommitteeTask = async (e, committeeId) => {
   e.preventDefault();
   const body = Object.fromEntries(new FormData(e.target).entries());
+  if (!body.assigned_to_host_member_id) delete body.assigned_to_host_member_id;
   try {
     await jpost(`${API}/committees/${committeeId}/tasks`, body);
     e.target.reset();
@@ -1258,8 +1340,11 @@ window.deleteCommitteeTask = async (taskId, committeeId) => {
   toast('Removed');
   refreshCommittees();
 };
+// Admin override: cycles a member's completion pending -> done -> verified
+// -> pending, same three states the committee lead works through from their
+// own portal (see host.html's committee-tasks + verify actions).
 window.toggleCommitteeMemberCompletion = async (completionId, currentStatus, committeeId) => {
-  const next = currentStatus === 'done' ? 'pending' : 'done';
+  const next = currentStatus === 'pending' ? 'done' : (currentStatus === 'done' ? 'verified' : 'pending');
   try {
     await jput(`${API}/committees/tasks/completions/${completionId}`, { status: next });
     refreshCommittees();

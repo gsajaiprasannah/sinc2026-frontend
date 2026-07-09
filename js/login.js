@@ -76,6 +76,20 @@ async function jput(url, body) {
   if (!r.ok) { const err = new Error(data.error || `Request failed (HTTP ${r.status})`); err.data = data; err.status = r.status; throw err; }
   return data;
 }
+async function jpost(url, body) {
+  const r = await fetch(url, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body) });
+  if (r.status === 401) { handleUnauthorized(); throw new UnauthorizedError('Please log in again.'); }
+  const text = await r.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; }
+  catch (e) {
+    throw new Error(!r.ok
+      ? `Server returned HTTP ${r.status} instead of JSON — the backend may not have this endpoint deployed yet.`
+      : 'Server returned an unexpected (non-JSON) response.');
+  }
+  if (!r.ok) { const err = new Error(data.error || `Request failed (HTTP ${r.status})`); err.data = data; err.status = r.status; throw err; }
+  return data;
+}
 async function uploadFile(url, formEl) {
   let r;
   try {
@@ -278,6 +292,8 @@ async function loadHostMe() {
   renderHostProfile(data.profile);
   renderHostPayment(data.profile);
   renderHostCommittees(data.committeeTasks || []);
+  renderHostLeadCommittees(data.leadCommittees || []);
+  renderHostModules(data.moduleAccess || []);
   renderHostCommitteeChecklists(data.committeeChecklists);
   renderHostCommitteeDeliveries(data.committeeDeliveries);
   renderHostAssignments(data.assignments);
@@ -305,16 +321,20 @@ function renderHostPayment(p) {
 function renderHostCommittees(committees) {
   document.getElementById('hostMyCommitteesBody').innerHTML = (committees || []).map((c) => `
     <div style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line);">
-      <p style="margin:0 0 4px;"><strong>${c.name}</strong></p>
+      <p style="margin:0 0 4px;"><strong>${c.name}</strong> ${c.is_lead ? '<span class="pill lead">★ You lead this committee</span>' : ''}</p>
       ${c.description ? `<p class="hint" style="margin:0 0 8px;white-space:pre-wrap;">${c.description}</p>` : ''}
       ${(c.tasks && c.tasks.length) ? c.tasks.map((t) => `
         <div class="checklist-row status-${t.my_status || 'pending'}">
-          <select onchange="updateMyCommitteeTaskStatus(${t.completion_id}, this.value)">
-            <option value="pending" ${t.my_status === 'pending' ? 'selected' : ''}>Pending</option>
-            <option value="done" ${t.my_status === 'done' ? 'selected' : ''}>Done</option>
-          </select>
+          ${t.my_status === 'verified'
+            ? '<span class="pill verified">✓✓ Verified</span>'
+            : `<select onchange="updateMyCommitteeTaskStatus(${t.completion_id}, this.value)">
+                <option value="pending" ${t.my_status === 'pending' ? 'selected' : ''}>Pending</option>
+                <option value="done" ${t.my_status === 'done' ? 'selected' : ''}>Done</option>
+              </select>`}
           <span class="checklist-label">
-            ${Number(t.is_milestone) ? '<span class="pill double" style="margin-right:4px;">Milestone</span>' : ''}${t.title}${t.due_date ? ' <span class="hint">(due ' + t.due_date + ')</span>' : ''}
+            ${Number(t.is_milestone) ? '<span class="pill double" style="margin-right:4px;">Milestone</span>' : ''}
+            ${t.is_individually_assigned ? '<span class="pill single" style="margin-right:4px;">Assigned to you</span>' : ''}
+            ${t.title}${t.due_date ? ' <span class="hint">(due ' + t.due_date + ')</span>' : ''}
           </span>
           <span class="hint">${t.done_count}/${t.total_members} members done</span>
         </div>
@@ -325,6 +345,267 @@ function renderHostCommittees(committees) {
 window.updateMyCommitteeTaskStatus = async (completionId, status) => {
   try { await jput(`${API}/host/committee-tasks/${completionId}`, { status }); toast('Status updated'); loadHostMe(); }
   catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
+
+// --- Committee lead: delegate individual checklist items + verify completions ---
+function renderHostLeadCommittees(leadCommittees) {
+  const card = document.getElementById('hostLeadCard');
+  if (!leadCommittees || !leadCommittees.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const memberOpts = (roster) => roster.map((m) => `<option value="${m.id}">${m.name}</option>`).join('');
+  document.getElementById('hostLeadBody').innerHTML = leadCommittees.map((c) => `
+    <div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line);">
+      <p style="margin:0 0 8px;"><strong>${c.name}</strong> <span class="hint">— ${c.roster.length} member${c.roster.length === 1 ? '' : 's'}</span></p>
+      <form onsubmit="return submitLeadTask(event, ${c.id})" style="margin:10px 0;">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Title *</label><input name="title" required /></div>
+          <div class="field"><label>Due date</label><input name="due_date" type="date" /></div>
+          <div class="field"><label>Type</label>
+            <select name="is_milestone"><option value="0">Checklist item</option><option value="1">Milestone</option></select>
+          </div>
+        </div>
+        <div class="field"><label>Assign to</label>
+          <select name="assigned_to_host_member_id">
+            <option value="">Whole committee (broadcast)</option>
+            ${memberOpts(c.roster)}
+          </select>
+        </div>
+        <div class="field"><label>Description</label><textarea name="description"></textarea></div>
+        <button class="btn gold small" type="submit">Assign checklist item / milestone</button>
+      </form>
+      ${(c.tasks && c.tasks.length) ? c.tasks.map((t) => `
+        <div style="padding:8px 0;border-bottom:1px solid var(--line);">
+          <div>
+            ${Number(t.is_milestone) ? '<span class="pill double">Milestone</span> ' : ''}
+            ${t.assigned_to_host_member_id ? '<span class="pill single">Individually assigned</span> ' : ''}
+            <strong>${t.title}</strong>${t.due_date ? ` <span class="hint">due ${t.due_date}</span>` : ''}
+            ${t.description ? `<br><span class="hint">${t.description}</span>` : ''}
+          </div>
+          <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;">
+            ${(t.members || []).map((m) => `
+              <span class="pill ${m.status === 'verified' ? 'verified' : (m.status === 'done' ? 'done' : 'not_started')}" style="display:inline-flex;align-items:center;gap:6px;">
+                ${m.name} ${m.status === 'verified' ? '✓✓' : (m.status === 'done' ? '✓' : '')}
+                ${m.status === 'done' ? `<a href="#" onclick="verifyCompletion(${m.completion_id});return false;" style="color:inherit;text-decoration:underline;">Verify</a>` : ''}
+                ${m.status === 'verified' ? `<a href="#" onclick="unverifyCompletion(${m.completion_id});return false;" style="color:inherit;text-decoration:underline;">Un-verify</a>` : ''}
+              </span>
+            `).join('')}
+          </div>
+        </div>
+      `).join('') : '<p class="hint">No checklist items assigned in this committee yet.</p>'}
+    </div>
+  `).join('');
+}
+window.submitLeadTask = async (e, committeeId) => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  if (!body.assigned_to_host_member_id) delete body.assigned_to_host_member_id;
+  try {
+    await jpost(`${API}/host/committees/${committeeId}/tasks`, body);
+    toast('Checklist item assigned');
+    loadHostMe();
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+  return false;
+};
+window.verifyCompletion = async (completionId) => {
+  try { await jput(`${API}/host/committee-task-completions/${completionId}/verify`, { status: 'verified' }); toast('Marked as verified'); loadHostMe(); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
+window.unverifyCompletion = async (completionId) => {
+  try { await jput(`${API}/host/committee-task-completions/${completionId}/verify`, { status: 'done' }); toast('Un-verified'); loadHostMe(); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
+
+// --- My Modules: generic list/add/edit manager for committee-granted modules ---
+// Field configs are intentionally minimal (mirrors what each admin form
+// actually sends — see server/routes/*.js POST handlers) so a committee
+// member can contribute directly without needing every admin-only field.
+// No delete UI anywhere here — deletes stay super_admin-only server-side
+// regardless (server/index.js's global DELETE-block covers these routes too).
+const MODULE_CONFIG = {
+  transport_partners: { label: 'Partners & Drivers', sections: [
+    { path: 'partners', label: 'Transport Partners',
+      columns: [['name', 'Name'], ['category', 'Category'], ['contact_person', 'Contact'], ['phone', 'Phone']],
+      fields: [
+        { name: 'name', label: 'Name', required: true }, { name: 'category', label: 'Category' },
+        { name: 'contact_person', label: 'Contact person' }, { name: 'phone', label: 'Phone' },
+        { name: 'email', label: 'Email' }, { name: 'notes', label: 'Notes', type: 'textarea' },
+      ] },
+    { path: 'drivers', label: 'Drivers',
+      columns: [['name', 'Name'], ['phone', 'Phone'], ['partner_id', 'Partner ID'], ['vehicle_id', 'Vehicle ID']],
+      fields: [
+        { name: 'name', label: 'Name', required: true }, { name: 'phone', label: 'Phone' },
+        { name: 'partner_id', label: 'Partner ID (number)', type: 'number' }, { name: 'vehicle_id', label: 'Vehicle ID (number)', type: 'number' },
+        { name: 'notes', label: 'Notes', type: 'textarea' },
+      ] },
+  ] },
+  vehicles: { label: 'Vehicles', path: 'vehicles',
+    columns: [['vehicle_code', 'Code'], ['vehicle_type', 'Type'], ['model', 'Model'], ['seating_capacity', 'Seats']],
+    fields: [
+      { name: 'vehicle_type', label: 'Type (van/car/bus)', required: true }, { name: 'model', label: 'Model' },
+      { name: 'seating_capacity', label: 'Seating capacity', type: 'number' }, { name: 'registration_number', label: 'Registration number' },
+      { name: 'partner_id', label: 'Partner ID (number)', type: 'number' }, { name: 'notes', label: 'Notes', type: 'textarea' },
+    ] },
+  transport_planning: { label: 'Transport Planning', path: 'transport',
+    columns: [['trip_date', 'Date'], ['from_location', 'From'], ['to_location', 'To'], ['status', 'Status']],
+    fields: [
+      { name: 'from_location', label: 'From', required: true }, { name: 'to_location', label: 'To', required: true },
+      { name: 'trip_date', label: 'Trip date', type: 'date' }, { name: 'depart_time', label: 'Depart time' },
+      { name: 'purpose', label: 'Purpose' }, { name: 'vehicle_id', label: 'Vehicle ID (number)', type: 'number' },
+      { name: 'driver_id', label: 'Driver ID (number)', type: 'number' }, { name: 'status', label: 'Status (planned/in_progress/completed)' },
+      { name: 'notes', label: 'Notes', type: 'textarea' },
+    ] },
+  pretours: { label: 'Pre Tours', path: 'pretours',
+    columns: [['name', 'Name'], ['start_date', 'Start'], ['end_date', 'End'], ['status', 'Status']],
+    fields: [
+      { name: 'name', label: 'Name', required: true }, { name: 'start_date', label: 'Start date', type: 'date' },
+      { name: 'end_date', label: 'End date', type: 'date' }, { name: 'hotel', label: 'Hotel' },
+      { name: 'attractions', label: 'Attractions' }, { name: 'description', label: 'Description', type: 'textarea' },
+      { name: 'capacity', label: 'Capacity', type: 'number' }, { name: 'price', label: 'Price', type: 'number' },
+      { name: 'status', label: 'Status (planned/confirmed/cancelled)' }, { name: 'notes', label: 'Notes', type: 'textarea' },
+    ] },
+  accommodation: { label: 'Accommodation & Rooms', sections: [
+    { path: 'hotels', label: 'Hotels',
+      columns: [['name', 'Name'], ['address', 'Address'], ['contact_person', 'Contact'], ['phone', 'Phone']],
+      fields: [
+        { name: 'name', label: 'Name', required: true }, { name: 'address', label: 'Address' },
+        { name: 'contact_person', label: 'Contact person' }, { name: 'phone', label: 'Phone' },
+        { name: 'notes', label: 'Notes', type: 'textarea' },
+      ] },
+    { path: 'rooms', label: 'Room Assignments',
+      columns: [['room_number', 'Room #'], ['room_type', 'Type'], ['hotel_id', 'Hotel ID'], ['check_in', 'Check-in']],
+      fields: [
+        { name: 'hotel_id', label: 'Hotel ID (number)', required: true, type: 'number' }, { name: 'room_number', label: 'Room number' },
+        { name: 'room_type', label: 'Room type' }, { name: 'participant_id', label: 'Delegate ID (number)', type: 'number' },
+        { name: 'host_member_id', label: 'Host member ID (number)', type: 'number' },
+        { name: 'check_in', label: 'Check-in', type: 'date' }, { name: 'check_out', label: 'Check-out', type: 'date' },
+        { name: 'notes', label: 'Notes', type: 'textarea' },
+      ] },
+  ] },
+  inventory: { label: 'Goodies & Inventory', path: 'inventory',
+    columns: [['name', 'Item'], ['category', 'Category'], ['quantity_procured', 'Procured'], ['procurement_status', 'Status']],
+    fields: [
+      { name: 'name', label: 'Item name', required: true }, { name: 'category', label: 'Category' },
+      { name: 'unit', label: 'Unit' }, { name: 'quantity_procured', label: 'Quantity procured', type: 'number' },
+      { name: 'unit_cost', label: 'Unit cost', type: 'number' }, { name: 'reorder_threshold', label: 'Reorder threshold', type: 'number' },
+      { name: 'vendor_name', label: 'Vendor name' }, { name: 'procurement_status', label: 'Procurement status' },
+      { name: 'notes', label: 'Notes', type: 'textarea' },
+    ] },
+  sponsors: { label: 'Sponsors', path: 'sponsors',
+    columns: [['name', 'Name'], ['tier', 'Tier'], ['contact_person', 'Contact'], ['status', 'Status']],
+    fields: [
+      { name: 'name', label: 'Name', required: true }, { name: 'tier', label: 'Tier' },
+      { name: 'contact_person', label: 'Contact person' }, { name: 'phone', label: 'Phone' },
+      { name: 'email', label: 'Email' }, { name: 'status', label: 'Status' }, { name: 'notes', label: 'Notes', type: 'textarea' },
+    ] },
+  speakers: { label: 'Guest Speakers', path: 'speakers',
+    columns: [['name', 'Name'], ['topic', 'Topic'], ['session_type', 'Session type'], ['status', 'Status']],
+    fields: [
+      { name: 'name', label: 'Name', required: true }, { name: 'designation', label: 'Designation' },
+      { name: 'organization', label: 'Organization' }, { name: 'topic', label: 'Topic' }, { name: 'session_type', label: 'Session type' },
+      { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email' }, { name: 'status', label: 'Status' },
+      { name: 'notes', label: 'Notes', type: 'textarea' },
+    ] },
+  guestvisitors: { label: 'Guest Visitors', path: 'guestvisitors',
+    columns: [['name', 'Name'], ['category', 'Category'], ['visit_date', 'Visit date'], ['status', 'Status']],
+    fields: [
+      { name: 'name', label: 'Name', required: true }, { name: 'designation', label: 'Designation' },
+      { name: 'organization', label: 'Organization' }, { name: 'category', label: 'Category' },
+      { name: 'visit_date', label: 'Visit date', type: 'date' }, { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email' },
+      { name: 'status', label: 'Status' }, { name: 'notes', label: 'Notes', type: 'textarea' },
+    ] },
+  media: { label: 'Media (Video/Poster)', path: 'media', readOnly: true,
+    columns: [['title', 'Title'], ['type', 'Type'], ['active', 'Active']], fields: [] },
+  happenings: { label: 'Live Happenings', path: 'happenings',
+    columns: [['title', 'Title'], ['category', 'Category'], ['posted_by', 'Posted by']],
+    fields: [
+      { name: 'title', label: 'Title', required: true }, { name: 'description', label: 'Description', type: 'textarea' },
+      { name: 'category', label: 'Category' }, { name: 'posted_by', label: 'Posted by' },
+    ] },
+  itinerary: { label: 'Itinerary', path: 'itinerary',
+    columns: [['day_label', 'Day'], ['time_label', 'Time'], ['title', 'Title']],
+    fields: [
+      { name: 'day_label', label: 'Day label', required: true }, { name: 'time_label', label: 'Time label' },
+      { name: 'title', label: 'Title', required: true }, { name: 'description', label: 'Description', type: 'textarea' },
+      { name: 'sort_order', label: 'Sort order', type: 'number' },
+    ] },
+};
+let currentModuleKey = null, currentModuleSectionPath = null;
+
+function renderHostModules(moduleAccess) {
+  const card = document.getElementById('hostModulesCard');
+  if (!moduleAccess || !moduleAccess.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const nav = document.getElementById('hostModuleNav');
+  nav.innerHTML = moduleAccess.filter((k) => MODULE_CONFIG[k]).map((k) => `
+    <button type="button" class="btn small ${k === currentModuleKey ? 'gold' : ''}" onclick="selectHostModule('${k}')">${MODULE_CONFIG[k].label}</button>
+  `).join('');
+  if (!currentModuleKey && moduleAccess.length) currentModuleKey = moduleAccess.find((k) => MODULE_CONFIG[k]) || null;
+  if (currentModuleKey) selectHostModule(currentModuleKey, currentModuleSectionPath);
+}
+window.selectHostModule = async (key, sectionPath) => {
+  currentModuleKey = key;
+  const cfg = MODULE_CONFIG[key];
+  if (!cfg) return;
+  const section = cfg.sections ? (cfg.sections.find((s) => s.path === sectionPath) || cfg.sections[0]) : cfg;
+  currentModuleSectionPath = section.path;
+  document.querySelectorAll('#hostModuleNav .btn').forEach((b) => b.classList.remove('gold'));
+  const btns = document.querySelectorAll('#hostModuleNav .btn');
+  for (const b of btns) { if (b.textContent.trim() === cfg.label) b.classList.add('gold'); }
+  await renderHostModuleSection(cfg, section);
+};
+async function renderHostModuleSection(cfg, section) {
+  const body = document.getElementById('hostModuleBody');
+  body.innerHTML = '<p class="hint">Loading…</p>';
+  let rows = [];
+  try {
+    rows = await jget(`${API}/portal-modules/${section.path}`);
+  } catch (err) {
+    if (err instanceof UnauthorizedError) return;
+    body.innerHTML = `<p class="hint" style="color:var(--red);">${err.message}</p>`;
+    return;
+  }
+  const sectionTabs = cfg.sections ? `
+    <div style="display:flex;gap:6px;margin-bottom:10px;">
+      ${cfg.sections.map((s) => `<button type="button" class="btn small ${s.path === section.path ? 'gold' : ''}" onclick="selectHostModule('${Object.keys(MODULE_CONFIG).find((k) => MODULE_CONFIG[k] === cfg)}', '${s.path}')">${s.label}</button>`).join('')}
+    </div>` : '';
+  body.innerHTML = `
+    ${sectionTabs}
+    <div class="table-scroll">
+      <table>
+        <thead><tr>${section.columns.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${rows.map((r) => `<tr>${section.columns.map((c) => `<td>${escapeHtml(r[c[0]] == null ? '-' : r[c[0]])}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${section.columns.length}" class="empty">Nothing here yet</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    ${section.fields.length ? `
+      <div class="section-title" style="font-size:14px;">Add new</div>
+      <form onsubmit="return submitHostModuleForm(event)">
+        <div class="form-grid cols-2">
+          ${section.fields.map((f) => `
+            <div class="field"><label>${f.label}${f.required ? ' *' : ''}</label>
+              ${f.type === 'textarea' ? `<textarea name="${f.name}"${f.required ? ' required' : ''}></textarea>` : `<input name="${f.name}" type="${f.type || 'text'}"${f.required ? ' required' : ''} />`}
+            </div>
+          `).join('')}
+        </div>
+        <button class="btn gold small" type="submit">Add</button>
+      </form>
+    ` : (cfg.readOnly ? '<p class="hint">This module is view-only from the host portal.</p>' : '')}
+  `;
+}
+window.submitHostModuleForm = async (e) => {
+  e.preventDefault();
+  const cfg = MODULE_CONFIG[currentModuleKey];
+  const section = cfg.sections ? cfg.sections.find((s) => s.path === currentModuleSectionPath) : cfg;
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  Object.keys(body).forEach((k) => { if (body[k] === '') delete body[k]; });
+  try {
+    await jpost(`${API}/portal-modules/${section.path}`, body);
+    toast('Saved');
+    e.target.reset();
+    renderHostModuleSection(cfg, section);
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+  return false;
 };
 
 function renderHostAssignments(rows) {

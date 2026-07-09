@@ -529,6 +529,10 @@ tr:nth-child(even) .sticky-col-left { background: #fff; }
 .pill.in_progress { background: #fdf8e0; color: #a6900a; }
 .pill.not_started { background: #eef1f5; color: #55606e; }
 .pill.overdue { background: #fdeaea; color: var(--red); font-weight: 800; }
+.pill.lead { background: var(--gold-2, #fdf3d8); color: #8a6a00; }
+.pill.verified { background: #e3f7f8; color: #0f7a6a; font-weight: 800; }
+.module-checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 16px; margin: 8px 0 12px; }
+.module-checkbox-grid label { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 500; }
 tr.row-overdue td { background: #fff6f6; }
 
 .media-two-col {
