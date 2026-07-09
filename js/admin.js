@@ -585,7 +585,7 @@ async function refreshClubs() {
   document.getElementById('clubsTableBody').innerHTML = clubs.map((c) => `
     <tr>
       <td>${c.name}</td><td>${c.city || ''}</td><td>${c.state || ''}</td><td>${c.zone || ''}</td><td>${c.members_count}</td>
-      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteClub(${c.id})">Delete</button>` : ''}</td>
+      <td><button class="btn small" onclick="downloadClubDetailPdf(${c.id})">PDF</button> ${canDelete() ? `<button class="btn danger small" onclick="deleteClub(${c.id})">Delete</button>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="6" class="empty">No clubs yet</td></tr>';
 
@@ -627,7 +627,7 @@ async function refreshRegs() {
       <td>₹${r.amount_due}</td>
       <td><span class="pill ${r.payment_status}">${r.payment_status}</span></td>
       <td>${r.participant_count}</td>
-      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteReg(${r.id})">Delete</button>` : ''}</td>
+      <td><button class="btn small" onclick="downloadReceiptPdf(${r.id})">Receipt</button> ${canDelete() ? `<button class="btn danger small" onclick="deleteReg(${r.id})">Delete</button>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="8" class="empty">No registrations yet</td></tr>';
 
@@ -707,6 +707,7 @@ async function refreshParts(query) {
       <td>
         <button class="btn small" onclick="editPart(${p.id})">Edit</button>
         <button class="btn small" onclick="openChecklistModal('participant', ${p.id})">Kit</button>
+        <button class="btn small" onclick="downloadDelegateDetailPdf(${p.id})">PDF</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deletePart(${p.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -981,6 +982,7 @@ async function refreshHostMembers(query) {
       <td class="sticky-actions">
         <button class="btn small" onclick="editHm(${h.id})">Edit</button>
         <button class="btn small" onclick="openChecklistModal('host_member', ${h.id})">Kit</button>
+        <button class="btn small" onclick="downloadHostMemberDetailPdf(${h.id})">PDF</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteHm(${h.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -1160,6 +1162,7 @@ async function refreshCommittees() {
         <strong>${c.name}</strong>
         <div>
           <button class="btn small" onclick="editCommittee(${c.id})">Edit</button>
+          <button class="btn small" onclick="downloadCommitteeDetailPdf(${c.id})">PDF</button>
           <button class="btn small" onclick="toggleCommitteeModules(${c.id})">Modules (${(c.module_access || []).length})</button>
           <button class="btn small" onclick="toggleCommitteeTasks(${c.id})">Checklist &amp; Milestones (${c.tasks_completed || 0}/${c.task_count || 0})</button>
           <button class="btn small" onclick="toggleCommitteeChecklist(${c.id})">Committee Checklist (${c.checklist_item_count || 0})</button>
@@ -1611,7 +1614,7 @@ async function refreshPartners() {
       <td>${p.name}</td>
       <td>${p.contact_person || '-'}</td>
       <td>${p.phone || '-'}</td>
-      <td>${canDelete() ? `<button class="btn danger small" onclick="deletePartner(${p.id})">Delete</button>` : ''}</td>
+      <td><button class="btn small" onclick="downloadPartnerDetailPdf(${p.id})">PDF</button> ${canDelete() ? `<button class="btn danger small" onclick="deletePartner(${p.id})">Delete</button>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="5" class="empty">No partners yet</td></tr>';
 
@@ -1656,7 +1659,7 @@ async function refreshDrivers() {
         ? `${d.vehicle_code} <span class="hint">(${d.vehicle_master_type}, ${d.seating_capacity} seats)</span>`
         : (`${d.vehicle_type || ''} ${d.vehicle_number || ''}`.trim() || '<span class="hint">none</span>')}</td>
       <td>${d.partner_name || '-'}</td>
-      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteDriver(${d.id})">Delete</button>` : ''}</td>
+      <td><button class="btn small" onclick="downloadDriverDetailPdf(${d.id})">PDF</button> ${canDelete() ? `<button class="btn danger small" onclick="deleteDriver(${d.id})">Delete</button>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="5" class="empty">No drivers yet</td></tr>';
 
@@ -1706,6 +1709,7 @@ async function refreshVehicles() {
       <td>${v.partner_name || '-'}</td>
       <td class="sticky-actions">
         <button class="btn small" onclick="editVehicle(${v.id})">Edit</button>
+        <button class="btn small" onclick="downloadVehicleDetailPdf(${v.id})">PDF</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteVehicle(${v.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -2193,86 +2197,258 @@ document.getElementById('tourTripForm').addEventListener('submit', async (e) => 
   } catch (err) { toast(err.message); }
 });
 
-// --- Handover manifest PDFs (Transport trips + Pre Tours) ---
+// --- Shared PDF design kit ---------------------------------------------
 // Pure client-side (jsPDF, loaded via CDN in admin.html) — no backend
-// involved. Purpose: a printable paper the representative can carry to
-// physically confirm who is travelling in which vehicle, with driver +
-// passenger mobile numbers, for signature/handover on the day.
+// involved. Every downloadable PDF in the admin panel (handover manifests,
+// payment receipts, and the per-module "Download PDF" list/detail reports)
+// is built from these same primitives, so the whole app has one consistent,
+// branded look: a letterhead with both Skål logos, the brand navy/lightblue
+// palette, styled tables, status badges, and a page-numbered footer.
+const PDF_BRAND = {
+  navy: [49, 70, 145],
+  navyDeep: [32, 47, 94],
+  lightblue: [101, 168, 222],
+  grey: [89, 89, 91],
+  greyLight: [140, 140, 142],
+  rowTint: [244, 246, 251],
+  border: [222, 226, 236],
+  paid: [34, 148, 83],
+  pending: [199, 130, 20],
+  overdue: [196, 62, 62],
+  neutral: [140, 140, 142],
+};
+const PDF_PAGE_W = 595;
+const PDF_MARGIN = 40;
+const PDF_CONTENT_RIGHT = PDF_PAGE_W - PDF_MARGIN;
+const PDF_CONTENT_BOTTOM = 780;
+
+let PDF_LOGO_CACHE = null;
+function pdfImageToDataUrl(path) {
+  return fetch(path)
+    .then((res) => res.blob())
+    .then((blob) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    }));
+}
+// Fetches + caches both letterhead logos (Skål International + the Skål
+// Coimbatore host club) as base64 data URIs so jsPDF can embed them. Only
+// fetched once per page load; every PDF after that reuses the cached copy.
+async function getPdfLogos() {
+  if (PDF_LOGO_CACHE) return PDF_LOGO_CACHE;
+  try {
+    const [skal, coimbatore] = await Promise.all([
+      pdfImageToDataUrl('img/skal-logo.png'),
+      pdfImageToDataUrl('img/skal-coimbatore-logo.png'),
+    ]);
+    PDF_LOGO_CACHE = {
+      skal: { dataUrl: skal, ratio: 480 / 279 },
+      coimbatore: { dataUrl: coimbatore, ratio: 938 / 195 },
+    };
+  } catch (err) {
+    PDF_LOGO_CACHE = { skal: null, coimbatore: null };
+  }
+  return PDF_LOGO_CACHE;
+}
+// Fits an image into a maxW x maxH box, preserving aspect ratio (like
+// object-fit: contain).
+function pdfFitImage(ratio, maxW, maxH) {
+  let w = maxW, h = w / ratio;
+  if (h > maxH) { h = maxH; w = h * ratio; }
+  return { w, h };
+}
+
 function pdfDoc() {
   const { jsPDF } = window.jspdf;
   return new jsPDF({ unit: 'pt', format: 'a4' });
 }
 function pdfMaybeNewPage(doc, y, needed) {
-  if (y + needed > 780) { doc.addPage(); return 44; }
+  if (y + needed > PDF_CONTENT_BOTTOM) { doc.addPage(); return 44; }
   return y;
 }
-function pdfTitle(doc, title, subtitle) {
-  doc.setFont(undefined, 'bold'); doc.setFontSize(16);
-  doc.text(title, 40, 44);
-  if (subtitle) {
-    doc.setFont(undefined, 'normal'); doc.setFontSize(10);
-    doc.text(subtitle, 40, 60);
+function pdfSetColor(doc, method, color) { doc[method](color[0], color[1], color[2]); }
+
+// Draws the branded banner (both logos + congress name on a navy field),
+// the document title/subtitle beneath it, and returns the y cursor where
+// body content should start. Async because the logos are fetched lazily.
+async function pdfLetterhead(doc, title, subtitle) {
+  const logos = await getPdfLogos();
+  const bannerH = 70;
+  pdfSetColor(doc, 'setFillColor', PDF_BRAND.navy);
+  doc.rect(0, 0, PDF_PAGE_W, bannerH, 'F');
+  pdfSetColor(doc, 'setFillColor', PDF_BRAND.lightblue);
+  doc.rect(0, bannerH, PDF_PAGE_W, 3, 'F');
+
+  let logoX = PDF_MARGIN;
+  if (logos.skal) {
+    const { w, h } = pdfFitImage(logos.skal.ratio, 62, 34);
+    doc.addImage(logos.skal.dataUrl, 'PNG', logoX, (bannerH - h) / 2, w, h);
+    logoX += w + 14;
   }
-  return subtitle ? 84 : 70;
+  if (logos.coimbatore) {
+    const { w, h } = pdfFitImage(logos.coimbatore.ratio, 128, 30);
+    doc.addImage(logos.coimbatore.dataUrl, 'PNG', logoX, (bannerH - h) / 2, w, h);
+  }
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont(undefined, 'bold'); doc.setFontSize(15);
+  doc.text('SINC2026', PDF_CONTENT_RIGHT, 30, { align: 'right' });
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
+  doc.text('Skål International India National Congress · Coimbatore', PDF_CONTENT_RIGHT, 45, { align: 'right' });
+  doc.setTextColor(0, 0, 0);
+
+  let y = bannerH + 34;
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.navy);
+  doc.setFont(undefined, 'bold'); doc.setFontSize(16);
+  doc.text(title, PDF_MARGIN, y);
+  doc.setTextColor(0, 0, 0);
+  if (subtitle) {
+    y += 16;
+    pdfSetColor(doc, 'setTextColor', PDF_BRAND.grey);
+    doc.setFont(undefined, 'normal'); doc.setFontSize(9.5);
+    doc.text(subtitle, PDF_MARGIN, y);
+    doc.setTextColor(0, 0, 0);
+  }
+  y += 12;
+  pdfSetColor(doc, 'setDrawColor', PDF_BRAND.border);
+  doc.setLineWidth(0.75);
+  doc.line(PDF_MARGIN, y, PDF_CONTENT_RIGHT, y);
+  return y + 20;
 }
+
+// Adds the "Generated <date> · SINC2026 Admin  ·  Page X of N" footer to
+// every page. Must be called last, once the document is fully built, since
+// the total page count isn't known until then.
+function pdfFinalize(doc) {
+  const pageCount = doc.internal.getNumberOfPages();
+  const dateStr = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    pdfSetColor(doc, 'setDrawColor', PDF_BRAND.border);
+    doc.setLineWidth(0.75);
+    doc.line(PDF_MARGIN, 810, PDF_CONTENT_RIGHT, 810);
+    doc.setFont(undefined, 'normal'); doc.setFontSize(8);
+    pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
+    doc.text(`Generated ${dateStr} · SINC2026 Admin`, PDF_MARGIN, 823);
+    doc.text(`Page ${i} of ${pageCount}`, PDF_CONTENT_RIGHT, 823, { align: 'right' });
+    doc.setTextColor(0, 0, 0);
+  }
+}
+
 function pdfSectionLabel(doc, y, label) {
-  y = pdfMaybeNewPage(doc, y, 24);
+  y = pdfMaybeNewPage(doc, y, 26);
+  pdfSetColor(doc, 'setFillColor', PDF_BRAND.lightblue);
+  doc.rect(PDF_MARGIN, y - 9, 3, 12, 'F');
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.navy);
   doc.setFont(undefined, 'bold'); doc.setFontSize(11);
-  doc.text(label, 40, y);
+  doc.text(label, PDF_MARGIN + 10, y);
+  doc.setTextColor(0, 0, 0);
   return y + 16;
 }
 function pdfKeyValues(doc, y, pairs) {
   doc.setFontSize(9.5);
   pairs.forEach(([k, v]) => {
     y = pdfMaybeNewPage(doc, y, 14);
-    doc.setFont(undefined, 'bold'); doc.text(`${k}:`, 40, y);
-    doc.setFont(undefined, 'normal'); doc.text(String(v || '-'), 130, y, { maxWidth: 420 });
+    pdfSetColor(doc, 'setTextColor', PDF_BRAND.navy);
+    doc.setFont(undefined, 'bold'); doc.text(`${k}:`, PDF_MARGIN, y);
+    doc.setTextColor(30, 30, 30);
+    doc.setFont(undefined, 'normal'); doc.text(String(v === null || v === undefined || v === '' ? '-' : v), 150, y, { maxWidth: 400 });
+    doc.setTextColor(0, 0, 0);
     y += 14;
   });
   return y + 8;
 }
-// Simple hand-drawn table (no plugin dependency) — fixed column widths,
-// re-draws the header row after each page break.
+// Styled table: navy header with white text, zebra-striped body rows, thin
+// borders — re-draws the header after each page break.
 function pdfTable(doc, y, columns, rows) {
-  const startX = 40;
+  const startX = PDF_MARGIN;
   const xs = [];
   let x = startX;
   columns.forEach((c) => { xs.push(x); x += c.width; });
-  const rowHeight = 15;
+  const tableRight = xs[xs.length - 1] + columns[columns.length - 1].width;
+  const rowHeight = 17;
   function drawHeader() {
+    pdfSetColor(doc, 'setFillColor', PDF_BRAND.navy);
+    doc.rect(startX, y - 11, tableRight - startX, rowHeight, 'F');
+    doc.setTextColor(255, 255, 255);
     doc.setFont(undefined, 'bold'); doc.setFontSize(8.5);
-    columns.forEach((c, i) => doc.text(c.label, xs[i], y));
-    y += 3;
-    doc.setDrawColor(190);
-    doc.line(startX, y, xs[xs.length - 1] + columns[columns.length - 1].width, y);
-    y += 11;
-    doc.setFont(undefined, 'normal'); doc.setFontSize(9);
+    columns.forEach((c, i) => doc.text(c.label, xs[i] + 4, y + 1, c.align === 'right' ? { align: 'right', maxWidth: 0 } : {}));
+    doc.setTextColor(0, 0, 0);
+    y += rowHeight;
+    doc.setFont(undefined, 'normal'); doc.setFontSize(8.8);
   }
-  y = pdfMaybeNewPage(doc, y, 30);
+  y = pdfMaybeNewPage(doc, y, 34);
   drawHeader();
   if (!rows.length) {
-    doc.setTextColor(130);
-    doc.text('None', startX, y);
-    doc.setTextColor(0);
+    pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
+    doc.text('None', startX + 4, y + 2);
+    doc.setTextColor(0, 0, 0);
     return y + rowHeight;
   }
-  rows.forEach((row) => {
-    if (y > 780) { doc.addPage(); y = 44; drawHeader(); }
+  rows.forEach((row, ri) => {
+    if (y + rowHeight > PDF_CONTENT_BOTTOM) { doc.addPage(); y = 44; drawHeader(); }
+    if (ri % 2 === 1) {
+      pdfSetColor(doc, 'setFillColor', PDF_BRAND.rowTint);
+      doc.rect(startX, y - 11, tableRight - startX, rowHeight, 'F');
+    }
     row.forEach((cell, i) => {
-      const w = i < columns.length - 1 ? (xs[i + 1] - xs[i] - 6) : 500;
-      doc.text(String(cell === null || cell === undefined || cell === '' ? '-' : cell), xs[i], y, { maxWidth: w });
+      const w = i < columns.length - 1 ? (xs[i + 1] - xs[i] - 8) : (tableRight - xs[i] - 4);
+      const text = String(cell === null || cell === undefined || cell === '' ? '-' : cell);
+      if (columns[i].align === 'right') doc.text(text, xs[i] + w, y + 1, { align: 'right', maxWidth: w });
+      else doc.text(text, xs[i] + 4, y + 1, { maxWidth: w });
     });
     y += rowHeight;
   });
+  pdfSetColor(doc, 'setDrawColor', PDF_BRAND.border);
+  doc.setLineWidth(0.5);
+  doc.line(startX, y - 11, tableRight, y - 11);
   return y + 10;
+}
+// Small rounded status pill (Paid / Pending / Overdue / etc.) — used on
+// receipts and in detail sheets wherever a payment/status field appears.
+function pdfBadge(doc, x, y, text, kind) {
+  const color = PDF_BRAND[kind] || PDF_BRAND.neutral;
+  doc.setFont(undefined, 'bold'); doc.setFontSize(9);
+  const w = doc.getTextWidth(text) + 16;
+  pdfSetColor(doc, 'setFillColor', color);
+  doc.roundedRect(x, y - 10, w, 15, 7, 7, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.text(text, x + w / 2, y, { align: 'center' });
+  doc.setTextColor(0, 0, 0);
+  return w;
 }
 function pdfSignatureBlock(doc, y) {
   y = pdfMaybeNewPage(doc, y, 60);
   y += 14;
   doc.setFontSize(9.5); doc.setFont(undefined, 'normal');
-  doc.text('Confirmed by (representative): ______________________________', 40, y); y += 22;
-  doc.text('Signature: __________________________     Date: ______________', 40, y);
+  doc.text('Confirmed by (representative): ______________________________', PDF_MARGIN, y); y += 22;
+  doc.text('Signature: __________________________     Date: ______________', PDF_MARGIN, y);
   return y;
+}
+// Generic "download the full list of a module as a styled PDF report"
+// helper, reused by every "Download PDF" button across the admin panel.
+async function downloadListReportPdf(title, subtitle, columns, rows, filename) {
+  const doc = pdfDoc();
+  let y = await pdfLetterhead(doc, title, subtitle);
+  y = pdfTable(doc, y, columns, rows.map((r) => columns.map((c) => c.get(r))));
+  pdfFinalize(doc);
+  doc.save(filename);
+}
+// Generic "download one record as a styled detail sheet" helper. `sections`
+// is an array of { label, pairs } and/or { label, table: { columns, rows } }.
+async function downloadDetailPdf(title, subtitle, sections, filename) {
+  const doc = pdfDoc();
+  let y = await pdfLetterhead(doc, title, subtitle);
+  sections.forEach((sec) => {
+    if (sec.label) y = pdfSectionLabel(doc, y, sec.label);
+    if (sec.pairs) y = pdfKeyValues(doc, y, sec.pairs);
+    if (sec.table) y = pdfTable(doc, y, sec.table.columns, sec.table.rows);
+    y += 4;
+  });
+  pdfFinalize(doc);
+  doc.save(filename);
 }
 function pdfAddTripBlock(doc, y, trip) {
   y = pdfMaybeNewPage(doc, y, 90);
@@ -2303,9 +2479,10 @@ window.downloadTripPdf = async (tripId) => {
   try {
     const trip = await jget(`${API}/transport/${tripId}`);
     const doc = pdfDoc();
-    let y = pdfTitle(doc, 'Transport Trip Manifest', `${trip.from_location} → ${trip.to_location}  ·  SINC2026`);
+    let y = await pdfLetterhead(doc, 'Transport Trip Manifest', `${trip.from_location} → ${trip.to_location}`);
     y = pdfAddTripBlock(doc, y, trip);
     pdfSignatureBlock(doc, y);
+    pdfFinalize(doc);
     doc.save(`trip-manifest-${tripId}.pdf`);
   } catch (err) { toast(err.message); }
 };
@@ -2317,7 +2494,7 @@ window.downloadPreTourPdf = async (tourId) => {
     const trips = await Promise.all(tripsList.map((t) => jget(`${API}/transport/${t.id}`)));
 
     const doc = pdfDoc();
-    let y = pdfTitle(doc, `Pre Tour Manifest — ${tour.name}`,
+    let y = await pdfLetterhead(doc, `Pre Tour Manifest — ${tour.name}`,
       [tour.start_date && tour.end_date ? `${tour.start_date} to ${tour.end_date}` : (tour.start_date || ''), tour.hotel].filter(Boolean).join('  ·  '));
 
     y = pdfSectionLabel(doc, y, 'Signed-up delegates / host members');
@@ -2341,7 +2518,484 @@ window.downloadPreTourPdf = async (tourId) => {
       }
     }
     pdfSignatureBlock(doc, y);
+    pdfFinalize(doc);
     doc.save(`pretour-manifest-${tourId}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
+// --- List-report PDFs: Transport Trips + Pre Tours -----------------------
+window.downloadTransportTripsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/transport?pre_tour_id=none`);
+    await downloadListReportPdf('Transport Trips', `${rows.length} trip(s) scheduled`, [
+      { label: 'Date', width: 65, get: (r) => r.trip_date },
+      { label: 'Time', width: 45, get: (r) => r.depart_time },
+      { label: 'From', width: 105, get: (r) => r.from_location },
+      { label: 'To', width: 105, get: (r) => r.to_location },
+      { label: 'Vehicle', width: 75, get: (r) => r.vehicle_code },
+      { label: 'Driver', width: 85, get: (r) => r.driver_name },
+      { label: 'Status', width: 55, get: (r) => (r.status || '').replace('_', ' ') },
+    ], rows, 'transport-trips.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadPreToursListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/pretours`);
+    await downloadListReportPdf('Pre Tours', `${rows.length} pre tour(s)`, [
+      { label: 'Name', width: 150, get: (r) => r.name },
+      { label: 'Dates', width: 130, get: (r) => [r.start_date, r.end_date].filter(Boolean).join(' to ') },
+      { label: 'Hotel', width: 130, get: (r) => r.hotel },
+      { label: 'Signed up', width: 105, get: (r) => r.participant_count },
+    ], rows, 'pre-tours.pdf');
+  } catch (err) { toast(err.message); }
+};
+
+// --- Payment Receipt PDF (Registrations & Payments) -----------------------
+// One receipt per registration — covers whichever delegate(s) that
+// registration includes (1 for single/congress-only, 2 for double). This is
+// a payment receipt, not a formal tax invoice: no GST/tax breakdown, since
+// the congress registration fee isn't a taxed line item.
+const REG_TYPE_FULL_LABEL = {
+  single: 'Single Occupancy Registration',
+  double: 'Double Occupancy Registration',
+  congress_only: 'Congress Only Registration (no room)'
+};
+function receiptStatusBadgeKind(status) {
+  if (status === 'paid') return 'paid';
+  if (status === 'partial') return 'pending';
+  if (status === 'refunded') return 'overdue';
+  return 'neutral'; // pending
+}
+function receiptStatusLabel(status) {
+  return { paid: 'PAID', partial: 'PARTIALLY PAID', pending: 'PAYMENT PENDING', refunded: 'REFUNDED' }[status] || String(status || '').toUpperCase();
+}
+// Draws one full receipt (letterhead through totals + delegate list) onto
+// `doc`, starting a fresh page first unless `firstPage` is true. Shared by
+// both the single-receipt download and the "download all" combined PDF.
+async function pdfAddReceiptBody(doc, reg, delegates, firstPage) {
+  if (!firstPage) doc.addPage();
+  const total = Number(reg.amount_paid || 0) + Number(reg.amount_due || 0);
+  let y = await pdfLetterhead(doc, 'Payment Receipt', `Receipt No. ${reg.reg_number}  ·  Issued ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`);
+
+  // Faint diagonal "PAID" watermark for fully settled receipts — a familiar
+  // invoice cue that reads as reassuring rather than gimmicky.
+  if (reg.payment_status === 'paid') {
+    doc.setFont(undefined, 'bold'); doc.setFontSize(70);
+    doc.setTextColor(236, 243, 233);
+    doc.text('PAID', 300, 430, { align: 'center', angle: 30 });
+    doc.setTextColor(0, 0, 0);
+  }
+
+  pdfBadge(doc, PDF_CONTENT_RIGHT - 110, y - 14, receiptStatusLabel(reg.payment_status), receiptStatusBadgeKind(reg.payment_status));
+
+  y = pdfSectionLabel(doc, y, 'Billed To');
+  y = pdfKeyValues(doc, y, [
+    ['Club', reg.club_name || '-'],
+    ['Registration Type', REG_TYPE_FULL_LABEL[reg.reg_type] || reg.reg_type],
+    ['Delegate(s)', delegates.map((d) => d.name).join(', ') || '-'],
+  ]);
+
+  y = pdfSectionLabel(doc, y, 'Payment Details');
+  y = pdfTable(doc, y, [
+    { label: 'Description', width: 355 },
+    { label: 'Amount (₹)', width: 160, align: 'right' },
+  ], [[`${REG_TYPE_FULL_LABEL[reg.reg_type] || reg.reg_type} — ${reg.reg_number}`, total.toLocaleString('en-IN')]]);
+
+  y += 4;
+  const summaryX = PDF_CONTENT_RIGHT - 220;
+  [
+    ['Total Amount', total],
+    ['Amount Paid', Number(reg.amount_paid || 0)],
+    ['Balance Due', Number(reg.amount_due || 0)],
+  ].forEach(([label, amt], i) => {
+    y = pdfMaybeNewPage(doc, y, 16);
+    doc.setFont(undefined, i === 2 ? 'bold' : 'normal'); doc.setFontSize(10);
+    pdfSetColor(doc, 'setTextColor', i === 2 ? PDF_BRAND.navy : [30, 30, 30]);
+    doc.text(label, summaryX, y);
+    doc.text(`₹${amt.toLocaleString('en-IN')}`, PDF_CONTENT_RIGHT, y, { align: 'right' });
+    doc.setTextColor(0, 0, 0);
+    y += 15;
+  });
+
+  y = pdfSectionLabel(doc, y + 8, 'Payment Information');
+  y = pdfKeyValues(doc, y, [
+    ['Payment Mode', reg.payment_mode || '-'],
+    ['Payment Reference', reg.payment_ref || '-'],
+  ]);
+
+  y = pdfMaybeNewPage(doc, y, 30);
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
+  doc.text('This receipt confirms the registration payment recorded in the SINC2026 system. For queries, contact the Registration Desk.', PDF_MARGIN, y, { maxWidth: 515 });
+  doc.setTextColor(0, 0, 0);
+  return y;
+}
+window.downloadReceiptPdf = async (regId) => {
+  try {
+    const regs = await jget(`${API}/registrations`);
+    const reg = regs.find((r) => r.id === regId);
+    if (!reg) { toast('Registration not found'); return; }
+    const allParticipants = await jget(`${API}/participants`);
+    const delegates = allParticipants.filter((p) => p.registration_id === regId);
+    const doc = pdfDoc();
+    await pdfAddReceiptBody(doc, reg, delegates, true);
+    pdfFinalize(doc);
+    doc.save(`receipt-${reg.reg_number}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadAllReceiptsPdf = async () => {
+  try {
+    const regs = await jget(`${API}/registrations`);
+    if (!regs.length) { toast('No registrations to generate receipts for'); return; }
+    const allParticipants = await jget(`${API}/participants`);
+    const doc = pdfDoc();
+    for (let i = 0; i < regs.length; i++) {
+      const delegates = allParticipants.filter((p) => p.registration_id === regs[i].id);
+      await pdfAddReceiptBody(doc, regs[i], delegates, i === 0);
+    }
+    pdfFinalize(doc);
+    doc.save('all-payment-receipts.pdf');
+  } catch (err) { toast(err.message); }
+};
+
+// --- Per-module "Download PDF" list reports + per-record detail sheets ---
+// Every module below follows the same shape: a list export (fetch fresh,
+// build a styled table) and, where a single record is meaningful on its
+// own, a detail sheet (fetch fresh, find the record, build key/value +
+// sub-table sections). All built on the shared kit above, so they share the
+// same letterhead, colors, and footer as the receipts and manifests.
+
+// Clubs
+window.downloadClubsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/clubs`);
+    await downloadListReportPdf('Clubs Directory', `${rows.length} club(s) registered`, [
+      { label: 'Club Name', width: 190, get: (r) => r.name },
+      { label: 'City', width: 100, get: (r) => r.city },
+      { label: 'State', width: 90, get: (r) => r.state },
+      { label: 'Zone', width: 60, get: (r) => r.zone },
+      { label: 'Members', width: 75, get: (r) => r.members_count, align: 'right' },
+    ], rows, 'clubs-directory.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadClubDetailPdf = async (id) => {
+  try {
+    const rows = await jget(`${API}/clubs`);
+    const c = rows.find((r) => r.id === id);
+    if (!c) { toast('Club not found'); return; }
+    await downloadDetailPdf(`Club — ${c.name}`, '', [
+      { label: 'Club Details', pairs: [['Name', c.name], ['City', c.city], ['State', c.state], ['Zone', c.zone], ['Members', c.members_count]] },
+    ], `club-${c.name}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
+// Delegates (Participants)
+window.downloadDelegatesListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/participants`);
+    await downloadListReportPdf('Delegates Directory', `${rows.length} delegate(s)`, [
+      { label: 'Reg ID', width: 65, get: (r) => r.participant_code },
+      { label: 'Name', width: 130, get: (r) => r.name },
+      { label: 'Club', width: 110, get: (r) => r.club_name },
+      { label: 'Reg #', width: 75, get: (r) => r.reg_number },
+      { label: 'Phone', width: 80, get: (r) => r.phone },
+      { label: 'Payment', width: 55, get: (r) => r.payment_status },
+    ], rows, 'delegates-directory.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadDelegateDetailPdf = async (id) => {
+  try {
+    const rows = await jget(`${API}/participants`);
+    const p = rows.find((r) => r.id === id);
+    if (!p) { toast('Delegate not found'); return; }
+    await downloadDetailPdf(`Delegate — ${p.name}`, p.participant_code ? `Registration ID ${p.participant_code}` : '', [
+      { label: 'Delegate Info', pairs: [
+        ['Name', p.name], ['Designation', p.designation], ['Club', p.club_name], ['Registration #', p.reg_number],
+        ['Phone', p.phone], ['WhatsApp', p.whatsapp], ['Email', p.email], ['Address', p.address],
+      ] },
+      { label: 'Arrival', pairs: [['Mode', p.travel_mode], ['Number', p.travel_number], ['Date/Time', p.travel_datetime], ['Arrival point', p.arrival_point]] },
+      { label: 'Departure', pairs: [['Mode', p.departure_mode], ['Number', p.departure_number], ['Date/Time', p.departure_datetime]] },
+      { label: 'Pickup & SPOC', pairs: [
+        ['Picked up by', p.pickup_by], ['Vehicle', p.pickup_vehicle], ['Pickup contact', p.pickup_phone],
+        ['SPOC', p.spoc_host_member_name || p.spoc_name], ['SPOC phone', p.spoc_host_member_phone || p.spoc_phone],
+      ] },
+      { label: 'Payment', pairs: [['Status', p.payment_status]] },
+    ], `delegate-${p.participant_code || p.name}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
+// Host Members
+window.downloadHostMembersListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/hostmembers`);
+    await downloadListReportPdf('Host Members Directory', `${rows.length} host member(s)`, [
+      { label: 'Name', width: 150, get: (r) => r.name },
+      { label: 'Company', width: 130, get: (r) => r.company },
+      { label: 'Phone', width: 90, get: (r) => r.phone },
+      { label: 'Committees', width: 90, get: (r) => (r.committees || []).map((c) => c.name).join(', ') },
+      { label: 'Payment', width: 55, get: (r) => r.payment_status },
+    ], rows, 'host-members-directory.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadHostMemberDetailPdf = async (id) => {
+  try {
+    const rows = await jget(`${API}/hostmembers`);
+    const h = rows.find((r) => r.id === id);
+    if (!h) { toast('Host member not found'); return; }
+    await downloadDetailPdf(`Host Member — ${h.name}`, h.designation || '', [
+      { label: 'Contact Info', pairs: [['Name', h.name], ['Designation', h.designation], ['Company', h.company], ['Category', h.category], ['Phone', h.phone], ['Email', h.email]] },
+      { label: 'Committees', pairs: [['Member of', (h.committees || []).map((c) => c.name).join(', ') || '-']] },
+      { label: 'Payment', pairs: [['Status', h.payment_status], ['Amount', `₹${h.payment_amount}`], ['Mode', h.payment_mode], ['Date', h.payment_date]] },
+      { label: 'Notes', pairs: [['Notes', h.notes]] },
+    ], `host-member-${h.name}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
+// Host Registration & Payments (own ₹5,000 contribution report)
+window.downloadHostPaymentsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/hostmembers`);
+    const paidCount = rows.filter((h) => h.payment_status === 'paid').length;
+    const totalCollected = rows.filter((h) => h.payment_status === 'paid').reduce((s, h) => s + Number(h.payment_amount || 0), 0);
+    const doc = pdfDoc();
+    let y = await pdfLetterhead(doc, 'Host Registration & Payments', `${rows.length} host member(s)  ·  ${paidCount} paid  ·  ₹${totalCollected.toLocaleString('en-IN')} collected`);
+    y = pdfTable(doc, y, [
+      { label: 'Name', width: 130 }, { label: 'Status', width: 55 }, { label: 'Amount (₹)', width: 65, align: 'right' },
+      { label: 'Company', width: 100 }, { label: 'Phone', width: 80 }, { label: 'Mode', width: 85 },
+    ], rows.map((h) => [h.name, h.payment_status, Number(h.payment_amount || 0).toLocaleString('en-IN'), h.company, h.phone, h.payment_mode]));
+    pdfFinalize(doc);
+    doc.save('host-payments.pdf');
+  } catch (err) { toast(err.message); }
+};
+
+// Committees
+window.downloadCommitteesListPdf = async () => {
+  try {
+    await downloadListReportPdf('Committees', `${ALL_COMMITTEES_CACHE.length} committee(s)`, [
+      { label: 'Name', width: 140, get: (c) => c.name },
+      { label: 'Lead', width: 110, get: (c) => (c.members || []).find((m) => m.is_lead)?.name || '-' },
+      { label: 'Members', width: 65, get: (c) => (c.members || []).length, align: 'right' },
+      { label: 'Checklist', width: 90, get: (c) => `${c.tasks_completed || 0}/${c.task_count || 0}` },
+      { label: 'Description', width: 105, get: (c) => c.description },
+    ], ALL_COMMITTEES_CACHE, 'committees.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadCommitteeDetailPdf = async (id) => {
+  try {
+    const c = ALL_COMMITTEES_CACHE.find((r) => r.id === id);
+    if (!c) { toast('Committee not found'); return; }
+    await downloadDetailPdf(`Committee — ${c.name}`, c.description || '', [
+      { label: 'Members', table: { columns: [{ label: 'Name', width: 250 }, { label: 'Role', width: 100 }], rows: (c.members || []).map((m) => [m.name, m.is_lead ? 'Lead' : 'Member']) } },
+    ], `committee-${c.name}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
+// Vehicles
+window.downloadVehiclesListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/vehicles`);
+    await downloadListReportPdf('Vehicles', `${rows.length} vehicle(s)`, [
+      { label: 'Code', width: 65, get: (r) => r.vehicle_code },
+      { label: 'Type', width: 75, get: (r) => r.vehicle_type },
+      { label: 'Model', width: 110, get: (r) => r.model },
+      { label: 'Capacity', width: 60, get: (r) => r.seating_capacity, align: 'right' },
+      { label: 'Reg. Number', width: 100, get: (r) => r.registration_number },
+      { label: 'Partner', width: 105, get: (r) => r.partner_name },
+    ], rows, 'vehicles.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadVehicleDetailPdf = async (id) => {
+  try {
+    const rows = await jget(`${API}/vehicles`);
+    const v = rows.find((r) => r.id === id);
+    if (!v) { toast('Vehicle not found'); return; }
+    await downloadDetailPdf(`Vehicle — ${v.vehicle_code}`, v.model || '', [
+      { label: 'Vehicle Details', pairs: [['Code', v.vehicle_code], ['Type', v.vehicle_type], ['Model', v.model], ['Seating capacity', v.seating_capacity], ['Registration number', v.registration_number], ['Partner', v.partner_name], ['Notes', v.notes]] },
+    ], `vehicle-${v.vehicle_code}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
+// Transport Partners & Drivers
+window.downloadPartnersListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/partners`);
+    await downloadListReportPdf('Transport Partners', `${rows.length} partner(s)`, [
+      { label: 'Category', width: 100, get: (r) => r.category },
+      { label: 'Name', width: 170, get: (r) => r.name },
+      { label: 'Contact Person', width: 130, get: (r) => r.contact_person },
+      { label: 'Phone', width: 115, get: (r) => r.phone },
+    ], rows, 'transport-partners.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadPartnerDetailPdf = async (id) => {
+  try {
+    const rows = await jget(`${API}/partners`);
+    const p = rows.find((r) => r.id === id);
+    if (!p) { toast('Partner not found'); return; }
+    await downloadDetailPdf(`Transport Partner — ${p.name}`, p.category || '', [
+      { label: 'Partner Details', pairs: [['Category', p.category], ['Name', p.name], ['Contact person', p.contact_person], ['Phone', p.phone]] },
+    ], `partner-${p.name}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadDriversListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/drivers`);
+    await downloadListReportPdf('Drivers', `${rows.length} driver(s)`, [
+      { label: 'Name', width: 140, get: (r) => r.name },
+      { label: 'Phone', width: 100, get: (r) => r.phone },
+      { label: 'Vehicle', width: 140, get: (r) => r.vehicle_code || [r.vehicle_type, r.vehicle_number].filter(Boolean).join(' ') },
+      { label: 'Partner', width: 135, get: (r) => r.partner_name },
+    ], rows, 'drivers.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadDriverDetailPdf = async (id) => {
+  try {
+    const rows = await jget(`${API}/drivers`);
+    const d = rows.find((r) => r.id === id);
+    if (!d) { toast('Driver not found'); return; }
+    await downloadDetailPdf(`Driver — ${d.name}`, '', [
+      { label: 'Driver Details', pairs: [['Name', d.name], ['Phone', d.phone], ['Vehicle', d.vehicle_code || [d.vehicle_type, d.vehicle_number].filter(Boolean).join(' ')], ['Partner', d.partner_name]] },
+    ], `driver-${d.name}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
+// Sponsors
+window.downloadSponsorsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/sponsors`);
+    await downloadListReportPdf('Sponsors', `${rows.length} sponsor(s)`, [
+      { label: 'Pass Code', width: 80, get: (r) => r.sponsor_pass_code },
+      { label: 'Name', width: 150, get: (r) => r.name },
+      { label: 'Tier', width: 80, get: (r) => r.tier },
+      { label: 'Guest Relation', width: 100, get: (r) => r.guest_relation_name },
+      { label: 'Checklist', width: 60, get: (r) => `${r.checklist_done}/${r.checklist_total}` },
+      { label: 'Status', width: 45, get: (r) => r.status },
+    ], rows, 'sponsors.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadSponsorDetailPdf = async (id) => {
+  try {
+    const s = await jget(`${API}/sponsors/${id}`);
+    await downloadDetailPdf(`Sponsor — ${s.name}`, s.tier || '', [
+      { label: 'Sponsor Details', pairs: [['Pass code', s.sponsor_pass_code], ['Name', s.name], ['Tier', s.tier], ['Contact person', s.contact_person], ['Phone', s.phone], ['Email', s.email], ['Guest Relation', s.guest_relation_name], ['Status', s.status], ['Notes', s.notes]] },
+    ], `sponsor-${s.name}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
+// Guest Speakers
+window.downloadSpeakersListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/speakers`);
+    await downloadListReportPdf('Guest Speakers', `${rows.length} speaker(s)`, [
+      { label: 'Name', width: 130, get: (r) => r.name },
+      { label: 'Role', width: 85, get: (r) => r.session_type },
+      { label: 'Topic', width: 150, get: (r) => r.topic },
+      { label: 'Guest Relation', width: 95, get: (r) => r.guest_relation_name },
+      { label: 'Status', width: 55, get: (r) => r.status },
+    ], rows, 'guest-speakers.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadSpeakerDetailPdf = async (id) => {
+  try {
+    const s = await jget(`${API}/speakers/${id}`);
+    await downloadDetailPdf(`Guest Speaker — ${s.name}`, s.designation || '', [
+      { label: 'Speaker Details', pairs: [['Name', s.name], ['Designation', s.designation], ['Organization', s.organization], ['Phone', s.phone], ['Email', s.email], ['Topic', s.topic], ['Session type', s.session_type], ['Guest Relation', s.guest_relation_name], ['Status', s.status], ['Notes', s.notes]] },
+    ], `speaker-${s.name}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
+// Guest Visitors
+window.downloadGuestVisitorsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/guestvisitors`);
+    await downloadListReportPdf('Guest Visitors', `${rows.length} guest visitor(s)`, [
+      { label: 'Name', width: 130, get: (r) => r.name },
+      { label: 'Category', width: 90, get: (r) => r.category },
+      { label: 'Organization', width: 130, get: (r) => r.organization },
+      { label: 'Visit Date', width: 65, get: (r) => r.visit_date },
+      { label: 'Guest Relation', width: 100, get: (r) => r.guest_relation_name },
+    ], rows, 'guest-visitors.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadGuestVisitorDetailPdf = async (id) => {
+  try {
+    const g = await jget(`${API}/guestvisitors/${id}`);
+    await downloadDetailPdf(`Guest Visitor — ${g.name}`, g.designation || '', [
+      { label: 'Guest Visitor Details', pairs: [['Name', g.name], ['Designation', g.designation], ['Organization', g.organization], ['Phone', g.phone], ['Email', g.email], ['Category', g.category], ['Visit date', g.visit_date], ['Guest Relation', g.guest_relation_name], ['Status', g.status], ['Notes', g.notes]] },
+    ], `guest-visitor-${g.name}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
+// Hotels & Rooms
+window.downloadHotelsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/hotels`);
+    await downloadListReportPdf('Hotels', `${rows.length} hotel(s)`, [
+      { label: 'Name', width: 150, get: (r) => r.name },
+      { label: 'Address', width: 195, get: (r) => r.address },
+      { label: 'Contact', width: 100, get: (r) => r.contact_person },
+      { label: 'Occupants / Rooms', width: 70, get: (r) => `${r.occupant_count}/${r.room_count}` },
+    ], rows, 'hotels.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadHotelDetailPdf = async (id) => {
+  try {
+    const rows = await jget(`${API}/hotels`);
+    const h = rows.find((r) => r.id === id);
+    if (!h) { toast('Hotel not found'); return; }
+    const rooms = (await jget(`${API}/rooms`)).filter((r) => r.hotel_name === h.name);
+    await downloadDetailPdf(`Hotel — ${h.name}`, h.address || '', [
+      { label: 'Hotel Details', pairs: [['Name', h.name], ['Address', h.address], ['Contact person', h.contact_person], ['Phone', h.phone]] },
+      { label: 'Room Assignments', table: { columns: [
+        { label: 'Room', width: 60 }, { label: 'Type', width: 70 }, { label: 'Occupant', width: 190 }, { label: 'Check-in', width: 80 }, { label: 'Check-out', width: 80 },
+      ], rows: rooms.map((r) => [r.room_number, r.room_type, r.participant_name || r.host_member_name, r.check_in, r.check_out]) } },
+    ], `hotel-${h.name}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadRoomsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/rooms`);
+    await downloadListReportPdf('Room Assignments', `${rows.length} assignment(s)`, [
+      { label: 'Hotel', width: 130, get: (r) => r.hotel_name },
+      { label: 'Room', width: 60, get: (r) => r.room_number },
+      { label: 'Type', width: 70, get: (r) => r.room_type },
+      { label: 'Occupant', width: 145, get: (r) => r.participant_name || r.host_member_name },
+      { label: 'Check-in', width: 55, get: (r) => r.check_in },
+      { label: 'Check-out', width: 55, get: (r) => r.check_out },
+    ], rows, 'room-assignments.pdf');
+  } catch (err) { toast(err.message); }
+};
+
+// Goodies & Inventory
+window.downloadInventoryListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/inventory`);
+    await downloadListReportPdf('Goodies & Inventory', `${rows.length} item(s)`, [
+      { label: 'Item', width: 130, get: (r) => r.name },
+      { label: 'Category', width: 85, get: (r) => r.category },
+      { label: 'Committee', width: 100, get: (r) => r.responsible_committee_name || 'Unassigned' },
+      { label: 'Procured', width: 65, get: (r) => `${r.quantity_procured} ${r.unit}` },
+      { label: 'Distributed', width: 65, get: (r) => `${r.quantity_distributed} ${r.unit}` },
+      { label: 'Remaining', width: 65, get: (r) => `${r.quantity_remaining} ${r.unit}` },
+    ], rows, 'inventory.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadInventoryItemDetailPdf = async (id) => {
+  try {
+    const rows = await jget(`${API}/inventory`);
+    const item = rows.find((r) => r.id === id);
+    if (!item) { toast('Item not found'); return; }
+    const dist = await jget(`${API}/inventory/${id}/distributions`);
+    await downloadDetailPdf(`Inventory Item — ${item.name}`, item.category || '', [
+      { label: 'Item Details', pairs: [
+        ['Name', item.name], ['Category', item.category], ['Committee', item.responsible_committee_name || 'Unassigned'],
+        ['Procured', `${item.quantity_procured} ${item.unit}`], ['Distributed', `${item.quantity_distributed} ${item.unit}`], ['Remaining', `${item.quantity_remaining} ${item.unit}`],
+        ['Procurement status', item.procurement_status], ['Vendor', item.vendor_name], ['Unit cost', item.unit_cost], ['Notes', item.notes],
+      ] },
+      { label: 'Deliveries', table: { columns: [
+        { label: 'Recipient', width: 200 }, { label: 'Qty', width: 45, align: 'right' }, { label: 'Status', width: 80 }, { label: 'Delivered by', width: 130 },
+      ], rows: dist.map((d) => [d.recipient_name, d.quantity, d.status, d.delivered_by_name]) } },
+    ], `inventory-${item.name}.pdf`);
   } catch (err) { toast(err.message); }
 };
 
@@ -2785,6 +3439,7 @@ async function refreshSponsors() {
       <td class="sticky-actions">
         <button class="btn small" onclick="editSponsor(${s.id})">Edit</button>
         <button class="btn small" onclick="openChecklistModal('sponsor', ${s.id})">Checklist</button>
+        <button class="btn small" onclick="downloadSponsorDetailPdf(${s.id})">PDF</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteSponsor(${s.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -2857,6 +3512,7 @@ async function refreshSpeakers() {
       <td class="sticky-actions">
         <button class="btn small" onclick="editSpeaker(${s.id})">Edit</button>
         <button class="btn small" onclick="openChecklistModal('speaker', ${s.id})">Checklist</button>
+        <button class="btn small" onclick="downloadSpeakerDetailPdf(${s.id})">PDF</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteSpeaker(${s.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -2919,6 +3575,7 @@ async function refreshGuestVisitors() {
       <td class="sticky-actions">
         <button class="btn small" onclick="editGv(${g.id})">Edit</button>
         <button class="btn small" onclick="openChecklistModal('guest_visitor', ${g.id})">Offerings</button>
+        <button class="btn small" onclick="downloadGuestVisitorDetailPdf(${g.id})">PDF</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteGv(${g.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -2977,6 +3634,7 @@ async function refreshHotels() {
       <td>${h.occupant_count} occupant(s) / ${h.room_count} room(s)</td>
       <td class="sticky-actions">
         <button class="btn small" onclick="editHotel(${h.id})">Edit</button>
+        <button class="btn small" onclick="downloadHotelDetailPdf(${h.id})">PDF</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteHotel(${h.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -3119,6 +3777,7 @@ async function refreshInventoryItems() {
       <td class="sticky-actions">
         <button class="btn small" onclick="editInventoryItem(${i.id})">Edit</button>
         <button class="btn small" onclick="openInventoryDistModal(${i.id}, '${(i.name || '').replace(/'/g, "\\'")}')">Deliveries</button>
+        <button class="btn small" onclick="downloadInventoryItemDetailPdf(${i.id})">PDF</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteInventoryItem(${i.id})">Delete</button>` : ''}
       </td>
     </tr>

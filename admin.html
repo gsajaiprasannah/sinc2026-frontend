@@ -191,7 +191,10 @@
       </div>
     </div>
 
-    <div class="section-title">All clubs</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All clubs</span>
+      <button class="btn small" onclick="downloadClubsListPdf()">Download PDF</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Name</th><th>City</th><th>State</th><th>Zone</th><th>Members</th><th></th></tr></thead>
@@ -242,7 +245,10 @@
       </div>
     </div>
 
-    <div class="section-title">All registrations</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span>All registrations</span>
+      <button class="btn small" onclick="downloadAllReceiptsPdf()">Download All Receipts (PDF)</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Reg #</th><th>Type</th><th>Club</th><th>Paid</th><th>Due</th><th>Status</th><th>People</th><th></th></tr></thead>
@@ -318,7 +324,10 @@
       </form>
     </div>
 
-    <div class="section-title">All delegates</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All delegates</span>
+      <button class="btn small" onclick="downloadDelegatesListPdf()">Download PDF</button>
+    </div>
     <div class="field"><input id="partSearch" placeholder="Search by name, phone, reg#, or club..." /></div>
     <div class="card table-scroll">
       <table>
@@ -441,7 +450,10 @@
       </form>
     </div>
 
-    <div class="section-title">All host members</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All host members</span>
+      <button class="btn small" onclick="downloadHostMembersListPdf()">Download PDF</button>
+    </div>
     <div class="field"><input id="hmSearch" placeholder="Search by name, phone, or company..." /></div>
     <div class="card table-scroll">
       <table>
@@ -457,6 +469,9 @@
   <!-- Nothing here reads or writes the delegate registrations/payments data. -->
   <section class="tab-panel" id="tab-hostpayments">
     <p class="hint" style="margin-top:0;">Host club members each pay a ₹5,000 personal contribution to the congress — tracked here, separately from delegate registration fees in the "Registrations &amp; Payments" tab. Editing a payment here updates the same host member record shown in the Host Members tab.</p>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+      <button class="btn small" onclick="downloadHostPaymentsListPdf()">Download PDF</button>
+    </div>
     <div class="grid-stats" id="hostPaymentStats" style="margin-bottom:16px;"></div>
     <div class="card table-scroll">
       <table class="host-payments-table">
@@ -490,7 +505,10 @@
         <button class="btn gold" type="submit">Add to committee</button>
       </form>
     </div>
-    <div class="section-title">All committees</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All committees</span>
+      <button class="btn small" onclick="downloadCommitteesListPdf()">Download PDF</button>
+    </div>
     <div id="committeesList"></div>
   </section>
 
@@ -722,14 +740,20 @@
         </form>
       </div>
     </div>
-    <div class="section-title">Partner organizations</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Partner organizations</span>
+      <button class="btn small" onclick="downloadPartnersListPdf()">Download PDF</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Category</th><th>Name</th><th>Contact</th><th>Phone</th><th></th></tr></thead>
         <tbody id="partnerTableBody"></tbody>
       </table>
     </div>
-    <div class="section-title">Drivers</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Drivers</span>
+      <button class="btn small" onclick="downloadDriversListPdf()">Download PDF</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Name</th><th>Phone</th><th>Vehicle</th><th>Partner</th><th></th></tr></thead>
@@ -765,7 +789,10 @@
         <button type="button" class="btn outline" id="vehicleCancelEditBtn" style="display:none;">Cancel edit</button>
       </form>
     </div>
-    <div class="section-title">All vehicles</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All vehicles</span>
+      <button class="btn small" onclick="downloadVehiclesListPdf()">Download PDF</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Code</th><th>Type</th><th>Model</th><th>Capacity</th><th>Reg. number</th><th>Partner</th><th></th></tr></thead>
@@ -813,7 +840,10 @@
       <div id="transportQueueBody"><p class="hint">Loading…</p></div>
     </div>
 
-    <div class="section-title">All trips</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All trips</span>
+      <button class="btn small" onclick="downloadTransportTripsListPdf()">Download PDF</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Date</th><th>Time</th><th>Route</th><th>Purpose</th><th>Vehicle</th><th>Driver</th><th>Passengers</th><th>Status</th><th></th></tr></thead>
@@ -878,7 +908,10 @@
       </form>
     </div>
 
-    <div class="section-title">All pre tours</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All pre tours</span>
+      <button class="btn small" onclick="downloadPreToursListPdf()">Download PDF</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Name</th><th>Dates</th><th>Hotel</th><th>Signed up</th><th>Trips</th><th>Status</th><th></th></tr></thead>
@@ -1006,7 +1039,10 @@
       </div>
     </div>
 
-    <div class="section-title">Hotels</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Hotels</span>
+      <button class="btn small" onclick="downloadHotelsListPdf()">Download PDF</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Name</th><th>Address</th><th>Contact</th><th>Occupants</th><th></th></tr></thead>
@@ -1014,7 +1050,10 @@
       </table>
     </div>
 
-    <div class="section-title">Room assignments</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Room assignments</span>
+      <button class="btn small" onclick="downloadRoomsListPdf()">Download PDF</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Hotel</th><th>Room</th><th>Type</th><th>Occupant</th><th>Check-in</th><th>Check-out</th><th></th></tr></thead>
@@ -1061,7 +1100,10 @@
       </form>
     </div>
 
-    <div class="section-title">Stock list</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Stock list</span>
+      <button class="btn small" onclick="downloadInventoryListPdf()">Download PDF</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Item</th><th>Category</th><th>Committee</th><th>Procured</th><th>Distributed</th><th>Remaining</th><th>Status</th><th></th></tr></thead>
@@ -1153,7 +1195,10 @@
         <button type="button" class="btn outline" id="sponsorCancelEditBtn" style="display:none;">Cancel edit</button>
       </form>
     </div>
-    <div class="section-title">All sponsors</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All sponsors</span>
+      <button class="btn small" onclick="downloadSponsorsListPdf()">Download PDF</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Logo</th><th>Sponsor Pass</th><th>Name</th><th>Tier</th><th>Guest Relation</th><th>Benefit checklist</th><th>Status</th><th></th></tr></thead>
@@ -1203,7 +1248,10 @@
         <button type="button" class="btn outline" id="speakerCancelEditBtn" style="display:none;">Cancel edit</button>
       </form>
     </div>
-    <div class="section-title">All guest speakers</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All guest speakers</span>
+      <button class="btn small" onclick="downloadSpeakersListPdf()">Download PDF</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Photo</th><th>Name</th><th>Role</th><th>Topic</th><th>Guest Relation</th><th>Checklist</th><th>Status</th><th></th></tr></thead>
@@ -1257,7 +1305,10 @@
         <button type="button" class="btn outline" id="gvCancelEditBtn" style="display:none;">Cancel edit</button>
       </form>
     </div>
-    <div class="section-title">All guest visitors</div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All guest visitors</span>
+      <button class="btn small" onclick="downloadGuestVisitorsListPdf()">Download PDF</button>
+    </div>
     <div class="card table-scroll">
       <table>
         <thead><tr><th>Name</th><th>Category</th><th>Organization</th><th>Visit date</th><th>Guest Relation</th><th>Offerings</th><th>Status</th><th></th></tr></thead>
