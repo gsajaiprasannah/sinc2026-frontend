@@ -1554,6 +1554,153 @@ window.toggleCommitteeMemberCompletion = async (completionId, currentStatus, com
     refreshCommittees();
   } catch (err) { toast(err.message); }
 };
+// --- Volunteers (external / non-club-member data-entry helpers — distinct
+// from Host Members, which are paying Skål club members). Modules are
+// granted directly per volunteer, no committee membership required. Reuses
+// the same MODULE_KEYS catalog + moduleKeysCache() as Committees above.
+let ALL_VOLUNTEERS_CACHE = [];
+
+async function refreshVolunteers() {
+  const rows = await jget(`${API}/volunteers`);
+  ALL_VOLUNTEERS_CACHE = rows;
+  document.getElementById('volTableBody').innerHTML = rows.map((v) => `
+    <tr>
+      <td class="sticky-col">${v.name}${v.organization ? ' <span class="hint">(' + v.organization + ')</span>' : ''}</td>
+      <td>${v.phone || '-'}</td>
+      <td>${v.organization || '-'}</td>
+      <td>${v.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createVolunteerLogin(${v.id}, '${(v.name || '').replace(/'/g, '')}')">Create login</button>`}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="toggleVolunteerModules(${v.id})">Modules (${(v.module_access || []).length})</button>
+        <button class="btn small" onclick="editVol(${v.id})">Update</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteVol(${v.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+    <tr id="volModulesRow-${v.id}" style="display:none;"><td colspan="5"><div id="volModulesPanel-${v.id}"></div></td></tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No volunteers yet</td></tr>';
+
+  const opts = rows.map((v) => `<option value="${v.id}">${v.name}${v.organization ? ' (' + v.organization + ')' : ''}</option>`).join('');
+  const createUserVolunteerSelect = document.getElementById('createUserVolunteerSelect');
+  if (createUserVolunteerSelect) createUserVolunteerSelect.innerHTML = '<option value="">-- select --</option>' + opts;
+
+  for (const id of openVolunteerModulePanels) {
+    const row = document.getElementById(`volModulesRow-${id}`);
+    if (row) { row.style.display = ''; renderVolunteerModulesPanel(id); }
+  }
+}
+let openVolunteerModulePanels = new Set();
+
+window.deleteVol = async (id) => { await jdel(`${API}/volunteers/${id}`); toast('Volunteer deleted'); refreshVolunteers(); };
+
+window.createVolunteerLogin = async (id, name) => {
+  const username = prompt(`Username for ${name}'s login:`, (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, ''));
+  if (!username) return;
+  const password = prompt('Temporary password (they can change it after logging in, min 6 characters):');
+  if (!password || password.length < 6) { toast('Password must be at least 6 characters'); return; }
+  try {
+    await jpost(`${API}/auth/users`, { username, password, role: 'volunteer', volunteer_id: id });
+    toast(`Login created for ${name}. Share the username/password with them — they log in at login.html.`, 6000);
+    refreshVolunteers();
+  } catch (err) { toast(err.message); }
+};
+
+const VOL_FORM_FIELDS = ['name', 'phone', 'email', 'organization', 'notes'];
+window.editVol = async (id) => {
+  const v = await jget(`${API}/volunteers/${id}`);
+  const form = document.getElementById('volForm');
+  VOL_FORM_FIELDS.forEach((f) => {
+    if (form.elements[f]) form.elements[f].value = v[f] !== null && v[f] !== undefined ? v[f] : '';
+  });
+  form.dataset.editId = id;
+  document.getElementById('volFormTitle').textContent = `Update volunteer — ${v.name}`;
+  document.getElementById('volSubmitBtn').textContent = 'Update Volunteer';
+  document.getElementById('volCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+window.cancelEditVol = () => {
+  const form = document.getElementById('volForm');
+  form.reset();
+  delete form.dataset.editId;
+  document.getElementById('volFormTitle').textContent = 'Add volunteer';
+  document.getElementById('volSubmitBtn').textContent = 'Save Volunteer';
+  document.getElementById('volCancelEditBtn').style.display = 'none';
+};
+document.getElementById('volCancelEditBtn').addEventListener('click', (e) => { e.preventDefault(); window.cancelEditVol(); });
+async function saveVolForm(form, force) {
+  const body = Object.fromEntries(new FormData(form).entries());
+  if (force) body.force = true;
+  const editId = form.dataset.editId;
+  try {
+    if (editId) {
+      await jput(`${API}/volunteers/${editId}`, body);
+      toast('Volunteer updated');
+      window.cancelEditVol();
+    } else {
+      await jpost(`${API}/volunteers`, body);
+      form.reset();
+      toast('Volunteer saved');
+    }
+    refreshVolunteers();
+  } catch (err) {
+    if (err.status === 409 && err.data && err.data.error === 'duplicate') {
+      const proceed = confirm(err.data.message + '\n\nClick OK to save anyway, or Cancel to go back and edit.');
+      if (proceed) return saveVolForm(form, true);
+    } else {
+      toast(err.message);
+    }
+  }
+}
+document.getElementById('volForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await saveVolForm(e.target, false);
+});
+
+window.toggleVolunteerModules = async (volunteerId) => {
+  const row = document.getElementById(`volModulesRow-${volunteerId}`);
+  if (!row) return;
+  const isOpen = row.style.display !== 'none';
+  if (isOpen) {
+    row.style.display = 'none';
+    openVolunteerModulePanels.delete(volunteerId);
+  } else {
+    row.style.display = '';
+    openVolunteerModulePanels.add(volunteerId);
+    await renderVolunteerModulesPanel(volunteerId);
+  }
+};
+
+// Lets an admin grant this volunteer direct access to specific operational
+// modules from their own volunteer portal — same MODULE_KEYS catalog and
+// checkbox-grid-save-all-at-once pattern as Committees' module access.
+async function renderVolunteerModulesPanel(volunteerId) {
+  const panel = document.getElementById(`volModulesPanel-${volunteerId}`);
+  if (!panel) return;
+  const v = ALL_VOLUNTEERS_CACHE.find((x) => x.id === volunteerId);
+  const keys = await moduleKeysCache();
+  const granted = new Set(v?.module_access || []);
+  panel.innerHTML = `
+    <p class="hint" style="margin:0 0 8px;">This volunteer can manage these modules directly from their own portal. Deletes always stay admin-only, regardless of what's granted here.</p>
+    <form onsubmit="return submitVolunteerModules(event, ${volunteerId})">
+      <div class="module-checkbox-grid">
+        ${keys.map((k) => `
+          <label><input type="checkbox" value="${k.key}" ${granted.has(k.key) ? 'checked' : ''} /> ${k.label}</label>
+        `).join('')}
+      </div>
+      <button class="btn gold small" type="submit">Save module access</button>
+    </form>
+  `;
+}
+window.submitVolunteerModules = async (e, volunteerId) => {
+  e.preventDefault();
+  const module_keys = Array.from(e.target.querySelectorAll('input[type=checkbox]:checked')).map((el) => el.value);
+  try {
+    await jput(`${API}/volunteers/${volunteerId}/modules`, { module_keys });
+    toast('Module access saved');
+    openVolunteerModulePanels.add(volunteerId);
+    refreshVolunteers();
+  } catch (err) { toast(err.message); }
+  return false;
+};
+
 // --- Committee's own checklist (separate from per-member task delegation
 // above, and from the cross-committee "Committee Delivery" tab which is
 // checklist items OTHER entities need this committee to deliver). This is
@@ -4301,7 +4448,7 @@ async function refreshUsersAdmin() {
     </tr>
   `).join('') || '<tr><td colspan="4" class="empty">No pending requests</td></tr>';
 
-  const linkedProfile = (u) => u.host_member_name || u.driver_name || u.partner_name || '<span class="hint">-</span>';
+  const linkedProfile = (u) => u.host_member_name || u.driver_name || u.partner_name || u.volunteer_name || '<span class="hint">-</span>';
   document.getElementById('allUsersBody').innerHTML = users.map((u) => `
     <tr>
       <td>${u.username}</td><td>${u.email || '-'}</td><td>${u.role}</td>
@@ -4342,18 +4489,23 @@ const createUserDriverField = document.getElementById('createUserDriverField');
 const createUserDriverSelect = document.getElementById('createUserDriverSelect');
 const createUserPartnerField = document.getElementById('createUserPartnerField');
 const createUserPartnerSelect = document.getElementById('createUserPartnerSelect');
+const createUserVolunteerField = document.getElementById('createUserVolunteerField');
+const createUserVolunteerSelect = document.getElementById('createUserVolunteerSelect');
 if (createUserRoleSelect) {
   createUserRoleSelect.addEventListener('change', () => {
     const role = createUserRoleSelect.value;
     const isHostMember = role === 'host_member';
     const isDriver = role === 'driver';
     const isTransporter = role === 'transporter';
+    const isVolunteer = role === 'volunteer';
     createUserHmField.style.display = isHostMember ? '' : 'none';
     if (createUserHmSelect) createUserHmSelect.required = isHostMember;
     createUserDriverField.style.display = isDriver ? '' : 'none';
     if (createUserDriverSelect) createUserDriverSelect.required = isDriver;
     createUserPartnerField.style.display = isTransporter ? '' : 'none';
     if (createUserPartnerSelect) createUserPartnerSelect.required = isTransporter;
+    if (createUserVolunteerField) createUserVolunteerField.style.display = isVolunteer ? '' : 'none';
+    if (createUserVolunteerSelect) createUserVolunteerSelect.required = isVolunteer;
   });
 }
 
@@ -4361,9 +4513,9 @@ document.getElementById('createUserForm').addEventListener('submit', async (e) =
   e.preventDefault();
   const fd = new FormData(e.target);
   const body = Object.fromEntries(fd.entries());
-  const LINKED_FIELD_BY_ROLE = { host_member: 'host_member_id', driver: 'driver_id', transporter: 'partner_id' };
-  const LINKED_LABEL_BY_ROLE = { host_member: 'host member', driver: 'driver', transporter: 'transport partner' };
-  for (const field of ['host_member_id', 'driver_id', 'partner_id']) {
+  const LINKED_FIELD_BY_ROLE = { host_member: 'host_member_id', driver: 'driver_id', transporter: 'partner_id', volunteer: 'volunteer_id' };
+  const LINKED_LABEL_BY_ROLE = { host_member: 'host member', driver: 'driver', transporter: 'transport partner', volunteer: 'volunteer' };
+  for (const field of ['host_member_id', 'driver_id', 'partner_id', 'volunteer_id']) {
     if (LINKED_FIELD_BY_ROLE[body.role] !== field) delete body[field];
   }
   const requiredField = LINKED_FIELD_BY_ROLE[body.role];
@@ -4377,9 +4529,11 @@ document.getElementById('createUserForm').addEventListener('submit', async (e) =
     createUserHmField.style.display = 'none';
     createUserDriverField.style.display = 'none';
     createUserPartnerField.style.display = 'none';
+    if (createUserVolunteerField) createUserVolunteerField.style.display = 'none';
     toast('Login created');
     refreshUsersAdmin();
     refreshHostMembers();
+    refreshVolunteers();
   } catch (err) { toast(err.message); }
 });
 
@@ -4408,6 +4562,7 @@ function loadAllData() {
   refreshHostMembers();
   refreshHostPayments();
   refreshCommittees();
+  refreshVolunteers();
   refreshAssignmentDropdowns();
   refreshAssignments();
   refreshTasks();

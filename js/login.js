@@ -220,16 +220,18 @@ const ROLE_TABS = {
   host_member: ['host-profile', 'host-committees', 'host-lead', 'host-modules', 'host-delegates', 'host-checklist', 'host-delivery', 'host-guestrelations'],
   media: ['media-upload'],
   driver: ['driver-profile', 'driver-trips'],
-  transporter: ['transporter-profile', 'transporter-drivers', 'transporter-trips']
+  transporter: ['transporter-profile', 'transporter-drivers', 'transporter-trips'],
+  volunteer: ['host-modules']
 };
-const ROLE_DEFAULT_TAB = { host_member: 'host-profile', media: 'media-upload', driver: 'driver-profile', transporter: 'transporter-profile' };
+const ROLE_DEFAULT_TAB = { host_member: 'host-profile', media: 'media-upload', driver: 'driver-profile', transporter: 'transporter-profile', volunteer: 'host-modules' };
 const ROLE_TITLE = {
   host_member: ['Host Portal', "Your committees, delegates & checklist"],
   media: ['Media Portal', 'Upload the event video reel & posters'],
   driver: ['Driver Portal', 'Your assigned trips'],
-  transporter: ['Transporter Portal', "Your fleet's trip requirements"]
+  transporter: ['Transporter Portal', "Your fleet's trip requirements"],
+  volunteer: ['Volunteer Portal', 'Your granted modules']
 };
-const ALLOWED_ROLES = ['host_member', 'media', 'transporter', 'driver'];
+const ALLOWED_ROLES = ['host_member', 'media', 'transporter', 'driver', 'volunteer'];
 
 // ================= SIDEBAR + TABS =================
 // Same collapsible-sidebar / tab-panel pattern as admin.js, so the portal
@@ -280,7 +282,7 @@ function showAuthGate() {
   document.getElementById('sidebarToggle').style.display = 'none';
   document.getElementById('whoami').textContent = '';
   document.getElementById('portalTitle').textContent = 'Login';
-  document.getElementById('portalSubtitle').textContent = 'Host member, media, transporter & driver logins';
+  document.getElementById('portalSubtitle').textContent = 'Host member, media, transporter, driver & volunteer logins';
 }
 
 function showApp() {
@@ -309,6 +311,7 @@ function showApp() {
   else if (role === 'media') startMedia();
   else if (role === 'driver') startDriver();
   else if (role === 'transporter') startTransporter();
+  else if (role === 'volunteer') startVolunteer();
 
   refreshPushButton();
 }
@@ -1325,6 +1328,23 @@ async function loadTransporterMe() {
     renderTransporterTrips(data.trips || []);
   } catch (e) {
     if (!(e instanceof UnauthorizedError)) console.error(e);
+  }
+}
+
+// ================= VOLUNTEER =================
+// A volunteer has none of a host member's committee/checklist/guest-relation
+// baggage — just their granted modules, rendered by the SAME renderHostModules()
+// used by host_member above (it's role-agnostic: it just needs a moduleAccess
+// array and hits the shared /portal-modules/* endpoints under the hood).
+let volunteerStarted = false;
+function startVolunteer() { if (volunteerStarted) return; volunteerStarted = true; loadVolunteerMe(); }
+
+async function loadVolunteerMe() {
+  try {
+    const data = await jget(`${API}/volunteer/me`);
+    renderHostModules(data.moduleAccess || []);
+  } catch (err) {
+    if (!(err instanceof UnauthorizedError)) toast(err.message);
   }
 }
 
