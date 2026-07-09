@@ -554,20 +554,29 @@ if (sidebarToggleBtn) {
 applySidebarState();
 
 // --- Tabs ---
-document.getElementById('tabNav').addEventListener('click', (e) => {
-  const btn = e.target.closest('button');
-  if (!btn) return;
+// Pulled out of the click handler so other code (e.g. jumping to the Host
+// Members tab to edit someone from inside the Committees tab) can switch
+// tabs programmatically too, not just via a direct sidebar click.
+function switchAdminTab(tab) {
+  const btn = document.querySelector(`.admin-nav button[data-tab="${tab}"]`);
+  const panel = document.getElementById('tab-' + tab);
+  if (!btn || !panel) return;
   document.querySelectorAll('.admin-nav button').forEach((b) => b.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
   btn.classList.add('active');
-  document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-  if (btn.dataset.tab === 'settings') refreshUsersAdmin();
+  panel.classList.add('active');
+  if (tab === 'settings') refreshUsersAdmin();
   // On phone/tablet widths the sidebar overlays the content, so tuck it away
   // again once a section has been picked (matches the standard mobile pattern).
   if (window.innerWidth < 860 && adminShell) {
     localStorage.setItem(SIDEBAR_HIDDEN_KEY, '1');
     applySidebarState();
   }
+}
+document.getElementById('tabNav').addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  switchAdminTab(btn.dataset.tab);
 });
 
 // --- Clubs ---
@@ -1161,7 +1170,9 @@ async function refreshCommittees() {
         ${(c.members || []).map((m) => `
           <span class="pill ${m.is_lead ? 'lead' : 'single'}" style="display:inline-flex;align-items:center;gap:6px;" title="${m.is_lead ? 'Committee lead — delegates tasks and verifies completions' : 'Click the star to make this person the committee lead'}">
             ${m.is_lead ? '★' : `<a href="#" onclick="makeCommitteeLead(${c.id}, ${m.id});return false;" style="color:inherit;">☆</a>`}
-            ${m.name}${canDelete() ? ` <a href="#" onclick="removeCommitteeMember(${c.id}, ${m.id});return false;" style="color:inherit;">✕</a>` : ''}
+            ${m.name}
+            <a href="#" onclick="editCommitteeMemberDetails(${m.id});return false;" style="color:inherit;" title="Edit this host member's details">✎</a>
+            ${canDelete() ? ` <a href="#" onclick="removeCommitteeMember(${c.id}, ${m.id});return false;" style="color:inherit;">✕</a>` : ''}
           </span>
         `).join('') || '<span class="hint">No members assigned yet</span>'}
       </div>
@@ -1194,6 +1205,15 @@ window.makeCommitteeLead = async (committeeId, hostMemberId) => {
     toast('Committee lead updated');
     refreshCommittees();
   } catch (err) { toast(err.message); }
+};
+
+// Edit a committee member's own details (name/phone/email/company/etc.)
+// right from the Committees tab, instead of having to go find them in the
+// Host Members tab first — jumps over there and reuses that tab's existing
+// edit form (same validation, same PUT /hostmembers/:id, no duplicated logic).
+window.editCommitteeMemberDetails = (hostMemberId) => {
+  switchAdminTab('hostmembers');
+  editHm(hostMemberId);
 };
 
 window.toggleCommitteeModules = async (committeeId) => {
