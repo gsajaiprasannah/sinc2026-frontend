@@ -91,17 +91,19 @@ window.deleteTransportPoint = async (id) => {
   } catch (err) { toast(err.message); }
 };
 
-// A plain <input list="transportPointsList"> gives no visible sign that
-// suggestions exist — no arrow, and datalist support/UX on mobile browsers
-// is poor to nonexistent. So every such input gets wrapped (once) with an
-// explicit dropdown button + menu that fills the field on click, while the
-// input itself stays a free-typing text field (still with the datalist as
-// a fallback) for anything not already in the list. Safe to call repeatedly
+// Every pickup/drop-point input is marked with data-location-suggest="1"
+// (NOT the native `list="..."` datalist attribute — that was tried first,
+// but the browser's own native datalist popup gives no visible affordance
+// on desktop and, worse, was seen rendering in the wrong place on screen
+// entirely detached from the input in some layouts). So instead every such
+// input gets wrapped (once) with a fully custom dropdown button + menu that
+// we position and fill ourselves, while the input itself stays a free-typing
+// text field for anything not already in the list. Safe to call repeatedly
 // — already-wrapped inputs are skipped — so it can run after every render
 // that might introduce new location inputs (page init, the arrivals/
 // departures queue refresh).
 function wireLocationDropdowns(root) {
-  (root || document).querySelectorAll('input[list="transportPointsList"]').forEach((input) => {
+  (root || document).querySelectorAll('input[data-location-suggest="1"]').forEach((input) => {
     if (input.closest('.location-input-wrap')) return;
     const wrap = document.createElement('div');
     wrap.className = 'location-input-wrap';
@@ -848,7 +850,7 @@ async function refreshParts(query) {
       <td>${spocDisplay(p)}</td>
       <td>${paymentPill(p.payment_status)}</td>
       <td>
-        <button class="btn small" onclick="editPart(${p.id})">Edit</button>
+        <button class="btn small" onclick="editPart(${p.id})">Update</button>
         <button class="btn small" onclick="openChecklistModal('participant', ${p.id})">Kit</button>
         <button class="btn small" onclick="downloadDelegateDetailPdf(${p.id})">PDF</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deletePart(${p.id})">Delete</button>` : ''}
@@ -861,9 +863,14 @@ window.deletePart = async (id) => { await jdel(`${API}/participants/${id}`); toa
 const PART_FORM_FIELDS = [
   'name', 'phone', 'whatsapp', 'email', 'address', 'club_id', 'registration_id', 'designation', 'is_primary',
   'travel_mode', 'travel_number', 'travel_datetime', 'arrival_point',
-  'departure_mode', 'departure_number', 'departure_datetime',
+  'departure_mode', 'departure_number', 'departure_datetime', 'departure_point',
   'pickup_by', 'pickup_vehicle', 'pickup_phone', 'spoc_name', 'spoc_phone', 'notes'
 ];
+
+// Core identity/registration fields — frozen for everyone except super_admin
+// once a delegate already exists (mirrors the server-side check in
+// PUT /api/participants/:id). New-delegate creation is never restricted.
+const PART_FROZEN_FIELDS = ['name', 'phone', 'club_id', 'registration_id'];
 
 // Loads an existing delegate into the Add Delegate form and switches
 // it into "update" mode (tracked via form.dataset.editId) so the same form
@@ -886,7 +893,18 @@ window.editPart = async (id) => {
     form.elements.spoc_host_member_id.value = p.spoc_host_member_id || '';
   }
   form.dataset.editId = id;
-  document.getElementById('partFormTitle').textContent = `Edit delegate — ${p.participant_code || p.name}`;
+  // Name, phone, club, and registration are frozen once a delegate exists —
+  // only a super admin can change them (server-side enforced too, see
+  // PUT /api/participants/:id). Everyone else can still freely edit travel,
+  // pickup/SPOC, notes, etc.
+  const isSuperAdmin = !!(CURRENT_USER && CURRENT_USER.role === 'super_admin');
+  PART_FROZEN_FIELDS.forEach((f) => {
+    const el = form.elements[f];
+    if (el) el.disabled = !isSuperAdmin;
+  });
+  const frozenHint = document.getElementById('partFrozenHint');
+  if (frozenHint) frozenHint.style.display = isSuperAdmin ? 'none' : '';
+  document.getElementById('partFormTitle').textContent = `Update delegate — ${p.participant_code || p.name}`;
   document.getElementById('partSubmitBtn').textContent = 'Update Delegate';
   document.getElementById('partCancelEditBtn').style.display = '';
   form.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -896,6 +914,14 @@ window.cancelEditPart = () => {
   const form = document.getElementById('partForm');
   form.reset();
   delete form.dataset.editId;
+  // Adding a brand-new delegate is never restricted — re-enable the frozen
+  // fields in case the form was left disabled from a previous edit.
+  PART_FROZEN_FIELDS.forEach((f) => {
+    const el = form.elements[f];
+    if (el) el.disabled = false;
+  });
+  const frozenHint = document.getElementById('partFrozenHint');
+  if (frozenHint) frozenHint.style.display = 'none';
   document.getElementById('partFormTitle').textContent = 'Add delegate';
   document.getElementById('partSubmitBtn').textContent = 'Save Delegate';
   document.getElementById('partCancelEditBtn').style.display = 'none';
@@ -937,6 +963,7 @@ async function savePartForm(form, force) {
     if (editId) window.cancelEditPart();
     else form.reset();
     if (body.arrival_point) ensureTransportPoint(body.arrival_point);
+    if (body.departure_point) ensureTransportPoint(body.departure_point);
     refreshParts();
   } catch (err) {
     if (err.status === 409 && err.data && err.data.error === 'duplicate') {
@@ -1976,8 +2003,12 @@ function transportQueueGroupCard(direction, g) {
   const hotelIds = new Set(delegates.map((d) => d.hotel_id).filter((x) => x !== null && x !== undefined));
   const sharedHotel = hotelIds.size === 1 ? delegates.find((d) => d.hotel_id !== null && d.hotel_id !== undefined)?.hotel_name : null;
   const modeLabel = g.travel_mode === 'flight' ? 'Flight' : 'Train';
-  const fromDefault = direction === 'arrival' ? (g.arrival_point || '') : (sharedHotel || '');
-  const toDefault = direction === 'arrival' ? (sharedHotel || '') : (g.arrival_point || '');
+  // Arrivals use the delegate's arrival_point; departures use their own
+  // departure_point (falls back to arrival_point server-side for older rows
+  // saved before that field existed).
+  const queuePoint = direction === 'arrival' ? g.arrival_point : g.departure_point;
+  const fromDefault = direction === 'arrival' ? (queuePoint || '') : (sharedHotel || '');
+  const toDefault = direction === 'arrival' ? (sharedHotel || '') : (queuePoint || '');
   const purposeDefault = direction === 'arrival' ? 'Airport/station pickup' : 'Airport/station drop-off';
   const vehicleOpts = document.getElementById('tripVehicleSelect')?.innerHTML || '<option value="">-- select vehicle --</option>';
   const driverOpts = document.getElementById('tripDriverSelect')?.innerHTML || '<option value="">-- none --</option>';
@@ -1985,7 +2016,7 @@ function transportQueueGroupCard(direction, g) {
     <div class="card queue-group" style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
         <strong>${modeLabel} ${g.travel_number} — ${g.travel_datetime}</strong>
-        <span class="hint">${g.delegate_count} delegate${g.delegate_count === 1 ? '' : 's'}${g.arrival_point ? ' · ' + g.arrival_point : ''}${sharedHotel ? ' · all at ' + sharedHotel : ''}</span>
+        <span class="hint">${g.delegate_count} delegate${g.delegate_count === 1 ? '' : 's'}${queuePoint ? ' · ' + queuePoint : ''}${sharedHotel ? ' · all at ' + sharedHotel : ''}</span>
       </div>
       <div style="margin:8px 0;">
         <button type="button" class="btn small" onclick="toggleQueueGroupChecks(this, true)">Select all</button>
@@ -2001,8 +2032,8 @@ function transportQueueGroupCard(direction, g) {
       </div>
       <form onsubmit="return submitGroupTrip(event, '${direction}')">
         <div class="form-grid cols-3">
-          <div class="field"><label>From *</label><input name="from_location" list="transportPointsList" required value="${fromDefault}" /></div>
-          <div class="field"><label>To *</label><input name="to_location" list="transportPointsList" required value="${toDefault}" /></div>
+          <div class="field"><label>From *</label><input name="from_location" data-location-suggest="1" required value="${fromDefault}" /></div>
+          <div class="field"><label>To *</label><input name="to_location" data-location-suggest="1" required value="${toDefault}" /></div>
           <div class="field"><label>Trip date</label><input name="trip_date" type="date" /></div>
         </div>
         <div class="form-grid cols-3">

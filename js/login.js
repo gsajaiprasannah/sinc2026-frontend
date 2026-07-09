@@ -144,14 +144,15 @@ async function ensureTransportPoint(name) {
     }
   } catch (err) { /* non-critical */ }
 }
-// A plain <input list="transportPointsList"> gives no visible sign that
-// suggestions exist — no arrow, and datalist support/UX on mobile browsers
-// is poor to nonexistent. Mirrors admin.js's version: wraps every such
-// input (once) with an explicit dropdown button + menu that fills the
-// field on click, while the input itself stays a free-typing text field
-// for anything not already in the list.
+// Every pickup/drop-point input is marked with data-location-suggest="1"
+// (NOT the native `list="..."` datalist attribute — its own popup gave no
+// visible affordance and could render detached from the input entirely).
+// Mirrors admin.js's version: wraps every such input (once) with a fully
+// custom dropdown button + menu that fills the field on click, while the
+// input itself stays a free-typing text field for anything not already in
+// the list.
 function wireLocationDropdowns(root) {
-  (root || document).querySelectorAll('input[list="transportPointsList"]').forEach((input) => {
+  (root || document).querySelectorAll('input[data-location-suggest="1"]').forEach((input) => {
     if (input.closest('.location-input-wrap')) return;
     const wrap = document.createElement('div');
     wrap.className = 'location-input-wrap';
@@ -835,7 +836,7 @@ async function renderHostModuleSection(cfg, section) {
                     ? (optionRows[f.optionsFrom] || []).map((r) => `<option value="${r.id}">${escapeHtml(f.optionLabel(r))}</option>`).join('')
                     : (f.options || []).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
                 </select>
-              ` : (f.type === 'textarea' ? `<textarea name="${f.name}"${f.required ? ' required' : ''}></textarea>` : `<input name="${f.name}" type="${f.type || 'text'}"${['from_location', 'to_location', 'arrival_point'].includes(f.name) ? ' list="transportPointsList"' : ''}${f.required ? ' required' : ''} />`)}
+              ` : (f.type === 'textarea' ? `<textarea name="${f.name}"${f.required ? ' required' : ''}></textarea>` : `<input name="${f.name}" type="${f.type || 'text'}"${['from_location', 'to_location', 'arrival_point'].includes(f.name) ? ' data-location-suggest="1"' : ''}${f.required ? ' required' : ''} />`)}
             </div>
           `).join('')}
         </div>
@@ -861,14 +862,18 @@ function transportQueueGroupCardHost(direction, g) {
   const hotelIds = new Set(delegates.map((d) => d.hotel_id).filter((x) => x !== null && x !== undefined));
   const sharedHotel = hotelIds.size === 1 ? delegates.find((d) => d.hotel_id !== null && d.hotel_id !== undefined)?.hotel_name : null;
   const modeLabel = g.travel_mode === 'flight' ? 'Flight' : 'Train';
-  const fromDefault = direction === 'arrival' ? (g.arrival_point || '') : (sharedHotel || '');
-  const toDefault = direction === 'arrival' ? (sharedHotel || '') : (g.arrival_point || '');
+  // Arrivals use the delegate's arrival_point; departures use their own
+  // departure_point (falls back to arrival_point server-side for older rows
+  // saved before that field existed).
+  const queuePoint = direction === 'arrival' ? g.arrival_point : g.departure_point;
+  const fromDefault = direction === 'arrival' ? (queuePoint || '') : (sharedHotel || '');
+  const toDefault = direction === 'arrival' ? (sharedHotel || '') : (queuePoint || '');
   const purposeDefault = direction === 'arrival' ? 'Airport/station pickup' : 'Airport/station drop-off';
   return `
     <div class="card queue-group" style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
         <strong>${modeLabel} ${g.travel_number} — ${g.travel_datetime}</strong>
-        <span class="hint">${g.delegate_count} delegate${g.delegate_count === 1 ? '' : 's'}${g.arrival_point ? ' · ' + g.arrival_point : ''}${sharedHotel ? ' · all at ' + sharedHotel : ''}</span>
+        <span class="hint">${g.delegate_count} delegate${g.delegate_count === 1 ? '' : 's'}${queuePoint ? ' · ' + queuePoint : ''}${sharedHotel ? ' · all at ' + sharedHotel : ''}</span>
       </div>
       <div style="margin:8px 0;">
         <button type="button" class="btn small" onclick="toggleQueueGroupChecksHost(this, true)">Select all</button>
@@ -884,8 +889,8 @@ function transportQueueGroupCardHost(direction, g) {
       </div>
       <form onsubmit="return submitGroupTripHost(event, '${direction}')">
         <div class="form-grid cols-2">
-          <div class="field"><label>From *</label><input name="from_location" list="transportPointsList" required value="${escapeHtml(fromDefault)}" /></div>
-          <div class="field"><label>To *</label><input name="to_location" list="transportPointsList" required value="${escapeHtml(toDefault)}" /></div>
+          <div class="field"><label>From *</label><input name="from_location" data-location-suggest="1" required value="${escapeHtml(fromDefault)}" /></div>
+          <div class="field"><label>To *</label><input name="to_location" data-location-suggest="1" required value="${escapeHtml(toDefault)}" /></div>
         </div>
         <div class="form-grid cols-2">
           <div class="field"><label>Trip date</label><input name="trip_date" type="date" /></div>
