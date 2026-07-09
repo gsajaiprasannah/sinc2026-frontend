@@ -821,7 +821,7 @@ function transportQueueGroupCardHost(direction, g) {
       <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
         ${delegates.map((d) => `
           <label style="display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;width:100%;">
-            <input type="checkbox" class="queue-delegate-cb" value="${d.id}" checked style="flex-shrink:0;" />
+            <input type="checkbox" class="queue-delegate-cb" value="${d.id}" checked style="width:16px;height:16px;min-width:16px;flex-shrink:0;padding:0;" />
             <span style="line-height:1.35;flex:1;">${d.name}${d.hotel_name ? ` <span class="hint">→ ${d.hotel_name}</span>` : ''}</span>
           </label>
         `).join('')}
