@@ -111,11 +111,25 @@ function fmtDate(d) {
   if (!d) return '-';
   return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
+// Two-letter avatar initials for the profile-card avatar circle (Profile /
+// Driver / Transporter tabs) — same idea as an iOS Contacts monogram.
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+}
 const STATUS_PILL = { planned: 'not_started', in_progress: 'in_progress', completed: 'completed', cancelled: 'pending' };
 const STATUS_LABEL = { planned: 'Planned', in_progress: 'In progress', completed: 'Completed', cancelled: 'Cancelled' };
 
-// --- Which section + header copy each role gets after logging in ---
-const ROLE_SECTION = { host_member: 'hostSection', media: 'mediaSection', driver: 'driverSection', transporter: 'transporterSection' };
+// --- Which sidebar tabs + header copy each role gets after logging in.
+// 'shared-settings' (Notifications & Password) is appended for every role.
+const ROLE_TABS = {
+  host_member: ['host-profile', 'host-committees', 'host-lead', 'host-modules', 'host-delegates', 'host-checklist', 'host-delivery', 'host-guestrelations'],
+  media: ['media-upload'],
+  driver: ['driver-profile', 'driver-trips'],
+  transporter: ['transporter-profile', 'transporter-drivers', 'transporter-trips']
+};
+const ROLE_DEFAULT_TAB = { host_member: 'host-profile', media: 'media-upload', driver: 'driver-profile', transporter: 'transporter-profile' };
 const ROLE_TITLE = {
   host_member: ['Host Portal', "Your committees, delegates & checklist"],
   media: ['Media Portal', 'Upload the event video reel & posters'],
@@ -124,11 +138,53 @@ const ROLE_TITLE = {
 };
 const ALLOWED_ROLES = ['host_member', 'media', 'transporter', 'driver'];
 
+// ================= SIDEBAR + TABS =================
+// Same collapsible-sidebar / tab-panel pattern as admin.js, so the portal
+// feels consistent with the admin panel instead of being one long scroll.
+const SIDEBAR_HIDDEN_KEY = 'sinc_portal_sidebar_hidden';
+const portalShell = document.getElementById('portalShell');
+const sidebarToggleBtn = document.getElementById('sidebarToggle');
+function applySidebarState() {
+  if (!portalShell) return;
+  let hidden = localStorage.getItem(SIDEBAR_HIDDEN_KEY);
+  if (hidden === null) hidden = window.innerWidth < 860 ? '1' : '0';
+  portalShell.classList.toggle('sidebar-hidden', hidden === '1');
+}
+if (sidebarToggleBtn) {
+  sidebarToggleBtn.addEventListener('click', () => {
+    const nowHidden = !portalShell.classList.contains('sidebar-hidden');
+    localStorage.setItem(SIDEBAR_HIDDEN_KEY, nowHidden ? '1' : '0');
+    applySidebarState();
+  });
+}
+
+function activateTab(tabKey) {
+  document.querySelectorAll('.admin-nav button').forEach((b) => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+  const btn = document.querySelector(`.admin-nav button[data-tab="${tabKey}"]`);
+  const panel = document.getElementById('tab-' + tabKey);
+  if (btn) btn.classList.add('active');
+  if (panel) panel.classList.add('active');
+}
+
+document.getElementById('tabNav').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-tab]');
+  if (!btn) return;
+  activateTab(btn.dataset.tab);
+  // On phone/tablet widths the sidebar overlays the content, so tuck it away
+  // again once a section has been picked (matches the admin panel's pattern).
+  if (window.innerWidth < 860 && portalShell) {
+    localStorage.setItem(SIDEBAR_HIDDEN_KEY, '1');
+    applySidebarState();
+  }
+});
+
 // ================= AUTH GATE =================
 function showAuthGate() {
   document.getElementById('authGate').style.display = 'block';
   document.getElementById('appShell').style.display = 'none';
   document.getElementById('logoutLink').style.display = 'none';
+  document.getElementById('sidebarToggle').style.display = 'none';
   document.getElementById('whoami').textContent = '';
   document.getElementById('portalTitle').textContent = 'Login';
   document.getElementById('portalSubtitle').textContent = 'Host member, media, transporter & driver logins';
@@ -138,18 +194,18 @@ function showApp() {
   document.getElementById('authGate').style.display = 'none';
   document.getElementById('appShell').style.display = 'block';
   document.getElementById('logoutLink').style.display = '';
+  document.getElementById('sidebarToggle').style.display = '';
   document.getElementById('whoami').textContent = CURRENT_USER ? CURRENT_USER.username : '';
+  applySidebarState();
 
   const role = CURRENT_USER ? CURRENT_USER.role : null;
-  Object.values(ROLE_SECTION).forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
+  // Show only this role's sidebar nav group; hide the other three.
+  Object.keys(ROLE_TABS).forEach((r) => {
+    const el = document.getElementById('navGroup-' + r);
+    if (el) el.style.display = r === role ? '' : 'none';
   });
-  const sectionId = ROLE_SECTION[role];
-  if (sectionId) {
-    const el = document.getElementById(sectionId);
-    if (el) el.style.display = '';
-  }
+  if (ROLE_DEFAULT_TAB[role]) activateTab(ROLE_DEFAULT_TAB[role]);
+
   const titleInfo = ROLE_TITLE[role];
   if (titleInfo) {
     document.getElementById('portalTitle').textContent = titleInfo[0];
@@ -300,13 +356,23 @@ async function loadHostMe() {
   renderHostTasks(data.tasks);
   renderHostGuestRelations(data.guestRelations);
   renderHostGoodiesChecklist(data.goodiesChecklist);
+
+  // "Committee Delivery" tab covers two independent cards (checklist items +
+  // goodies) — only show it in the sidebar if either one actually has
+  // anything in it, since most host members aren't on a delivery-owning
+  // committee at all.
+  const hasDelivery = (data.committeeChecklists && data.committeeChecklists.length) || (data.committeeDeliveries && data.committeeDeliveries.length);
+  const navBtnDelivery = document.getElementById('navBtnDelivery');
+  if (navBtnDelivery) navBtnDelivery.style.display = hasDelivery ? '' : 'none';
 }
 
 function renderHostProfile(p) {
+  const avatar = document.getElementById('hostAvatar');
+  if (avatar) avatar.textContent = initials(p.name);
   document.getElementById('hostProfileBody').innerHTML = `
-    <p><strong>${p.name}</strong>${p.designation ? ' — ' + p.designation : ''}</p>
-    <p class="hint">${[p.company, p.category].filter(Boolean).join(' · ') || '-'}</p>
-    <p class="hint">${[p.phone, p.email].filter(Boolean).join(' · ') || '-'}</p>
+    <p style="margin:0;"><strong style="font-size:17px;">${p.name}</strong>${p.designation ? ' — ' + p.designation : ''}</p>
+    <p class="hint" style="margin:2px 0 0;">${[p.company, p.category].filter(Boolean).join(' · ') || '-'}</p>
+    <p class="hint" style="margin:2px 0 0;">${[p.phone, p.email].filter(Boolean).join(' · ') || '-'}</p>
   `;
 }
 
@@ -350,8 +416,14 @@ window.updateMyCommitteeTaskStatus = async (completionId, status) => {
 // --- Committee lead: delegate individual checklist items + verify completions ---
 function renderHostLeadCommittees(leadCommittees) {
   const card = document.getElementById('hostLeadCard');
-  if (!leadCommittees || !leadCommittees.length) { card.style.display = 'none'; return; }
+  const navBtn = document.getElementById('navBtnLead');
+  if (!leadCommittees || !leadCommittees.length) {
+    card.style.display = 'none';
+    if (navBtn) navBtn.style.display = 'none';
+    return;
+  }
   card.style.display = '';
+  if (navBtn) navBtn.style.display = '';
   const memberOpts = (roster) => roster.map((m) => `<option value="${m.id}">${m.name}</option>`).join('');
   document.getElementById('hostLeadBody').innerHTML = leadCommittees.map((c) => `
     <div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line);">
@@ -533,8 +605,14 @@ let currentModuleKey = null, currentModuleSectionPath = null;
 
 function renderHostModules(moduleAccess) {
   const card = document.getElementById('hostModulesCard');
-  if (!moduleAccess || !moduleAccess.length) { card.style.display = 'none'; return; }
+  const navBtn = document.getElementById('navBtnModules');
+  if (!moduleAccess || !moduleAccess.length) {
+    card.style.display = 'none';
+    if (navBtn) navBtn.style.display = 'none';
+    return;
+  }
   card.style.display = '';
+  if (navBtn) navBtn.style.display = '';
   const nav = document.getElementById('hostModuleNav');
   nav.innerHTML = moduleAccess.filter((k) => MODULE_CONFIG[k]).map((k) => `
     <button type="button" class="btn small ${k === currentModuleKey ? 'gold' : ''}" onclick="selectHostModule('${k}')">${MODULE_CONFIG[k].label}</button>
@@ -718,7 +796,13 @@ window.updateMyDeliveryStatus = async (id, status) => {
 
 function renderHostGuestRelations(relations) {
   const card = document.getElementById('hostSponsorRelationsCard');
-  if (!relations || !relations.length) { card.style.display = 'none'; return; }
+  const navBtn = document.getElementById('navBtnGuestRel');
+  if (!relations || !relations.length) {
+    card.style.display = 'none';
+    if (navBtn) navBtn.style.display = 'none';
+    return;
+  }
+  if (navBtn) navBtn.style.display = '';
   card.style.display = '';
   document.getElementById('hostSponsorRelationsBody').innerHTML = relations.map((r) => `
     <div style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line);">
@@ -802,7 +886,9 @@ function startDriver() { if (driverStarted) return; driverStarted = true; loadDr
 
 function renderDriverProfile(p) {
   const el = document.getElementById('driverProfileBody');
+  const avatar = document.getElementById('driverAvatar');
   if (!p) { el.innerHTML = '<div class="empty">Profile not found.</div>'; return; }
+  if (avatar) avatar.textContent = initials(p.name);
   el.innerHTML = `
     <div class="form-grid cols-3">
       <div><strong>${escapeHtml(p.name)}</strong><div class="hint">Name</div></div>
@@ -877,7 +963,9 @@ function startTransporter() { if (transporterStarted) return; transporterStarted
 
 function renderTransporterProfile(p) {
   const el = document.getElementById('transporterProfileBody');
+  const avatar = document.getElementById('transporterAvatar');
   if (!p) { el.innerHTML = '<div class="empty">Company profile not found.</div>'; return; }
+  if (avatar) avatar.textContent = initials(p.name);
   el.innerHTML = `
     <div class="form-grid cols-3">
       <div><strong>${escapeHtml(p.name)}</strong><div class="hint">Company</div></div>

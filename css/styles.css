@@ -543,6 +543,28 @@ tr:nth-child(even) .sticky-col-left { background: #fff; }
   border-radius: 4px;
   accent-color: var(--navy);
 }
+
+/* Host/Driver/Transporter portal: profile-card avatar-initials header,
+   iOS-Contacts-monogram style. */
+.portal-profile-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.portal-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-soft);
+  color: var(--navy);
+  font-weight: 800;
+  font-size: 19px;
+  letter-spacing: 0.02em;
+}
 tr.row-overdue td { background: #fff6f6; }
 
 .media-two-col {
