@@ -1324,6 +1324,7 @@ function populateCommitteeSelects() {
     el.innerHTML = '<option value="">Unassigned</option>' + opts;
     if (cur) el.value = cur;
   });
+  if (typeof populateMsgCommitteeSelect === 'function') populateMsgCommitteeSelect();
 }
 
 async function refreshCommittees() {
@@ -1700,6 +1701,169 @@ window.submitVolunteerModules = async (e, volunteerId) => {
   } catch (err) { toast(err.message); }
   return false;
 };
+
+// --- Communications: one-way announcements to a role, a committee, or ---
+// hand-picked individuals, with an optional attached action (mirrored into
+// a host_member's checklist tab; tracked per-recipient for everyone else).
+// Deliberately not a chat — no replies/threads. See server/routes/messages.js.
+let ALL_MSG_USERS_CACHE = [];
+let openMessageRecipientPanels = new Set();
+
+const msgTargetTypeSelect = document.getElementById('msgTargetType');
+const msgRoleField = document.getElementById('msgRoleField');
+const msgCommitteeField = document.getElementById('msgCommitteeField');
+const msgIndividualField = document.getElementById('msgIndividualField');
+function updateMsgTargetFieldVisibility() {
+  const t = msgTargetTypeSelect.value;
+  msgRoleField.style.display = t === 'role' ? '' : 'none';
+  msgCommitteeField.style.display = t === 'committee' ? '' : 'none';
+  msgIndividualField.style.display = t === 'individual' ? '' : 'none';
+}
+if (msgTargetTypeSelect) {
+  msgTargetTypeSelect.addEventListener('change', updateMsgTargetFieldVisibility);
+  updateMsgTargetFieldVisibility();
+}
+
+const msgHasActionCheckbox = document.getElementById('msgHasAction');
+const msgActionFields = document.getElementById('msgActionFields');
+if (msgHasActionCheckbox) {
+  msgHasActionCheckbox.addEventListener('change', () => {
+    msgActionFields.style.display = msgHasActionCheckbox.checked ? '' : 'none';
+  });
+}
+
+function populateMsgCommitteeSelect() {
+  const el = document.getElementById('msgCommitteeSelect');
+  if (!el) return;
+  const cur = el.value;
+  el.innerHTML = '<option value="">-- select --</option>' + ALL_COMMITTEES_CACHE.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
+  if (cur) el.value = cur;
+}
+
+function renderMsgIndividualGrid(filter) {
+  const grid = document.getElementById('msgIndividualGrid');
+  if (!grid) return;
+  const q = (filter || '').toLowerCase();
+  const checkedIds = new Set(Array.from(grid.querySelectorAll('input[type=checkbox]:checked')).map((el) => el.value));
+  const rows = q
+    ? ALL_MSG_USERS_CACHE.filter((u) => [u.display_name, u.username].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
+    : ALL_MSG_USERS_CACHE;
+  grid.innerHTML = rows.map((u) => `
+    <label><input type="checkbox" name="msg_individual" value="${u.id}" ${checkedIds.has(String(u.id)) ? 'checked' : ''} /> ${u.display_name || u.username} <span class="hint">(${u.role})</span></label>
+  `).join('') || '<span class="hint">No matching users</span>';
+}
+async function refreshMsgIndividualDirectory() {
+  ALL_MSG_USERS_CACHE = await jget(`${API}/messages/recipients-directory`);
+  renderMsgIndividualGrid(document.getElementById('msgIndividualSearch')?.value);
+}
+const msgIndividualSearch = document.getElementById('msgIndividualSearch');
+if (msgIndividualSearch) {
+  msgIndividualSearch.addEventListener('input', (e) => renderMsgIndividualGrid(e.target.value));
+}
+
+const ROLE_LABELS_FOR_TARGET = { all: 'Everyone', host_member: 'Host Members', media: 'Media', transporter: 'Transporters', driver: 'Drivers', volunteer: 'Volunteers', admin: 'Admins', super_admin: 'Super Admins' };
+function describeMsgTarget(m) {
+  if (m.target_type === 'role') {
+    const roles = m.target_roles || [];
+    return roles.map((r) => ROLE_LABELS_FOR_TARGET[r] || r).join(', ') || '-';
+  }
+  if (m.target_type === 'committee') return `Committee: ${m.target_committee_name || '-'}`;
+  if (m.target_type === 'individual') return 'Specific people';
+  return '-';
+}
+
+async function refreshMessageHistory() {
+  const rows = await jget(`${API}/messages`);
+  document.getElementById('msgHistoryBody').innerHTML = rows.map((m) => `
+    <tr>
+      <td>${m.title}${m.action_label ? ` <span class="hint">(action: ${m.action_label})</span>` : ''}</td>
+      <td>${describeMsgTarget(m)}</td>
+      <td>${m.recipient_count}</td>
+      <td>${m.read_count}/${m.recipient_count}</td>
+      <td>${m.sender_username || '-'}</td>
+      <td>${new Date(m.created_at).toLocaleString()}</td>
+      <td class="sticky-actions"><button class="btn small" onclick="toggleMessageRecipients(${m.id})">View</button></td>
+    </tr>
+    <tr id="msgRecipientsRow-${m.id}" style="display:none;"><td colspan="7"><div id="msgRecipientsPanel-${m.id}"></div></td></tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No announcements sent yet</td></tr>';
+
+  for (const id of openMessageRecipientPanels) {
+    const row = document.getElementById(`msgRecipientsRow-${id}`);
+    if (row) { row.style.display = ''; renderMessageRecipientsPanel(id); }
+  }
+}
+
+window.toggleMessageRecipients = async (messageId) => {
+  const row = document.getElementById(`msgRecipientsRow-${messageId}`);
+  if (!row) return;
+  const isOpen = row.style.display !== 'none';
+  if (isOpen) {
+    row.style.display = 'none';
+    openMessageRecipientPanels.delete(messageId);
+  } else {
+    row.style.display = '';
+    openMessageRecipientPanels.add(messageId);
+    await renderMessageRecipientsPanel(messageId);
+  }
+};
+async function renderMessageRecipientsPanel(messageId) {
+  const panel = document.getElementById(`msgRecipientsPanel-${messageId}`);
+  if (!panel) return;
+  panel.innerHTML = '<p class="hint">Loading...</p>';
+  const rows = await jget(`${API}/messages/${messageId}/recipients`);
+  panel.innerHTML = `
+    <table>
+      <thead><tr><th>Name</th><th>Role</th><th>Read</th><th>Action done</th></tr></thead>
+      <tbody>
+        ${rows.map((r) => `
+          <tr>
+            <td>${r.display_name || r.username}</td>
+            <td>${r.role}</td>
+            <td>${r.read_at ? new Date(r.read_at).toLocaleString() : '<span class="hint">Unread</span>'}</td>
+            <td>${r.action_done_at ? new Date(r.action_done_at).toLocaleString() : '<span class="hint">-</span>'}</td>
+          </tr>
+        `).join('') || '<tr><td colspan="4" class="empty">No recipients</td></tr>'}
+      </tbody>
+    </table>
+  `;
+}
+
+document.getElementById('msgForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const title = form.elements['title'].value;
+  const body = form.elements['body'].value;
+  const target_type = msgTargetTypeSelect.value;
+  const payload = { title, body, target_type };
+
+  if (target_type === 'role') {
+    payload.target_roles = Array.from(form.querySelectorAll('input[name=msg_role]:checked')).map((el) => el.value);
+    if (!payload.target_roles.length) { toast('Pick at least one role (or Everyone).'); return; }
+  } else if (target_type === 'committee') {
+    const committeeId = document.getElementById('msgCommitteeSelect').value;
+    if (!committeeId) { toast('Pick a committee.'); return; }
+    payload.target_committee_id = Number(committeeId);
+  } else if (target_type === 'individual') {
+    payload.target_user_ids = Array.from(form.querySelectorAll('input[name=msg_individual]:checked')).map((el) => Number(el.value));
+    if (!payload.target_user_ids.length) { toast('Pick at least one person.'); return; }
+  }
+
+  if (msgHasActionCheckbox.checked) {
+    payload.action_label = form.elements['action_label'].value;
+    payload.action_due_date = form.elements['action_due_date'].value || null;
+  }
+
+  try {
+    const result = await jpost(`${API}/messages`, payload);
+    toast(`Sent to ${result.recipient_count} recipient(s)`);
+    form.reset();
+    msgHasActionCheckbox.checked = false;
+    msgActionFields.style.display = 'none';
+    updateMsgTargetFieldVisibility();
+    renderMsgIndividualGrid('');
+    refreshMessageHistory();
+  } catch (err) { toast(err.message); }
+});
 
 // --- Committee's own checklist (separate from per-member task delegation
 // above, and from the cross-committee "Committee Delivery" tab which is
@@ -4563,6 +4727,8 @@ function loadAllData() {
   refreshHostPayments();
   refreshCommittees();
   refreshVolunteers();
+  refreshMessageHistory();
+  refreshMsgIndividualDirectory();
   refreshAssignmentDropdowns();
   refreshAssignments();
   refreshTasks();

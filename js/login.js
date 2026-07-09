@@ -313,6 +313,10 @@ function showApp() {
   else if (role === 'transporter') startTransporter();
   else if (role === 'volunteer') startVolunteer();
 
+  // Announcements inbox is shared across every role (see tab-announcements) —
+  // unlike the role-specific start*() calls above, this always runs.
+  refreshAnnouncements();
+
   refreshPushButton();
 }
 
@@ -1347,6 +1351,56 @@ async function loadVolunteerMe() {
     if (!(err instanceof UnauthorizedError)) toast(err.message);
   }
 }
+
+// ================= ANNOUNCEMENTS (shared across every role) =================
+// One-way messages from the admin team — see server/routes/messages.js.
+// No replies/threads: just a read state and, if the message carried one, a
+// per-recipient action to mark done. Same shared tab for every role, same
+// idea as host_member/volunteer sharing tab-host-modules.
+async function loadAnnouncements() {
+  try {
+    const rows = await jget(`${API}/messages/inbox`);
+    return Array.isArray(rows) ? rows : [];
+  } catch (err) {
+    if (!(err instanceof UnauthorizedError)) console.error(err);
+    return [];
+  }
+}
+async function refreshAnnouncements() {
+  const rows = await loadAnnouncements();
+  const role = CURRENT_USER ? CURRENT_USER.role : null;
+  const unreadCount = rows.filter((m) => !m.read_at).length;
+  const badge = document.getElementById(`unreadBadge-${role}`);
+  if (badge) {
+    badge.textContent = unreadCount;
+    badge.style.display = unreadCount ? '' : 'none';
+  }
+  document.getElementById('announcementsBody').innerHTML = rows.map((m) => `
+    <div class="checklist-row status-${m.read_at ? 'completed' : 'pending'}" style="align-items:flex-start;flex-direction:column;gap:6px;">
+      <div style="display:flex;justify-content:space-between;width:100%;gap:8px;">
+        <strong>${m.title}${!m.read_at ? ' <span class="pill pending">New</span>' : ''}</strong>
+        <span class="hint">${new Date(m.created_at).toLocaleString()}</span>
+      </div>
+      ${m.body ? `<p style="margin:0;white-space:pre-wrap;">${m.body}</p>` : ''}
+      <p class="hint" style="margin:0;">From ${m.sender_username || 'the admin team'}</p>
+      ${m.action_label ? `
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="pill ${m.action_done_at ? 'completed' : 'in_progress'}">${m.action_done_at ? '✓ Done' : 'Action needed'}: ${m.action_label}${m.action_due_date ? ' (due ' + m.action_due_date + ')' : ''}</span>
+          ${!m.action_done_at ? `<button type="button" class="btn small" onclick="markAnnouncementActionDone(${m.message_id})">Mark done</button>` : ''}
+        </div>
+      ` : ''}
+      ${!m.read_at ? `<button type="button" class="btn small outline" onclick="markAnnouncementRead(${m.message_id})">Mark read</button>` : ''}
+    </div>
+  `).join('') || '<p class="hint">No announcements yet.</p>';
+}
+window.markAnnouncementRead = async (messageId) => {
+  try { await jput(`${API}/messages/${messageId}/read`, {}); refreshAnnouncements(); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
+window.markAnnouncementActionDone = async (messageId) => {
+  try { await jput(`${API}/messages/${messageId}/action-done`, {}); toast('Marked done'); refreshAnnouncements(); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
 
 // ================= BOOT =================
 tryResumeSession();

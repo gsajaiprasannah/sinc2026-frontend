@@ -112,6 +112,12 @@
           </div>
         </details>
         <details class="nav-group" open>
+          <summary class="nav-group-label">Communications <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="communications">Announcements</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
           <summary class="nav-group-label">Operations <span class="chevron">›</span></summary>
           <div class="admin-nav">
             <button data-tab="partners">Partners &amp; Drivers</button>
@@ -569,6 +575,69 @@
       <table>
         <thead><tr><th>Name</th><th>Phone</th><th>Organization</th><th>Login</th><th></th></tr></thead>
         <tbody id="volTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- COMMUNICATIONS TAB (one-way announcements to a role, a committee, or   -->
+  <!-- hand-picked individuals, with an optional attached action — no        -->
+  <!-- replies/threads, deliberately simple. See server/routes/messages.js.  -->
+  <section class="tab-panel" id="tab-communications">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Send an announcement</div>
+      <form id="msgForm">
+        <div class="field"><label>Title *</label><input name="title" required /></div>
+        <div class="field"><label>Message</label><textarea name="body" placeholder="Optional details..."></textarea></div>
+
+        <div class="field"><label>Send to</label>
+          <select id="msgTargetType" name="target_type">
+            <option value="role">A role (or everyone)</option>
+            <option value="committee">A committee</option>
+            <option value="individual">Specific people</option>
+          </select>
+        </div>
+
+        <div class="field" id="msgRoleField">
+          <label>Roles</label>
+          <div class="module-checkbox-grid" id="msgRoleGrid">
+            <label><input type="checkbox" name="msg_role" value="all" /> Everyone</label>
+            <label><input type="checkbox" name="msg_role" value="host_member" /> Host Members</label>
+            <label><input type="checkbox" name="msg_role" value="media" /> Media</label>
+            <label><input type="checkbox" name="msg_role" value="transporter" /> Transporters</label>
+            <label><input type="checkbox" name="msg_role" value="driver" /> Drivers</label>
+            <label><input type="checkbox" name="msg_role" value="volunteer" /> Volunteers</label>
+            <label><input type="checkbox" name="msg_role" value="admin" /> Admins</label>
+          </div>
+        </div>
+
+        <div class="field" id="msgCommitteeField" style="display:none;">
+          <label>Committee</label>
+          <select id="msgCommitteeSelect"><option value="">-- select --</option></select>
+        </div>
+
+        <div class="field" id="msgIndividualField" style="display:none;">
+          <label>People</label>
+          <input id="msgIndividualSearch" placeholder="Search by name or username..." style="margin-bottom:8px;" />
+          <div class="module-checkbox-grid" id="msgIndividualGrid" style="max-height:220px;overflow-y:auto;"></div>
+        </div>
+
+        <div class="field">
+          <label><input type="checkbox" id="msgHasAction" /> Also assign an action (to-do) to every recipient</label>
+        </div>
+        <div class="form-grid cols-2" id="msgActionFields" style="display:none;">
+          <div class="field"><label>Action label</label><input name="action_label" placeholder="e.g. Confirm your travel details" /></div>
+          <div class="field"><label>Due date</label><input name="action_due_date" type="date" /></div>
+        </div>
+
+        <button class="btn gold" type="submit">Send</button>
+      </form>
+    </div>
+
+    <div class="section-title">Sent history</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Title</th><th>Sent to</th><th>Recipients</th><th>Read</th><th>Sent by</th><th>Date</th><th></th></tr></thead>
+        <tbody id="msgHistoryBody"></tbody>
       </table>
     </div>
   </section>
