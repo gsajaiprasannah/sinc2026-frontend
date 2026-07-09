@@ -4277,13 +4277,29 @@ async function refreshUsersAdmin() {
       <td>${linkedProfile(u)}</td>
       <td>${userBadge(u.status)}</td>
       <td>${new Date(u.created_at).toLocaleDateString()}</td>
-      <td>${u.id === CURRENT_USER.id ? '<span class="hint">(you)</span>' : `<button class="btn danger small" onclick="deleteUser(${u.id})">Delete</button>`}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="resetUserPassword(${u.id}, '${(u.username || '').replace(/'/g, "\\'")}')">Reset password</button>
+        ${u.id === CURRENT_USER.id ? '<span class="hint">(you)</span>' : `<button class="btn danger small" onclick="deleteUser(${u.id})">Delete</button>`}
+      </td>
     </tr>
   `).join('') || '<tr><td colspan="7" class="empty">No logins yet</td></tr>';
 }
 window.approveUser = async (id) => { await jput(`${API}/auth/users/${id}/approve`, {}); toast('Approved'); refreshUsersAdmin(); };
 window.rejectUser = async (id) => { await jput(`${API}/auth/users/${id}/reject`, {}); toast('Rejected'); refreshUsersAdmin(); };
 window.deleteUser = async (id) => { if (!confirm('Delete this login?')) return; await jdel(`${API}/auth/users/${id}`); toast('Login removed'); refreshUsersAdmin(); };
+// Forgot-password recovery for any login (regular admin, host member, media,
+// transporter, driver) — sets a brand-new password without needing to know
+// the old one, unlike the self-service "Change my password" flow elsewhere
+// in Settings (which always requires the current password).
+window.resetUserPassword = async (id, username) => {
+  const password = prompt(`New password for "${username}" (min 6 characters):`);
+  if (!password) return;
+  if (password.length < 6) { toast('Password must be at least 6 characters'); return; }
+  try {
+    await jput(`${API}/auth/users/${id}/reset-password`, { new_password: password });
+    toast(`Password reset for ${username}. Share the new password with them directly.`, 6000);
+  } catch (err) { toast(err.message); }
+};
 
 // Show/hide + require the matching linked-profile picker for roles that need
 // one (host_member -> host member, driver -> driver, transporter -> partner).
