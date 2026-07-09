@@ -11,6 +11,18 @@
 </head>
 <body>
 
+<!-- Shared pickup/drop point suggestions — used by the delegate arrival
+     point field and every From/To field across Transport Planning and Pre
+     Tours (see refreshTransportPoints() in admin.js). The three defaults
+     below render immediately even before that fetch completes; admin.js
+     replaces/extends this list with whatever's in the transport_points
+     table (defaults + anything typed in previously). -->
+<datalist id="transportPointsList">
+  <option value="Coimbatore Airport"></option>
+  <option value="Coimbatore Railway Station"></option>
+  <option value="Coimbatore Bus Stand"></option>
+</datalist>
+
 <header class="topbar">
   <div class="topbar-inner">
     <div class="topbar-left">
@@ -283,7 +295,7 @@
           </div>
           <div class="field"><label>Flight / Train number</label><input name="travel_number" /></div>
           <div class="field"><label>Date &amp; time</label><input name="travel_datetime" type="datetime-local" /></div>
-          <div class="field"><label>Arrival point</label><input name="arrival_point" placeholder="Airport / Station" /></div>
+          <div class="field"><label>Arrival point</label><input name="arrival_point" list="transportPointsList" placeholder="Airport / Railway Station / Bus Stand..." /></div>
         </div>
 
         <div class="section-title" style="font-size:12px;margin:16px 0 8px;">Travel — departure</div>
@@ -820,8 +832,8 @@
       <div class="section-title" style="margin-top:0" id="tripFormTitle">Add trip</div>
       <form id="tripForm">
         <div class="form-grid cols-3">
-          <div class="field"><label>From *</label><input name="from_location" required placeholder="Hotel Le Meridien" /></div>
-          <div class="field"><label>To *</label><input name="to_location" required placeholder="Congress Venue" /></div>
+          <div class="field"><label>From *</label><input name="from_location" list="transportPointsList" required placeholder="Hotel Le Meridien" /></div>
+          <div class="field"><label>To *</label><input name="to_location" list="transportPointsList" required placeholder="Congress Venue" /></div>
           <div class="field"><label>Purpose</label><input name="purpose" placeholder="Airport pickup / Venue shuttle / City tour" /></div>
         </div>
         <div class="form-grid cols-3">
@@ -850,6 +862,16 @@
       <div class="section-title" style="margin-top:0">Arrivals &amp; Departures to Plan</div>
       <p class="hint" style="margin:0 0 10px;">Delegates who gave flight/train details, auto-grouped by matching travel number + date/time — assign one vehicle and driver to the whole group instead of planning each delegate individually. Once confirmed, a group won't be suggested again.</p>
       <div id="transportQueueBody"><p class="hint">Loading…</p></div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="section-title" style="margin-top:0">Pickup &amp; drop points</div>
+      <p class="hint" style="margin:0 0 10px;">Airport, Railway Station, and Bus Stand are always suggested. Add any hotel, venue, or other spot you use often here and it'll show up as a suggestion everywhere a From/To/arrival point is typed.</p>
+      <form id="transportPointForm" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="flex:1;min-width:220px;margin:0;"><input name="name" placeholder="e.g. Hotel Le Meridien" required /></div>
+        <button class="btn gold small" type="submit">Add point</button>
+      </form>
+      <div id="transportPointsChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;"></div>
     </div>
 
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
@@ -980,8 +1002,8 @@
       <div class="section-title" style="font-size:12px;margin-top:20px;">Transport for this tour</div>
       <form id="tourTripForm">
         <div class="form-grid cols-3">
-          <div class="field"><label>From *</label><input name="from_location" required /></div>
-          <div class="field"><label>To *</label><input name="to_location" required /></div>
+          <div class="field"><label>From *</label><input name="from_location" list="transportPointsList" required /></div>
+          <div class="field"><label>To *</label><input name="to_location" list="transportPointsList" required /></div>
           <div class="field"><label>Purpose</label><input name="purpose" /></div>
         </div>
         <div class="form-grid cols-3">

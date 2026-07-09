@@ -28,6 +28,69 @@ function canDelete() {
   return !!(CURRENT_USER && CURRENT_USER.role === 'super_admin');
 }
 
+// --- Shared pickup/drop point suggestions ---
+// A small master list (Airport, Railway Station, Bus Stand, plus anything an
+// admin has typed into a From/To/arrival-point field before) offered as
+// autocomplete via the #transportPointsList datalist referenced from the
+// Delegates form's arrival point field and every From/To field in Transport
+// Planning + Pre Tours. Kept as a simple cache + a "make sure this value is
+// in the list" helper (called after every save that includes a location
+// field) rather than a heavier live-sync, since points are added rarely
+// relative to how often they're read.
+let TRANSPORT_POINTS_CACHE = [];
+function renderTransportPointsDatalist() {
+  const dl = document.getElementById('transportPointsList');
+  if (!dl) return;
+  dl.innerHTML = '';
+  TRANSPORT_POINTS_CACHE.forEach((p) => {
+    const opt = document.createElement('option');
+    opt.value = p.name;
+    dl.appendChild(opt);
+  });
+}
+async function refreshTransportPoints() {
+  try {
+    TRANSPORT_POINTS_CACHE = await jget(`${API}/transport-points`);
+    renderTransportPointsDatalist();
+  } catch (err) { /* datalist keeps its static HTML fallback options */ }
+  renderTransportPointsChips();
+}
+// Called (fire-and-forget) after saving anything with a location field, so a
+// custom point typed in once is remembered and suggested everywhere else
+// from then on. Silently skips if it's already in the cache (case-insensitive)
+// and never surfaces errors to the user — this is a background convenience,
+// not a required step.
+async function ensureTransportPoint(name) {
+  const value = (name || '').trim();
+  if (!value) return;
+  if (TRANSPORT_POINTS_CACHE.some((p) => p.name.toLowerCase() === value.toLowerCase())) return;
+  try {
+    const point = await jpost(`${API}/transport-points`, { name: value });
+    if (point && !TRANSPORT_POINTS_CACHE.some((p) => p.id === point.id)) {
+      TRANSPORT_POINTS_CACHE.push(point);
+      renderTransportPointsDatalist();
+      renderTransportPointsChips();
+    }
+  } catch (err) { /* non-critical */ }
+}
+function renderTransportPointsChips() {
+  const wrap = document.getElementById('transportPointsChips');
+  if (!wrap) return;
+  wrap.innerHTML = TRANSPORT_POINTS_CACHE.map((p) => `
+    <span class="hint" style="border:1px solid var(--line);border-radius:20px;padding:4px 10px;display:inline-flex;align-items:center;gap:6px;">
+      ${p.name}
+      ${canDelete() ? `<button type="button" class="btn danger small" style="padding:0 6px;line-height:1.4;" onclick="deleteTransportPoint(${p.id})" title="Remove">&times;</button>` : ''}
+    </span>
+  `).join('') || '<span class="hint">No custom points added yet.</span>';
+}
+window.deleteTransportPoint = async (id) => {
+  try {
+    await jdel(`${API}/transport-points/${id}`);
+    toast('Point removed');
+    refreshTransportPoints();
+  } catch (err) { toast(err.message); }
+};
+
 let toastTimer = null;
 function toast(msg, durationMs) {
   const t = document.getElementById('toast');
@@ -814,6 +877,7 @@ async function savePartForm(form, force) {
     }
     if (editId) window.cancelEditPart();
     else form.reset();
+    if (body.arrival_point) ensureTransportPoint(body.arrival_point);
     refreshParts();
   } catch (err) {
     if (err.status === 409 && err.data && err.data.error === 'duplicate') {
@@ -1878,8 +1942,8 @@ function transportQueueGroupCard(direction, g) {
       </div>
       <form onsubmit="return submitGroupTrip(event, '${direction}')">
         <div class="form-grid cols-3">
-          <div class="field"><label>From *</label><input name="from_location" required value="${fromDefault}" /></div>
-          <div class="field"><label>To *</label><input name="to_location" required value="${toDefault}" /></div>
+          <div class="field"><label>From *</label><input name="from_location" list="transportPointsList" required value="${fromDefault}" /></div>
+          <div class="field"><label>To *</label><input name="to_location" list="transportPointsList" required value="${toDefault}" /></div>
           <div class="field"><label>Trip date</label><input name="trip_date" type="date" /></div>
         </div>
         <div class="form-grid cols-3">
@@ -1908,6 +1972,8 @@ window.submitGroupTrip = async (e, direction) => {
   try {
     await jpost(`${API}/transport/group-trip`, body);
     toast('Trip created for the group');
+    if (body.from_location) ensureTransportPoint(body.from_location);
+    if (body.to_location) ensureTransportPoint(body.to_location);
     refreshTransportTrips();
     refreshTransportQueue();
   } catch (err) { toast(err.message); }
@@ -1931,6 +1997,18 @@ async function refreshTransportQueue() {
     body.innerHTML = `<p class="hint" style="color:var(--red);">${err.message}</p>`;
   }
 }
+
+document.getElementById('transportPointForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = e.target.elements.name.value.trim();
+  if (!name) return;
+  try {
+    await jpost(`${API}/transport-points`, { name });
+    e.target.reset();
+    toast('Point added');
+    refreshTransportPoints();
+  } catch (err) { toast(err.message); }
+});
 
 window.deleteTrip = async (id) => {
   await jdel(`${API}/transport/${id}`);
@@ -1975,6 +2053,8 @@ async function saveTripForm(form) {
       form.reset();
       toast('Trip saved');
     }
+    if (body.from_location) ensureTransportPoint(body.from_location);
+    if (body.to_location) ensureTransportPoint(body.to_location);
     refreshTransportTrips();
   } catch (err) { toast(err.message); }
 }
@@ -2217,6 +2297,8 @@ document.getElementById('tourTripForm').addEventListener('submit', async (e) => 
     await jpost(`${API}/transport`, body);
     e.target.reset();
     toast('Trip added');
+    if (body.from_location) ensureTransportPoint(body.from_location);
+    if (body.to_location) ensureTransportPoint(body.to_location);
     refreshTourTrips();
     refreshPreTours();
   } catch (err) { toast(err.message); }
@@ -4229,6 +4311,7 @@ function loadAllData() {
   refreshDrivers();
   refreshVehicles();
   loadNextVehicleCode();
+  refreshTransportPoints();
   refreshTransportTrips();
   refreshTransportQueue();
   refreshPreTours();

@@ -10,6 +10,16 @@
 </head>
 <body>
 
+<!-- Shared pickup/drop point suggestions for the Transport Planning module's
+     From/To fields and a Delegate's arrival point field (see
+     refreshTransportPoints() in login.js). The three defaults below render
+     immediately even before that fetch completes. -->
+<datalist id="transportPointsList">
+  <option value="Coimbatore Airport"></option>
+  <option value="Coimbatore Railway Station"></option>
+  <option value="Coimbatore Bus Stand"></option>
+</datalist>
+
 <header class="topbar">
   <div class="topbar-inner">
     <div class="topbar-left">

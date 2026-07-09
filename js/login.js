@@ -107,6 +107,43 @@ async function uploadFile(url, formEl) {
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+
+// --- Shared pickup/drop point suggestions (Transport Planning module) ---
+// Mirrors admin.js's version of this — same #transportPointsList datalist,
+// same "quietly remember whatever gets typed" behavior — but reads/writes
+// through the committee's own portal-modules mount, gated behind the
+// transport_planning module grant. Only ever called once that module has
+// been selected, so a committee without transport_planning access never
+// even attempts the request.
+let TRANSPORT_POINTS_CACHE = [];
+function renderTransportPointsDatalist() {
+  const dl = document.getElementById('transportPointsList');
+  if (!dl) return;
+  dl.innerHTML = '';
+  TRANSPORT_POINTS_CACHE.forEach((p) => {
+    const opt = document.createElement('option');
+    opt.value = p.name;
+    dl.appendChild(opt);
+  });
+}
+async function refreshTransportPoints() {
+  try {
+    TRANSPORT_POINTS_CACHE = await jget(`${API}/portal-modules/transport-points`);
+    renderTransportPointsDatalist();
+  } catch (err) { /* datalist keeps its static HTML fallback options */ }
+}
+async function ensureTransportPoint(name) {
+  const value = (name || '').trim();
+  if (!value) return;
+  if (TRANSPORT_POINTS_CACHE.some((p) => p.name.toLowerCase() === value.toLowerCase())) return;
+  try {
+    const point = await jpost(`${API}/portal-modules/transport-points`, { name: value });
+    if (point && !TRANSPORT_POINTS_CACHE.some((p) => p.id === point.id)) {
+      TRANSPORT_POINTS_CACHE.push(point);
+      renderTransportPointsDatalist();
+    }
+  } catch (err) { /* non-critical */ }
+}
 function fmtDate(d) {
   if (!d) return '-';
   return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -743,7 +780,7 @@ async function renderHostModuleSection(cfg, section) {
                     ? (optionRows[f.optionsFrom] || []).map((r) => `<option value="${r.id}">${escapeHtml(f.optionLabel(r))}</option>`).join('')
                     : (f.options || []).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
                 </select>
-              ` : (f.type === 'textarea' ? `<textarea name="${f.name}"${f.required ? ' required' : ''}></textarea>` : `<input name="${f.name}" type="${f.type || 'text'}"${f.required ? ' required' : ''} />`)}
+              ` : (f.type === 'textarea' ? `<textarea name="${f.name}"${f.required ? ' required' : ''}></textarea>` : `<input name="${f.name}" type="${f.type || 'text'}"${['from_location', 'to_location', 'arrival_point'].includes(f.name) ? ' list="transportPointsList"' : ''}${f.required ? ' required' : ''} />`)}
             </div>
           `).join('')}
         </div>
@@ -752,7 +789,7 @@ async function renderHostModuleSection(cfg, section) {
     ` : (cfg.readOnly ? '<p class="hint">This module is view-only from the host portal.</p>' : '')}
     ${cfg.hasArrivalsQueue ? '<div id="transportQueueBody" style="margin-top:16px;"><p class="hint">Loading arrivals/departures…</p></div>' : ''}
   `;
-  if (cfg.hasArrivalsQueue) renderTransportQueue();
+  if (cfg.hasArrivalsQueue) { refreshTransportPoints(); renderTransportQueue(); }
 }
 
 // --- Arrivals & Departures to Plan (Transport Planning module only) ---
@@ -791,8 +828,8 @@ function transportQueueGroupCardHost(direction, g) {
       </div>
       <form onsubmit="return submitGroupTripHost(event, '${direction}')">
         <div class="form-grid cols-2">
-          <div class="field"><label>From *</label><input name="from_location" required value="${escapeHtml(fromDefault)}" /></div>
-          <div class="field"><label>To *</label><input name="to_location" required value="${escapeHtml(toDefault)}" /></div>
+          <div class="field"><label>From *</label><input name="from_location" list="transportPointsList" required value="${escapeHtml(fromDefault)}" /></div>
+          <div class="field"><label>To *</label><input name="to_location" list="transportPointsList" required value="${escapeHtml(toDefault)}" /></div>
         </div>
         <div class="form-grid cols-2">
           <div class="field"><label>Trip date</label><input name="trip_date" type="date" /></div>
@@ -823,6 +860,8 @@ window.submitGroupTripHost = async (e, direction) => {
   try {
     await jpost(`${API}/portal-modules/transport/group-trip`, body);
     toast('Trip created for the group');
+    if (body.from_location) ensureTransportPoint(body.from_location);
+    if (body.to_location) ensureTransportPoint(body.to_location);
     renderTransportQueue();
     if (currentModuleKey === 'transport_planning') renderHostModuleSection(MODULE_CONFIG.transport_planning, MODULE_CONFIG.transport_planning);
   } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
@@ -857,6 +896,7 @@ window.submitHostModuleForm = async (e) => {
     await jpost(`${API}/portal-modules/${section.path}`, body);
     toast('Saved');
     e.target.reset();
+    ['from_location', 'to_location', 'arrival_point'].forEach((k) => { if (body[k]) ensureTransportPoint(body[k]); });
     renderHostModuleSection(cfg, section);
   } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
   return false;
