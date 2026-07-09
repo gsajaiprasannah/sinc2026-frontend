@@ -690,9 +690,30 @@ function spocDisplay(p) {
   return `${p.spoc_name || '-'}${p.spoc_phone ? '<br><span class="hint">' + p.spoc_phone + '</span>' : ''}`;
 }
 
+// Sorts the delegate list client-side by whichever option is chosen in the
+// "Sort by" dropdown. "Title" here means each delegate's designation
+// (President / Secretary / Member / Spouse / ...), the label shown next to
+// their name in the table.
+function sortParts(rows, sortValue) {
+  if (!sortValue) return rows;
+  const collator = new Intl.Collator('en', { sensitivity: 'base' });
+  const [field, dir] = sortValue.split('_');
+  const getters = {
+    title: (p) => p.designation || '',
+    name: (p) => p.name || '',
+    club: (p) => p.club_name || '',
+  };
+  const get = getters[field];
+  if (!get) return rows;
+  const sorted = [...rows].sort((a, b) => collator.compare(get(a), get(b)));
+  return dir === 'desc' ? sorted.reverse() : sorted;
+}
+
 async function refreshParts(query) {
   const url = query ? `${API}/participants?q=${encodeURIComponent(query)}` : `${API}/participants`;
-  const rows = await jget(url);
+  let rows = await jget(url);
+  const sortSelect = document.getElementById('partSortSelect');
+  rows = sortParts(rows, sortSelect ? sortSelect.value : '');
   document.getElementById('partsTableBody').innerHTML = rows.map((p) => `
     <tr>
       <td><strong>${p.participant_code || '-'}</strong></td>
@@ -824,6 +845,9 @@ document.getElementById('partCsvForm').addEventListener('submit', async (e) => {
     e.target.reset();
     refreshParts();
   } catch (err) { toast(err.message); }
+});
+document.getElementById('partSortSelect').addEventListener('change', () => {
+  refreshParts(document.getElementById('partSearch').value);
 });
 
 let searchTimer = null;
