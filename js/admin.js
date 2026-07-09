@@ -1162,6 +1162,7 @@ async function refreshCommittees() {
           <button class="btn small" onclick="editCommittee(${c.id})">Edit</button>
           <button class="btn small" onclick="toggleCommitteeModules(${c.id})">Modules (${(c.module_access || []).length})</button>
           <button class="btn small" onclick="toggleCommitteeTasks(${c.id})">Checklist &amp; Milestones (${c.tasks_completed || 0}/${c.task_count || 0})</button>
+          <button class="btn small" onclick="toggleCommitteeChecklist(${c.id})">Committee Checklist (${c.checklist_item_count || 0})</button>
           ${canDelete() ? `<button class="btn danger small" onclick="deleteCommittee(${c.id})">Delete</button>` : ''}
         </div>
       </div>
@@ -1178,6 +1179,7 @@ async function refreshCommittees() {
       </div>
       <div id="committeeModulesPanel-${c.id}" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:12px;"></div>
       <div id="committeeTasksPanel-${c.id}" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:12px;"></div>
+      <div id="committeeChecklistPanel-${c.id}" style="display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:12px;"></div>
     </div>
   `).join('') || '<div class="empty">No committees yet</div>';
 
@@ -1195,9 +1197,14 @@ async function refreshCommittees() {
     const panel = document.getElementById(`committeeModulesPanel-${id}`);
     if (panel) { panel.style.display = ''; renderCommitteeModulesPanel(id); }
   }
+  for (const id of openCommitteeChecklistPanels) {
+    const panel = document.getElementById(`committeeChecklistPanel-${id}`);
+    if (panel) { panel.style.display = ''; renderCommitteeChecklistPanel(id); }
+  }
 }
 let openCommitteeTaskPanels = new Set();
 let openCommitteeModulePanels = new Set();
+let openCommitteeChecklistPanels = new Set();
 
 window.makeCommitteeLead = async (committeeId, hostMemberId) => {
   try {
@@ -1370,6 +1377,78 @@ window.toggleCommitteeMemberCompletion = async (completionId, currentStatus, com
     refreshCommittees();
   } catch (err) { toast(err.message); }
 };
+// --- Committee's own checklist (separate from per-member task delegation
+// above, and from the cross-committee "Committee Delivery" tab which is
+// checklist items OTHER entities need this committee to deliver). This is
+// a simple shared to-do list that belongs to the committee itself — the
+// same host portal Lead tab lets a committee lead add to this one, using
+// the generic checklist_items table (owner_type='committee'). ---
+window.toggleCommitteeChecklist = async (committeeId) => {
+  const panel = document.getElementById(`committeeChecklistPanel-${committeeId}`);
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  if (isOpen) {
+    panel.style.display = 'none';
+    openCommitteeChecklistPanels.delete(committeeId);
+  } else {
+    panel.style.display = '';
+    openCommitteeChecklistPanels.add(committeeId);
+    await renderCommitteeChecklistPanel(committeeId);
+  }
+};
+async function renderCommitteeChecklistPanel(committeeId) {
+  const panel = document.getElementById(`committeeChecklistPanel-${committeeId}`);
+  if (!panel) return;
+  const items = await jget(`${API}/committees/${committeeId}/checklist`);
+  panel.innerHTML = `
+    <p class="hint" style="margin:0 0 12px;">This committee's own shared to-do list — its lead can add to this from their host portal too. Any member can update the status.</p>
+    <form onsubmit="return submitCommitteeChecklistItem(event, ${committeeId})" style="margin:10px 0;">
+      <div class="form-grid cols-3">
+        <div class="field"><label>Item *</label><input name="label" required /></div>
+        <div class="field"><label>Due date</label><input name="due_date" type="date" /></div>
+        <div class="field"><label>Category</label><input name="category" /></div>
+      </div>
+      <button class="btn gold small" type="submit">Add checklist item</button>
+    </form>
+    ${items.map((it) => `
+      <div class="checklist-row status-${it.status}" style="padding:6px 0;border-bottom:1px solid var(--line);">
+        <select onchange="updateCommitteeChecklistStatus(${it.id}, this.value, ${committeeId})">
+          <option value="pending" ${it.status === 'pending' ? 'selected' : ''}>Pending</option>
+          <option value="in_progress" ${it.status === 'in_progress' ? 'selected' : ''}>In progress</option>
+          <option value="done" ${it.status === 'done' ? 'selected' : ''}>Done</option>
+        </select>
+        <span class="checklist-label">${it.label}${it.due_date ? ` <span class="hint">(due ${String(it.due_date).slice(0, 10)})</span>` : ''}</span>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteCommitteeChecklistItem(${it.id}, ${committeeId})">Delete</button>` : ''}
+      </div>
+    `).join('') || '<p class="hint">No checklist items yet.</p>'}
+  `;
+}
+window.submitCommitteeChecklistItem = async (e, committeeId) => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  try {
+    await jpost(`${API}/committees/${committeeId}/checklist`, body);
+    toast('Checklist item added');
+    openCommitteeChecklistPanels.add(committeeId);
+    refreshCommittees();
+  } catch (err) { toast(err.message); }
+  return false;
+};
+window.updateCommitteeChecklistStatus = async (itemId, status, committeeId) => {
+  try {
+    await jput(`${API}/checklist-items/${itemId}`, { status });
+    toast('Status updated');
+    openCommitteeChecklistPanels.add(committeeId);
+    refreshCommittees();
+  } catch (err) { toast(err.message); }
+};
+window.deleteCommitteeChecklistItem = async (itemId, committeeId) => {
+  await jdel(`${API}/checklist-items/${itemId}`);
+  toast('Removed');
+  openCommitteeChecklistPanels.add(committeeId);
+  refreshCommittees();
+};
+
 window.removeCommitteeMember = async (committeeId, hostMemberId) => {
   await jdel(`${API}/committees/${committeeId}/members/${hostMemberId}`);
   toast('Removed from committee');

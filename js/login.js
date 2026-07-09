@@ -348,7 +348,7 @@ async function loadHostMe() {
   renderHostProfile(data.profile);
   renderHostPayment(data.profile);
   renderHostCommittees(data.committeeTasks || []);
-  renderHostLeadCommittees(data.leadCommittees || []);
+  renderHostLeadCommittees(data.leadCommittees || [], data.committeeChecklists || []);
   renderHostModules(data.moduleAccess || []);
   renderHostCommitteeChecklists(data.committeeChecklists);
   renderHostCommitteeDeliveries(data.committeeDeliveries);
@@ -414,7 +414,7 @@ window.updateMyCommitteeTaskStatus = async (completionId, status) => {
 };
 
 // --- Committee lead: delegate individual checklist items + verify completions ---
-function renderHostLeadCommittees(leadCommittees) {
+function renderHostLeadCommittees(leadCommittees, committeeChecklists) {
   const card = document.getElementById('hostLeadCard');
   const navBtn = document.getElementById('navBtnLead');
   if (!leadCommittees || !leadCommittees.length) {
@@ -425,6 +425,15 @@ function renderHostLeadCommittees(leadCommittees) {
   card.style.display = '';
   if (navBtn) navBtn.style.display = '';
   const memberOpts = (roster) => roster.map((m) => `<option value="${m.id}">${m.name}</option>`).join('');
+  // Only the committee's OWN items here (owner_type='committee') — items
+  // delegated to this committee from Sponsors/Speakers/Guest Visitors/
+  // Delegates/Host Members already have their own "Committee Delivery" tab,
+  // so we don't want to show them twice.
+  const checklistFor = (committeeId) => {
+    const group = (committeeChecklists || []).find((g) => g.committee_id === committeeId);
+    if (!group) return null;
+    return { ...group, items: (group.items || []).filter((it) => it.is_committee_own_item) };
+  };
   document.getElementById('hostLeadBody').innerHTML = leadCommittees.map((c) => `
     <div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--line);">
       <p style="margin:0 0 8px;"><strong>${c.name}</strong> <span class="hint">— ${c.roster.length} member${c.roster.length === 1 ? '' : 's'}</span></p>
@@ -445,6 +454,17 @@ function renderHostLeadCommittees(leadCommittees) {
         <div class="field"><label>Description</label><textarea name="description"></textarea></div>
         <button class="btn gold small" type="submit">Assign checklist item / milestone</button>
       </form>
+      <div style="margin:14px 0;padding:12px;border:1px solid var(--line);border-radius:10px;">
+        <p style="margin:0 0 8px;"><strong>Committee checklist</strong> <span class="hint">— a shared to-do list for the committee itself; any member can mark items done</span></p>
+        <form onsubmit="return submitCommitteeChecklistItemLead(event, ${c.id})" style="margin:0 0 10px;">
+          <div class="form-grid cols-2">
+            <div class="field"><label>Item *</label><input name="label" required /></div>
+            <div class="field"><label>Due date</label><input name="due_date" type="date" /></div>
+          </div>
+          <button class="btn gold small" type="submit">Add checklist item</button>
+        </form>
+        ${hostChecklistRowsHtml((checklistFor(c.id) || {}).items, { showOwner: false })}
+      </div>
       ${(c.tasks && c.tasks.length) ? c.tasks.map((t) => `
         <div style="padding:8px 0;border-bottom:1px solid var(--line);">
           <div>
@@ -474,6 +494,16 @@ window.submitLeadTask = async (e, committeeId) => {
   try {
     await jpost(`${API}/host/committees/${committeeId}/tasks`, body);
     toast('Checklist item assigned');
+    loadHostMe();
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+  return false;
+};
+window.submitCommitteeChecklistItemLead = async (e, committeeId) => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  try {
+    await jpost(`${API}/host/committees/${committeeId}/checklist-items`, body);
+    toast('Checklist item added');
     loadHostMe();
   } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
   return false;
@@ -822,7 +852,7 @@ function renderHostGoodiesChecklist(items) {
 }
 
 window.updateHostChecklistStatus = async (id, status) => {
-  try { await jput(`${API}/host/checklist/${id}`, { status }); toast('Status updated'); }
+  try { await jput(`${API}/host/checklist/${id}`, { status }); toast('Status updated'); loadHostMe(); }
   catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
 };
 
