@@ -1,0 +1,1676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>SINC2026 — Skål International Admin</title>
+<link rel="stylesheet" href="css/styles.css" />
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#314691" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- Shared pickup/drop point suggestions — used by the delegate arrival
+     point field and every From/To field across Transport Planning and Pre
+     Tours (see refreshTransportPoints() in admin.js). The three defaults
+     below render immediately even before that fetch completes; admin.js
+     replaces/extends this list with whatever's in the transport_points
+     table (defaults + anything typed in previously). -->
+<datalist id="transportPointsList">
+  <option value="Coimbatore Airport"></option>
+  <option value="Coimbatore Railway Station"></option>
+  <option value="Coimbatore Bus Stand"></option>
+</datalist>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-left">
+      <button class="icon-btn" id="sidebarToggle" type="button" aria-label="Toggle sidebar" title="Toggle sidebar">☰</button>
+      <div class="brand">
+        <img src="img/skal-logo.png" alt="Skål International" class="logo-mark" />
+        <div>
+          <h1>Congress Admin</h1>
+          <span>Data &amp; media management</span>
+        </div>
+      </div>
+    </div>
+    <nav id="topbarNav">
+      <span id="whoami" class="hint" style="margin-right:10px;"></span>
+      <a href="index.html">← Home</a>
+      <a href="#" id="logoutLink" style="display:none;">Log out</a>
+    </nav>
+  </div>
+</header>
+
+<!-- LOGIN / SIGNUP GATE -->
+<div class="container" id="authGate" style="max-width:420px;">
+  <div class="card" id="loginCard">
+    <div class="section-title" style="margin-top:0">Log in</div>
+    <div class="field" id="loginError" style="color:var(--red);font-size:12.5px;display:none;"></div>
+    <form id="loginForm">
+      <div class="field"><label>Username</label><input name="username" required autocomplete="username" /></div>
+      <div class="field"><label>Password</label><input name="password" type="password" required autocomplete="current-password" /></div>
+      <button class="btn gold" type="submit" style="width:100%;">Log in</button>
+    </form>
+    <p class="hint" style="margin-top:12px;">Don't have a login? <a href="#" id="showSignup">Request access</a></p>
+  </div>
+
+  <div class="card" id="signupCard" style="display:none;">
+    <div class="section-title" style="margin-top:0">Request access</div>
+    <div class="field" id="signupError" style="color:var(--red);font-size:12.5px;display:none;"></div>
+    <div class="field" id="signupSuccess" style="color:#1f9a86;font-size:12.5px;display:none;"></div>
+    <form id="signupForm">
+      <div class="field"><label>Choose a username</label><input name="username" required autocomplete="username" /></div>
+      <div class="field"><label>Email</label><input name="email" type="email" /></div>
+      <div class="field"><label>Choose a password</label><input name="password" type="password" required minlength="6" autocomplete="new-password" /></div>
+      <button class="btn" type="submit" style="width:100%;">Submit request</button>
+    </form>
+    <p class="hint" style="margin-top:12px;">An admin will need to approve your request before you can log in. <a href="#" id="showLogin">Back to log in</a></p>
+  </div>
+</div>
+
+<!-- MAIN APP (hidden until logged in) -->
+<div id="appShell" style="display:none;">
+
+<div class="admin-shell" id="adminShell">
+  <aside class="sidebar">
+    <div class="sidebar-inner">
+      <nav id="tabNav">
+        <details class="nav-group" open>
+          <summary class="nav-group-label">Overview <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="dashboard" class="active">Stats Dashboard</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
+          <summary class="nav-group-label">Congress <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="clubs">Clubs &amp; Members</button>
+            <button data-tab="registrations">Registrations &amp; Payments</button>
+            <button data-tab="participants">Delegates</button>
+            <button data-tab="media">Media (Video/Poster)</button>
+            <button data-tab="happenings">Happenings</button>
+            <button data-tab="itinerary">Itinerary</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
+          <summary class="nav-group-label">Host Club <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="hostmembers">Host Members</button>
+            <button data-tab="hostpayments">Host Registration &amp; Payments</button>
+            <button data-tab="committees">Committees</button>
+            <button data-tab="committeedelivery">Committee Delivery</button>
+            <button data-tab="assignments">Delegate Assistance</button>
+            <button data-tab="hosttasks">Checklists &amp; Milestones</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
+          <summary class="nav-group-label">Volunteers <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="volunteers">Volunteers</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
+          <summary class="nav-group-label">Communications <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="communications">Announcements</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
+          <summary class="nav-group-label">Operations <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="partners">Partners &amp; Drivers</button>
+            <button data-tab="vehicles">Vehicles</button>
+            <button data-tab="transport">Transport Planning</button>
+            <button data-tab="pretours">Pre Tours</button>
+            <button data-tab="accommodation">Accommodation &amp; Rooms</button>
+            <button data-tab="inventory">Goodies &amp; Inventory</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
+          <summary class="nav-group-label">Sponsors &amp; Guests <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="sponsors">Sponsors</button>
+            <button data-tab="speakers">Guest Speakers</button>
+            <button data-tab="guestvisitors">Guest Visitors</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
+          <summary class="nav-group-label">Tools <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="export">Voice Agent Export</button>
+            <button data-tab="activitylog" id="activityLogTabBtn" style="display:none;">Activity Log</button>
+            <button data-tab="settings" id="settingsTabBtn" style="display:none;">Settings</button>
+          </div>
+        </details>
+      </nav>
+    </div>
+  </aside>
+
+  <div class="admin-main">
+  <main class="container">
+
+  <!-- STATS DASHBOARD TAB -->
+  <section class="tab-panel active" id="tab-dashboard">
+    <div class="section-title" style="margin-top:0">Congress at a glance</div>
+    <div class="grid-stats" id="statCards"></div>
+
+    <div class="section-title">Membership &amp; Registrations</div>
+    <div class="two-col">
+      <div class="card">
+        <strong style="font-size:13px;color:var(--muted)">Club-wise: members vs registrations</strong>
+        <div class="chart-scroll" id="clubChartScroll">
+          <div id="clubChartInner"><canvas id="clubChart"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <strong style="font-size:13px;color:var(--muted)">Nation-wise members by state</strong>
+        <div style="height:320px;margin-top:10px;"><canvas id="stateChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="section-title">Club-wise data</div>
+    <div class="card table-scroll">
+      <table>
+        <thead>
+          <tr><th>Club</th><th>State</th><th>Members</th><th>Registrations</th><th>Delegates</th></tr>
+        </thead>
+        <tbody id="clubTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Catering &amp; Dietary Preferences</div>
+    <div class="grid-stats grid-stats-3" id="dietCards"></div>
+
+    <div class="section-title">Host Team &amp; Payments</div>
+    <div class="grid-stats grid-stats-3" id="hostPayCards"></div>
+
+    <div class="section-title">Congress Operations at a Glance</div>
+    <div class="grid-stats" id="opsCards"></div>
+  </section>
+
+  <!-- CLUBS TAB -->
+  <section class="tab-panel" id="tab-clubs">
+    <div class="two-col">
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Add / update a club</div>
+        <form id="clubForm">
+          <div class="form-grid cols-2">
+            <div class="field"><label>Club name *</label><input name="name" required placeholder="Skål Chennai" /></div>
+            <div class="field"><label>City</label><input name="city" /></div>
+            <div class="field"><label>State</label><input name="state" /></div>
+            <div class="field"><label>Zone / Region</label><input name="zone" placeholder="South / North / East / West" /></div>
+            <div class="field"><label>Members count *</label><input name="members_count" type="number" min="0" required /></div>
+          </div>
+          <button class="btn gold" type="submit">Save Club</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Bulk upload (CSV)</div>
+        <p class="hint">Columns: <code>name, city, state, zone, members_count</code>. Existing club names are updated.</p>
+        <form id="clubCsvForm">
+          <input type="file" name="file" accept=".csv" required />
+          <button class="btn" type="submit" style="margin-top:10px;">Upload CSV</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All clubs</span>
+      <button class="btn small" onclick="downloadClubsListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>City</th><th>State</th><th>Zone</th><th>Members</th><th></th></tr></thead>
+        <tbody id="clubsTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- REGISTRATIONS TAB -->
+  <section class="tab-panel" id="tab-registrations">
+    <div class="two-col">
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Add registration</div>
+        <form id="regForm">
+          <div class="form-grid cols-2">
+            <div class="field"><label>Registration number *</label><input id="regNumberField" name="reg_number" required readonly placeholder="Loading..." style="background:#f0f2f5;" /><span class="hint">Auto-generated to prevent duplicates.</span></div>
+            <div class="field"><label>Type *</label>
+              <select name="reg_type" required>
+                <option value="single">Single</option>
+                <option value="double">Double</option>
+                <option value="congress_only">Congress Only (domestic, no room)</option>
+              </select>
+            </div>
+            <div class="field"><label>Club</label><select name="club_id" id="regClubSelect"></select></div>
+            <div class="field"><label>Amount paid (₹)</label><input name="amount_paid" type="number" min="0" step="0.01" /></div>
+            <div class="field"><label>Amount due (₹)</label><input name="amount_due" type="number" min="0" step="0.01" /></div>
+            <div class="field"><label>Payment mode</label><input name="payment_mode" placeholder="UPI / Card / NEFT" /></div>
+            <div class="field"><label>Payment status</label>
+              <select name="payment_status">
+                <option value="pending">Pending</option>
+                <option value="partial">Partial</option>
+                <option value="paid">Paid</option>
+                <option value="refunded">Refunded</option>
+              </select>
+            </div>
+            <div class="field"><label>Payment reference</label><input name="payment_ref" /></div>
+          </div>
+          <button class="btn gold" type="submit">Save Registration</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Bulk upload (CSV)</div>
+        <p class="hint">Columns: <code>reg_number, reg_type, club_name, amount_paid, amount_due, payment_mode, payment_status, payment_ref</code></p>
+        <form id="regCsvForm">
+          <input type="file" name="file" accept=".csv" required />
+          <button class="btn" type="submit" style="margin-top:10px;">Upload CSV</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span>All registrations</span>
+      <button class="btn small" onclick="downloadAllReceiptsPdf()">Download All Receipts (PDF)</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Reg #</th><th>Type</th><th>Club</th><th>Paid</th><th>Due</th><th>Status</th><th>People</th><th></th></tr></thead>
+        <tbody id="regsTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- DELEGATES TAB (backend resource is still "participants") -->
+  <section class="tab-panel" id="tab-participants">
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="partFormTitle">Add delegate</div>
+      <p class="hint" id="partFrozenHint" style="display:none;">Name, phone, club, and registration are locked for this existing delegate — only a super admin can change them. Everything else below is still editable.</p>
+      <form id="partForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Full name *</label><input name="name" required /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>WhatsApp</label><input name="whatsapp" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+          <div class="field"><label>Club</label><select name="club_id" id="partClubSelect"></select></div>
+          <div class="field"><label>Registration</label><select name="registration_id" id="partRegSelect"></select></div>
+          <div class="field"><label>Designation</label><input name="designation" placeholder="President / Member / Spouse" /></div>
+          <div class="field"><label>Primary registrant?</label>
+            <select name="is_primary"><option value="1">Yes</option><option value="0">No (co-registrant)</option></select>
+          </div>
+        </div>
+        <div class="field"><label>Address</label><textarea name="address"></textarea></div>
+
+        <div class="section-title" style="font-size:12px;margin:16px 0 8px;">Travel — arrival</div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Mode</label>
+            <select name="travel_mode"><option value="">-</option><option value="flight">Flight</option><option value="train">Train</option><option value="road">Road</option><option value="other">Other</option></select>
+          </div>
+          <div class="field"><label>Flight / Train number</label><input name="travel_number" /></div>
+          <div class="field"><label>Date &amp; time</label><input name="travel_datetime" type="datetime-local" /></div>
+          <div class="field"><label>Arrival point</label><input name="arrival_point" data-location-suggest="1" placeholder="Airport / Railway Station / Bus Stand..." /></div>
+        </div>
+
+        <div class="section-title" style="font-size:12px;margin:16px 0 8px;">Travel — departure</div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Mode</label>
+            <select name="departure_mode"><option value="">-</option><option value="flight">Flight</option><option value="train">Train</option><option value="road">Road</option><option value="other">Other</option></select>
+          </div>
+          <div class="field"><label>Flight / Train number</label><input name="departure_number" /></div>
+          <div class="field"><label>Date &amp; time</label><input name="departure_datetime" type="datetime-local" /></div>
+          <div class="field"><label>Departure point</label><input name="departure_point" data-location-suggest="1" placeholder="Airport / Railway Station / Bus Stand..." /></div>
+        </div>
+
+        <div class="section-title" style="font-size:12px;margin:16px 0 8px;">Pickup &amp; SPOC</div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Picked up by</label><input name="pickup_by" /></div>
+          <div class="field"><label>Vehicle</label><input name="pickup_vehicle" placeholder="Innova KA-05-AB-1234" /></div>
+          <div class="field"><label>Pickup contact phone</label><input name="pickup_phone" /></div>
+          <div class="field">
+            <label>SPOC (host member)</label>
+            <select name="spoc_host_member_id" id="partSpocHmSelect"><option value="">-- none --</option></select>
+            <span class="hint">Preferred — links a real host member so their contact info stays accurate.</span>
+          </div>
+          <div class="field"><label>SPOC name (free text, fallback)</label><input name="spoc_name" /></div>
+          <div class="field"><label>SPOC phone (free text, fallback)</label><input name="spoc_phone" /></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+
+        <button class="btn gold" type="submit" id="partSubmitBtn">Save Delegate</button>
+        <button type="button" class="btn outline" id="partCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="section-title" style="margin-top:0">Bulk upload (CSV)</div>
+      <p class="hint">Columns: <code>name, phone, whatsapp, email, address, club_name, reg_number, is_primary, designation, travel_mode, travel_number, travel_datetime, arrival_point, departure_mode, departure_number, departure_datetime, departure_point, pickup_by, pickup_vehicle, pickup_phone, spoc_name, spoc_phone, notes</code></p>
+      <form id="partCsvForm">
+        <input type="file" name="file" accept=".csv" required />
+        <button class="btn" type="submit" style="margin-top:10px;">Upload CSV</button>
+      </form>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All delegates</span>
+      <button class="btn small" onclick="downloadDelegatesListPdf()">Download PDF</button>
+    </div>
+    <div class="form-grid cols-2">
+      <div class="field"><input id="partSearch" placeholder="Search by name, phone, reg#, or club..." /></div>
+      <div class="field"><label>Sort by</label>
+        <select id="partSortSelect">
+          <option value="">Registration order (default)</option>
+          <option value="title_asc">Title (A–Z)</option>
+          <option value="title_desc">Title (Z–A)</option>
+          <option value="name_asc">Name (A–Z)</option>
+          <option value="name_desc">Name (Z–A)</option>
+          <option value="club_asc">Club (A–Z)</option>
+        </select>
+      </div>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Registration ID</th><th>Name</th><th>Club</th><th>Reg #</th><th>Phone</th><th>Travel In</th><th>Pickup</th><th>SPOC</th><th>Payment</th><th></th></tr></thead>
+        <tbody id="partsTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- MEDIA TAB -->
+  <section class="tab-panel" id="tab-media">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Upload video or poster</div>
+      <form id="mediaForm">
+        <div class="form-grid cols-2">
+          <div class="field"><label>Type</label>
+            <select name="type"><option value="video">Video (loop reel)</option><option value="poster">Poster / material</option></select>
+          </div>
+          <div class="field"><label>Title / caption</label><input name="title" /></div>
+        </div>
+        <div class="field"><label>File *</label><input name="file" type="file" accept="video/*,image/*" required /></div>
+        <button class="btn gold" type="submit">Upload</button>
+      </form>
+      <p class="hint">Uploads are saved on the server (up to 500MB) and appear on the public dashboard loop automatically. Toggle "active" to include/exclude from the loop without deleting.</p>
+    </div>
+
+    <div class="section-title">Videos</div>
+    <div class="thumb-grid" id="videoThumbs"></div>
+
+    <div class="section-title">Posters</div>
+    <div class="thumb-grid" id="posterThumbs"></div>
+  </section>
+
+  <!-- HAPPENINGS TAB -->
+  <section class="tab-panel" id="tab-happenings">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Post an update</div>
+      <form id="happeningForm">
+        <div class="form-grid cols-2">
+          <div class="field"><label>Title *</label><input name="title" required /></div>
+          <div class="field"><label>Category</label>
+            <select name="category">
+              <option value="general">General</option>
+              <option value="logistics">Logistics</option>
+              <option value="session">Session</option>
+              <option value="social">Social event</option>
+              <option value="alert">Alert</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>Description</label><textarea name="description"></textarea></div>
+        <div class="field"><label>Posted by</label><input name="posted_by" value="Admin" /></div>
+        <button class="btn gold" type="submit">Post Update</button>
+      </form>
+    </div>
+
+    <div class="section-title">Timeline</div>
+    <div class="card" id="happeningsList"></div>
+  </section>
+
+  <!-- ITINERARY TAB -->
+  <section class="tab-panel" id="tab-itinerary">
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="itinFormTitle">Add itinerary item</div>
+      <form id="itinForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Day label *</label><input name="day_label" required placeholder="12 Aug · Thu" /></div>
+          <div class="field"><label>Time label</label><input name="time_label" placeholder="Evening · 7:00 PM" /></div>
+          <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="0" /></div>
+        </div>
+        <div class="field"><label>Title *</label><input name="title" required /></div>
+        <div class="field"><label>Description</label><textarea name="description"></textarea></div>
+        <button class="btn gold" type="submit" id="itinSubmitBtn">Save Item</button>
+        <button type="button" class="btn outline" id="itinCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="section-title">Congress agenda (shown on public dashboard)</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Day</th><th>Time</th><th>Title</th><th>Description</th><th></th></tr></thead>
+        <tbody id="itinTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- HOST MEMBERS TAB -->
+  <section class="tab-panel" id="tab-hostmembers">
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="hmFormTitle">Add host member</div>
+      <form id="hmForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Full name *</label><input name="name" required /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+          <div class="field"><label>Company</label><input name="company" /></div>
+          <div class="field"><label>Designation</label><input name="designation" /></div>
+          <div class="field"><label>Category</label><input name="category" placeholder="Hotel / Travel / Transport / Other" /></div>
+          <div class="field">
+            <label>Leadership role</label>
+            <select name="leadership_role">
+              <option value="">— None —</option>
+              <option value="President">President</option>
+              <option value="Secretary">Secretary</option>
+              <option value="Vice President">Vice President</option>
+              <option value="Treasurer">Treasurer</option>
+              <option value="Congress Chairman">Congress Chairman</option>
+              <option value="Congress Secretary">Congress Secretary</option>
+              <option value="Congress Joint Secretary">Congress Joint Secretary</option>
+              <option value="Congress Sponsor Chairman">Congress Sponsor Chairman</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" style="margin-top:6px;">Anyone with a leadership role sees an extra read-only "Leadership Briefing" tab in their own portal login — a live rollup of registrations, payments, sponsors, checklist/committee progress, and goodies delivery across the whole congress.</p>
+        <div class="section-title" style="font-size:12px;margin:16px 0 8px;">₹5,000 host-club payment</div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Payment status</label>
+            <select name="payment_status"><option value="pending">Pending</option><option value="paid">Paid</option></select>
+          </div>
+          <div class="field"><label>Amount (₹)</label><input name="payment_amount" type="number" value="5000" /></div>
+          <div class="field"><label>Payment mode</label><input name="payment_mode" placeholder="UPI / Bank transfer / Others" /></div>
+          <div class="field"><label>Payment date</label><input name="payment_date" type="date" /></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="hmSubmitBtn">Save Host Member</button>
+        <button type="button" class="btn outline" id="hmCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="section-title" style="margin-top:0">Bulk upload (CSV)</div>
+      <p class="hint">Columns: <code>name, email, phone, company, designation, category</code></p>
+      <form id="hmCsvForm">
+        <input type="file" name="file" accept=".csv" required />
+        <button class="btn" type="submit" style="margin-top:10px;">Upload CSV</button>
+      </form>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All host members</span>
+      <button class="btn small" onclick="downloadHostMembersListPdf()">Download PDF</button>
+    </div>
+    <div class="field"><input id="hmSearch" placeholder="Search by name, phone, or company..." /></div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Leadership Role</th><th>Committees</th><th>Payment</th><th>Login</th><th></th></tr></thead>
+        <tbody id="hmTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- HOST REGISTRATION & PAYMENTS TAB (Host club members' own ₹5,000        -->
+  <!-- personal contribution — completely separate from the delegate         -->
+  <!-- "Registrations & Payments" tab and its `registrations` table above.    -->
+  <!-- Nothing here reads or writes the delegate registrations/payments data. -->
+  <section class="tab-panel" id="tab-hostpayments">
+    <p class="hint" style="margin-top:0;">Host club members each pay a ₹5,000 personal contribution to the congress — tracked here, separately from delegate registration fees in the "Registrations &amp; Payments" tab. Editing a payment here updates the same host member record shown in the Host Members tab.</p>
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+      <button class="btn small" onclick="downloadHostPaymentsListPdf()">Download PDF</button>
+    </div>
+    <div class="grid-stats" id="hostPaymentStats" style="margin-bottom:16px;"></div>
+    <div class="card table-scroll">
+      <table class="host-payments-table">
+        <thead><tr><th>Name</th><th>Status</th><th>Amount (₹)</th><th>Company</th><th>Phone</th><th>Mode</th><th>Date</th><th>Notes</th><th></th></tr></thead>
+        <tbody id="hostPaymentsTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- COMMITTEES TAB -->
+  <section class="tab-panel" id="tab-committees">
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="committeeFormTitle">Add committee</div>
+      <form id="committeeForm">
+        <div class="form-grid cols-2">
+          <div class="field"><label>Committee name *</label><input name="name" required /></div>
+          <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="0" /></div>
+        </div>
+        <div class="field"><label>Roles &amp; responsibilities</label><textarea name="description" placeholder="What this committee owns and is responsible for..."></textarea></div>
+        <button class="btn gold" type="submit" id="committeeSubmitBtn">Save Committee</button>
+        <button type="button" class="btn outline" id="committeeCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="card" style="margin-top:14px;">
+      <div class="section-title" style="margin-top:0">Assign a host member to a committee</div>
+      <form id="committeeAssignForm">
+        <div class="form-grid cols-2">
+          <div class="field"><label>Committee</label><select name="committee_id" id="committeeSelect" required></select></div>
+          <div class="field"><label>Host member</label><select name="host_member_id" id="committeeHmSelect" required></select></div>
+        </div>
+        <button class="btn gold" type="submit">Add to committee</button>
+      </form>
+    </div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All committees</span>
+      <button class="btn small" onclick="downloadCommitteesListPdf()">Download PDF</button>
+    </div>
+    <div id="committeesList"></div>
+  </section>
+
+  <!-- VOLUNTEERS TAB (external / non-club-member helpers hired for data       -->
+  <!-- entry — distinct from Host Members, which are paying Skål club         -->
+  <!-- members. Volunteers get modules granted directly, no committee needed. -->
+  <section class="tab-panel" id="tab-volunteers">
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="volFormTitle">Add volunteer</div>
+      <p class="hint" style="margin-top:0;">External people or non-members hired to help feed in data for the event. Grant them access to specific modules below — no committee membership needed.</p>
+      <form id="volForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Full name *</label><input name="name" required /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+          <div class="field"><label>Organization</label><input name="organization" placeholder="Company / freelance / referred by..." /></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="volSubmitBtn">Save Volunteer</button>
+        <button type="button" class="btn outline" id="volCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="section-title">All volunteers</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Organization</th><th>Login</th><th></th></tr></thead>
+        <tbody id="volTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- COMMUNICATIONS TAB (one-way announcements to a role, a committee, or   -->
+  <!-- hand-picked individuals, with an optional attached action — no        -->
+  <!-- replies/threads, deliberately simple. See server/routes/messages.js.  -->
+  <section class="tab-panel" id="tab-communications">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Send an announcement</div>
+      <form id="msgForm">
+        <div class="field"><label>Title *</label><input name="title" required /></div>
+        <div class="field"><label>Message</label><textarea name="body" placeholder="Optional details..."></textarea></div>
+
+        <div class="field"><label>Send to</label>
+          <select id="msgTargetType" name="target_type">
+            <option value="role">A role (or everyone)</option>
+            <option value="committee">A committee</option>
+            <option value="individual">Specific people</option>
+          </select>
+        </div>
+
+        <div class="field" id="msgRoleField">
+          <label>Roles</label>
+          <div class="module-checkbox-grid" id="msgRoleGrid">
+            <label><input type="checkbox" name="msg_role" value="all" /> Everyone</label>
+            <label><input type="checkbox" name="msg_role" value="host_member" /> Host Members</label>
+            <label><input type="checkbox" name="msg_role" value="media" /> Media</label>
+            <label><input type="checkbox" name="msg_role" value="transporter" /> Transporters</label>
+            <label><input type="checkbox" name="msg_role" value="driver" /> Drivers</label>
+            <label><input type="checkbox" name="msg_role" value="volunteer" /> Volunteers</label>
+            <label><input type="checkbox" name="msg_role" value="admin" /> Admins</label>
+          </div>
+        </div>
+
+        <div class="field" id="msgCommitteeField" style="display:none;">
+          <label>Committee</label>
+          <select id="msgCommitteeSelect"><option value="">-- select --</option></select>
+        </div>
+
+        <div class="field" id="msgIndividualField" style="display:none;">
+          <label>People</label>
+          <input id="msgIndividualSearch" placeholder="Search by name or username..." style="margin-bottom:8px;" />
+          <div class="module-checkbox-grid" id="msgIndividualGrid" style="max-height:220px;overflow-y:auto;"></div>
+        </div>
+
+        <div class="field">
+          <label><input type="checkbox" id="msgHasAction" /> Also assign an action (to-do) to every recipient</label>
+        </div>
+        <div class="form-grid cols-2" id="msgActionFields" style="display:none;">
+          <div class="field"><label>Action label</label><input name="action_label" placeholder="e.g. Confirm your travel details" /></div>
+          <div class="field"><label>Due date</label><input name="action_due_date" type="date" /></div>
+        </div>
+
+        <button class="btn gold" type="submit">Send</button>
+      </form>
+    </div>
+
+    <div class="section-title">Sent history</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Title</th><th>Sent to</th><th>Recipients</th><th>Read</th><th>Sent by</th><th>Date</th><th></th></tr></thead>
+        <tbody id="msgHistoryBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- COMMITTEE DELIVERY (follow-up on checklist items delegated to committees) -->
+  <section class="tab-panel" id="tab-committeedelivery">
+    <div class="section-title" style="margin-top:0">Delivery monitor — by committee</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">Every checklist item across every category (Delegates, Host Members, Sponsors, Guest Speakers, Guest Visitors), rolled up by which committee is responsible for actually delivering it. "Unassigned" means no committee owns it yet.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Committee</th><th>Total</th><th>Done</th><th>In progress</th><th>Pending</th><th>Overdue</th><th>Completion</th></tr></thead>
+          <tbody id="monitorSummaryBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Reassign a committee's outstanding items</div>
+      <p class="hint" style="margin-top:0;">Move everything from one committee to another in one action — handy if a committee is overloaded or its responsibilities shift.</p>
+      <form id="monitorReassignForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>From</label><select id="monitorFromCommitteeSelect"><option value="">Unassigned</option></select></div>
+          <div class="field"><label>To</label><select id="monitorToCommitteeSelect"><option value="">Unassigned</option></select></div>
+          <div class="field"><label>Scope</label>
+            <select id="monitorReassignScope">
+              <option value="incomplete">Only outstanding (not yet done)</option>
+              <option value="all">Everything, including completed items</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn gold" type="submit">Reassign</button>
+      </form>
+    </div>
+    <div class="card table-scroll">
+      <div class="form-grid cols-3">
+        <div class="field"><label>Committee</label>
+          <select id="monitorFilterCommittee"><option value="">All committees</option><option value="unassigned">Unassigned</option></select>
+        </div>
+        <div class="field"><label>Status</label>
+          <select id="monitorFilterStatus">
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="in_progress">In progress</option>
+            <option value="done">Done</option>
+          </select>
+        </div>
+        <div class="field"><label>Category</label>
+          <select id="monitorFilterOwnerType">
+            <option value="">All categories</option>
+            <option value="participant">Delegates</option>
+            <option value="host_member">Host Members</option>
+            <option value="sponsor">Sponsors</option>
+            <option value="speaker">Guest Speakers</option>
+            <option value="guest_visitor">Guest Visitors</option>
+          </select>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Item</th><th>Category</th><th>Owner</th><th>Committee</th><th>Due</th><th>Status</th><th>Completed by</th></tr></thead>
+        <tbody id="monitorDetailBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- DELEGATE ASSISTANCE ASSIGNMENTS TAB -->
+  <section class="tab-panel" id="tab-assignments">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Assign a host member to a delegate</div>
+      <p class="hint">Tracks who is responsible for assisting which delegate, and the progress of that assistance.</p>
+      <form id="assignForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Host member *</label><select name="host_member_id" id="assignHmSelect" required></select></div>
+          <div class="field"><label>Delegate *</label><select name="participant_id" id="assignPartSelect" required></select></div>
+          <div class="field"><label>Role</label><input name="role" placeholder="pickup / accommodation / general assistance" value="assistance" /></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit">Create Assignment</button>
+      </form>
+    </div>
+    <div class="section-title">All assignments</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Host member</th><th>Delegate</th><th>Club</th><th>Reg #</th><th>Status</th><th>Notes</th><th></th></tr></thead>
+        <tbody id="assignTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- CHECKLISTS & MILESTONES TAB -->
+  <section class="tab-panel" id="tab-hosttasks">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Add checklist item / milestone</div>
+      <form id="taskForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Host member *</label><select name="host_member_id" id="taskHmSelect" required></select></div>
+          <div class="field"><label>Title *</label><input name="title" required /></div>
+          <div class="field"><label>Due date</label><input name="due_date" type="date" /></div>
+          <div class="field"><label>Is this a milestone?</label>
+            <select name="is_milestone"><option value="0">No — routine checklist item</option><option value="1">Yes — milestone</option></select>
+          </div>
+          <div class="field"><label>Status</label>
+            <select name="status"><option value="pending">Pending</option><option value="in_progress">In progress</option><option value="done">Done</option></select>
+          </div>
+        </div>
+        <div class="field"><label>Description</label><textarea name="description"></textarea></div>
+        <button class="btn gold" type="submit">Save Task</button>
+      </form>
+    </div>
+    <div class="section-title">All checklist items &amp; milestones</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Host member</th><th>Title</th><th>Type</th><th>Status</th><th>Due</th><th></th></tr></thead>
+        <tbody id="taskTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Master checklist templates (by category)</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">Define the standard checklist items that should be completed for each category. These become the "quick add" suggestions everywhere that category's checklist appears — every Sponsor's benefit checklist, every Speaker's checklist, every delegate's/host member's kit checklist, and so on.</p>
+      <form id="checklistTemplateForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Category *</label>
+            <select name="owner_type" id="checklistTemplateTypeSelect" required>
+              <option value="participant">Delegates</option>
+              <option value="host_member">Host Members</option>
+              <option value="sponsor">Sponsors</option>
+              <option value="speaker">Guest Speakers</option>
+              <option value="guest_visitor">Guest Visitors</option>
+            </select>
+          </div>
+          <div class="field"><label>Sub-category (optional)</label><input name="category" placeholder="e.g. Benefit, Logistics" /></div>
+          <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="0" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Responsible committee</label>
+            <select name="responsible_committee_id" id="checklistTemplateCommitteeSelect"><option value="">Unassigned</option></select>
+            <span class="hint">Default committee for delivering every item quick-added from this template (e.g. Welcome Kit → Welcome &amp; Registration Committee). Can still be overridden per person.</span>
+          </div>
+        </div>
+        <div class="field"><label>Checklist item label *</label><input name="label" required /></div>
+        <button class="btn gold" type="submit" id="checklistTemplateSubmitBtn">Add template item</button>
+        <button type="button" class="btn outline" id="checklistTemplateCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="card table-scroll">
+      <div class="field" style="max-width:280px;"><label>Viewing category</label>
+        <select id="checklistTemplateFilterSelect">
+          <option value="participant">Delegates</option>
+          <option value="host_member">Host Members</option>
+          <option value="sponsor">Sponsors</option>
+          <option value="speaker">Guest Speakers</option>
+          <option value="guest_visitor">Guest Visitors</option>
+        </select>
+      </div>
+      <table>
+        <thead><tr><th>Sub-category</th><th>Checklist item</th><th>Committee</th><th>Sort</th><th></th></tr></thead>
+        <tbody id="checklistTemplateTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Bulk assign a checklist item</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">One-off: assign a single checklist item to a hand-picked group of people right now, instead of opening each one individually and adding it. This doesn't touch or replace Master Checklist Templates above — use whichever fits: a template if every future person of this category should always get the item, this if you just need to push one item out to a specific group today.</p>
+      <form id="bulkAssignForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Category *</label>
+            <select id="bulkAssignTypeSelect" required>
+              <option value="participant">Delegates</option>
+              <option value="host_member">Host Members</option>
+              <option value="sponsor">Sponsors</option>
+              <option value="speaker">Guest Speakers</option>
+              <option value="guest_visitor">Guest Visitors</option>
+            </select>
+          </div>
+          <div class="field"><label>Checklist item label *</label><input id="bulkAssignLabel" required placeholder="e.g. Welcome Kit" /></div>
+          <div class="field"><label>Sub-category (optional)</label><input id="bulkAssignCategory" placeholder="e.g. Benefit, Logistics" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Responsible committee</label>
+            <select id="bulkAssignCommitteeSelect"><option value="">Unassigned</option></select>
+          </div>
+          <div class="field"><label>Due date</label><input id="bulkAssignDueDate" type="date" /></div>
+        </div>
+        <div class="field">
+          <label>Who should get this? <span class="hint" id="bulkAssignCount"></span></label>
+          <div style="margin-bottom:6px;">
+            <button type="button" class="btn small outline" id="bulkAssignSelectAllBtn">Select all</button>
+            <button type="button" class="btn small outline" id="bulkAssignSelectNoneBtn">Select none</button>
+            <input type="text" id="bulkAssignSearch" placeholder="Filter by name / club / company..." style="max-width:260px;display:inline-block;margin-left:10px;" />
+          </div>
+          <div id="bulkAssignRecipientList" style="max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;"></div>
+        </div>
+        <button class="btn gold" type="submit">Bulk Assign</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- PARTNERS & DRIVERS (MASTERS) TAB -->
+  <section class="tab-panel" id="tab-partners">
+    <div class="two-col">
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Add partner organization</div>
+        <form id="partnerForm">
+          <div class="field"><label>Category</label>
+            <select name="category">
+              <option value="transport">Transport</option>
+              <option value="hotel">Hotel / Accommodation</option>
+              <option value="catering">Catering</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="field"><label>Organization name *</label><input name="name" required /></div>
+          <div class="field"><label>Contact person</label><input name="contact_person" /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+          <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+          <button class="btn gold" type="submit">Save Partner</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Add driver</div>
+        <p class="hint" style="margin-top:0;">Vehicles are managed on the <strong>Vehicles</strong> tab — assign a driver's usual vehicle here once it's been added there.</p>
+        <form id="driverForm">
+          <div class="field"><label>Driver name *</label><input name="name" required /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Assigned vehicle</label><select name="vehicle_id" id="driverVehicleSelect"><option value="">-- none --</option></select></div>
+          <div class="field"><label>Transport partner</label><select name="partner_id" id="driverPartnerSelect"><option value="">-- none --</option></select></div>
+          <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+          <button class="btn gold" type="submit">Save Driver</button>
+        </form>
+      </div>
+    </div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Partner organizations</span>
+      <button class="btn small" onclick="downloadPartnersListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Category</th><th>Name</th><th>Contact</th><th>Phone</th><th></th></tr></thead>
+        <tbody id="partnerTableBody"></tbody>
+      </table>
+    </div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Drivers</span>
+      <button class="btn small" onclick="downloadDriversListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Vehicle</th><th>Partner</th><th></th></tr></thead>
+        <tbody id="driverTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- VEHICLES (MASTERS) TAB -->
+  <section class="tab-panel" id="tab-vehicles">
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="vehicleFormTitle">Add vehicle</div>
+      <p class="hint" style="margin-top:0;">Vehicle codes are auto-generated by type for quick radio/WhatsApp identification: <strong>S</strong> = van, <strong>C</strong> = car, <strong>A</strong> = bus.</p>
+      <form id="vehicleForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Type *</label>
+            <select name="vehicle_type" id="vehicleTypeSelect" required>
+              <option value="van">Van (S)</option>
+              <option value="car">Car (C)</option>
+              <option value="bus">Bus (A)</option>
+            </select>
+          </div>
+          <div class="field"><label>Vehicle code</label><input name="vehicle_code" id="vehicleCodeField" readonly placeholder="Auto-generated" /></div>
+          <div class="field"><label>Seating capacity *</label><input name="seating_capacity" type="number" min="1" required /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Model</label><input name="model" placeholder="Toyota Innova / Force Traveller / ..." /></div>
+          <div class="field"><label>Registration number</label><input name="registration_number" placeholder="KA-05-AB-1234" /></div>
+          <div class="field"><label>Transport partner</label><select name="partner_id" id="vehiclePartnerSelect"><option value="">-- none --</option></select></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="vehicleSubmitBtn">Save Vehicle</button>
+        <button type="button" class="btn outline" id="vehicleCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All vehicles</span>
+      <button class="btn small" onclick="downloadVehiclesListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Code</th><th>Type</th><th>Model</th><th>Capacity</th><th>Reg. number</th><th>Partner</th><th></th></tr></thead>
+        <tbody id="vehicleTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- TRANSPORT PLANNING TAB -->
+  <section class="tab-panel" id="tab-transport">
+    <p class="hint" style="margin-top:0;">Mobilise delegates and host members between venues, hotels, and attractions in the city.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="tripFormTitle">Add trip</div>
+      <form id="tripForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>From *</label><input name="from_location" data-location-suggest="1" required placeholder="Hotel Le Meridien" /></div>
+          <div class="field"><label>To *</label><input name="to_location" data-location-suggest="1" required placeholder="Congress Venue" /></div>
+          <div class="field"><label>Purpose</label><input name="purpose" placeholder="Airport pickup / Venue shuttle / City tour" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Date</label><input name="trip_date" type="date" /></div>
+          <div class="field"><label>Depart time</label><input name="depart_time" type="time" /></div>
+          <div class="field"><label>Status</label>
+            <select name="status">
+              <option value="planned">Planned</option>
+              <option value="in_progress">In progress</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Vehicle *</label><select name="vehicle_id" id="tripVehicleSelect" required></select></div>
+          <div class="field"><label>Driver</label><select name="driver_id" id="tripDriverSelect"><option value="">-- none --</option></select></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="tripSubmitBtn">Save Trip</button>
+        <button type="button" class="btn outline" id="tripCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="card" id="transportQueueCard" style="margin-top:14px;">
+      <div class="section-title" style="margin-top:0">Arrivals &amp; Departures to Plan</div>
+      <p class="hint" style="margin:0 0 10px;">Delegates who gave flight/train details, auto-grouped by matching travel number + date/time — assign one vehicle and driver to the whole group instead of planning each delegate individually. Once confirmed, a group won't be suggested again.</p>
+      <div id="transportQueueBody"><p class="hint">Loading…</p></div>
+    </div>
+
+    <div class="card" style="margin-top:14px;">
+      <div class="section-title" style="margin-top:0">Pickup &amp; drop points</div>
+      <p class="hint" style="margin:0 0 10px;">Airport, Railway Station, and Bus Stand are always suggested. Add any hotel, venue, or other spot you use often here and it'll show up as a suggestion everywhere a From/To/arrival point is typed.</p>
+      <form id="transportPointForm" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="field" style="flex:1;min-width:220px;margin:0;"><input name="name" placeholder="e.g. Hotel Le Meridien" required /></div>
+        <button class="btn gold small" type="submit">Add point</button>
+      </form>
+      <div id="transportPointsChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;"></div>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All trips</span>
+      <button class="btn small" onclick="downloadTransportTripsListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Date</th><th>Time</th><th>Route</th><th>Purpose</th><th>Vehicle</th><th>Driver</th><th>Passengers</th><th>Status</th><th></th></tr></thead>
+        <tbody id="tripTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card" id="tripPassengerCard" style="margin-top:14px; display:none;">
+      <div class="section-title" style="margin-top:0">Manage passengers — <span id="tripPassengerTripLabel"></span></div>
+      <form id="tripPassengerForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Passenger type</label>
+            <select id="tripPassengerTypeSelect">
+              <option value="participant">Delegate</option>
+              <option value="host_member">Host member</option>
+            </select>
+          </div>
+          <div class="field"><label>Delegate</label><select id="tripPassengerParticipantSelect"></select></div>
+          <div class="field"><label>Host member</label><select id="tripPassengerHmSelect" style="display:none;"></select></div>
+        </div>
+        <div class="field"><label>Pickup point</label><input id="tripPassengerPickup" placeholder="Lobby / Room 204 / ..." /></div>
+        <button class="btn gold" type="submit">Add passenger</button>
+      </form>
+      <div class="table-scroll" style="margin-top:12px;">
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Phone</th><th>Pickup point</th><th></th></tr></thead>
+          <tbody id="tripPassengerTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- PRE TOURS TAB -->
+  <section class="tab-panel" id="tab-pretours">
+    <p class="hint" style="margin-top:0;">Optional pre-congress tours — hotel, attractions, day-wise itinerary, transport, and the delegates/host members signed up.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="tourFormTitle">Add pre tour</div>
+      <form id="tourForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Tour name *</label><input name="name" required placeholder="Munnar Hills Pre-Tour" /></div>
+          <div class="field"><label>Start date</label><input name="start_date" type="date" /></div>
+          <div class="field"><label>End date</label><input name="end_date" type="date" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Hotel</label><input name="hotel" /></div>
+          <div class="field"><label>Capacity</label><input name="capacity" type="number" min="1" /></div>
+          <div class="field"><label>Price (₹)</label><input name="price" type="number" min="0" /></div>
+        </div>
+        <div class="field"><label>Attractions</label><textarea name="attractions" placeholder="One per line: Tea Museum, Eravikulam National Park, ..."></textarea></div>
+        <div class="field"><label>Description</label><textarea name="description"></textarea></div>
+        <div class="field"><label>Status</label>
+          <select name="status">
+            <option value="planned">Planned</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="tourSubmitBtn">Save Pre Tour</button>
+        <button type="button" class="btn outline" id="tourCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All pre tours</span>
+      <button class="btn small" onclick="downloadPreToursListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Dates</th><th>Hotel</th><th>Signed up</th><th>Trips</th><th>Status</th><th></th></tr></thead>
+        <tbody id="tourTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card" id="tourManageCard" style="margin-top:14px; display:none;">
+      <div class="section-title" style="margin-top:0">Manage — <span id="tourManageLabel"></span></div>
+
+      <div class="section-title" style="font-size:12px;">Day-wise itinerary</div>
+      <form id="tourItinForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Day label *</label><input name="day_label" required placeholder="Day 1 · 10 Aug" /></div>
+          <div class="field"><label>Time</label><input name="time_label" placeholder="9:00 AM" /></div>
+          <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="0" /></div>
+        </div>
+        <div class="field"><label>Title *</label><input name="title" required /></div>
+        <div class="field"><label>Location</label><input name="location" /></div>
+        <div class="field"><label>Description</label><textarea name="description"></textarea></div>
+        <button class="btn gold" type="submit">Add itinerary item</button>
+      </form>
+      <div class="table-scroll" style="margin-top:8px;">
+        <table>
+          <thead><tr><th>Day</th><th>Time</th><th>Title</th><th>Location</th><th></th></tr></thead>
+          <tbody id="tourItinTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title" style="font-size:12px;margin-top:20px;">Delegates / host members signed up</div>
+      <form id="tourPartForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Type</label>
+            <select id="tourPartTypeSelect">
+              <option value="participant">Delegate</option>
+              <option value="host_member">Host member</option>
+            </select>
+          </div>
+          <div class="field"><label>Delegate</label><select id="tourPartParticipantSelect"></select></div>
+          <div class="field"><label>Host member</label><select id="tourPartHmSelect" style="display:none;"></select></div>
+        </div>
+        <div class="field"><label>Payment status</label>
+          <select id="tourPartPaymentSelect"><option value="pending">Pending</option><option value="paid">Paid</option></select>
+        </div>
+        <button class="btn gold" type="submit">Add to tour</button>
+      </form>
+      <div class="table-scroll" style="margin-top:8px;">
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Phone</th><th>Payment</th><th></th></tr></thead>
+          <tbody id="tourPartTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title" style="font-size:12px;margin-top:20px;">Transport for this tour</div>
+      <form id="tourTripForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>From *</label><input name="from_location" data-location-suggest="1" required /></div>
+          <div class="field"><label>To *</label><input name="to_location" data-location-suggest="1" required /></div>
+          <div class="field"><label>Purpose</label><input name="purpose" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Date</label><input name="trip_date" type="date" /></div>
+          <div class="field"><label>Depart time</label><input name="depart_time" type="time" /></div>
+          <div class="field"><label>Vehicle *</label><select name="vehicle_id" id="tourTripVehicleSelect" required></select></div>
+        </div>
+        <div class="field"><label>Driver</label><select name="driver_id" id="tourTripDriverSelect"><option value="">-- none --</option></select></div>
+        <button class="btn gold" type="submit">Add trip</button>
+      </form>
+      <div class="table-scroll" style="margin-top:8px;">
+        <table>
+          <thead><tr><th>Date</th><th>Route</th><th>Vehicle</th><th>Driver</th><th>Passengers</th><th></th></tr></thead>
+          <tbody id="tourTripTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ACCOMMODATION & ROOMS TAB -->
+  <section class="tab-panel" id="tab-accommodation">
+    <p class="hint" style="margin-top:0;">Hotel master + per-person room assignment for delegates and host members, so everyone's room is on record.</p>
+    <div class="two-col">
+      <div class="card">
+        <div class="section-title" style="margin-top:0" id="hotelFormTitle">Add hotel</div>
+        <form id="hotelForm">
+          <div class="field"><label>Hotel name *</label><input name="name" required /></div>
+          <div class="field"><label>Address</label><textarea name="address"></textarea></div>
+          <div class="field"><label>Contact person</label><input name="contact_person" /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+          <button class="btn gold" type="submit" id="hotelSubmitBtn">Save Hotel</button>
+          <button type="button" class="btn outline" id="hotelCancelEditBtn" style="display:none;">Cancel edit</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0" id="roomFormTitle">Assign a room</div>
+        <form id="roomForm">
+          <div class="field"><label>Hotel *</label><select name="hotel_id" id="roomHotelSelect" required></select></div>
+          <div class="form-grid cols-2">
+            <div class="field"><label>Room number *</label><input name="room_number" required /></div>
+            <div class="field"><label>Room type</label>
+              <select name="room_type">
+                <option value="single">Single</option>
+                <option value="double">Double</option>
+                <option value="twin">Twin</option>
+                <option value="suite">Suite</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+          <div class="field"><label>Occupant type</label>
+            <select id="roomOccupantTypeSelect">
+              <option value="participant">Delegate</option>
+              <option value="host_member">Host member</option>
+            </select>
+          </div>
+          <div class="field"><label>Delegate</label><select id="roomParticipantSelect"></select></div>
+          <div class="field"><label>Host member</label><select id="roomHmSelect" style="display:none;"></select></div>
+          <div class="form-grid cols-2">
+            <div class="field"><label>Check-in</label><input name="check_in" type="date" /></div>
+            <div class="field"><label>Check-out</label><input name="check_out" type="date" /></div>
+          </div>
+          <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+          <button class="btn gold" type="submit">Save Room Assignment</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Hotels</span>
+      <button class="btn small" onclick="downloadHotelsListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Address</th><th>Contact</th><th>Occupants</th><th></th></tr></thead>
+        <tbody id="hotelTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Room assignments</span>
+      <button class="btn small" onclick="downloadRoomsListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Hotel</th><th>Room</th><th>Type</th><th>Occupant</th><th>Check-in</th><th>Check-out</th><th></th></tr></thead>
+        <tbody id="roomTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- GOODIES & INVENTORY: procurement stock list + per-recipient delivery tracking -->
+  <section class="tab-panel" id="tab-inventory">
+    <p class="hint" style="margin-top:0;">Track goodies and other physical items from procurement through to delivery — how many are in stock, which committee owns getting them out, who's assigned to deliver each one, and who actually delivered it.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="inventoryFormTitle">Add inventory item</div>
+      <form id="inventoryForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Item name *</label><input name="name" required placeholder="Congress Kit / Delegate Bag" /></div>
+          <div class="field"><label>Category</label><input name="category" placeholder="e.g. Kit, Merchandise, Stationery" /></div>
+          <div class="field"><label>Unit</label><input name="unit" value="pcs" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Quantity procured *</label><input name="quantity_procured" type="number" min="0" value="0" required /></div>
+          <div class="field"><label>Low-stock alert threshold</label><input name="reorder_threshold" type="number" min="0" placeholder="optional" /></div>
+          <div class="field"><label>Procurement status</label>
+            <select name="procurement_status">
+              <option value="planned">Planned</option>
+              <option value="ordered">Ordered</option>
+              <option value="received">Received</option>
+              <option value="distributing">Distributing</option>
+              <option value="completed">Completed</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Vendor</label><input name="vendor_name" placeholder="optional" /></div>
+          <div class="field"><label>Unit cost (₹)</label><input name="unit_cost" type="number" min="0" step="0.01" placeholder="optional" /></div>
+          <div class="field"><label>Responsible committee</label>
+            <select name="responsible_committee_id" id="inventoryCommitteeSelect"><option value="">Unassigned</option></select>
+            <span class="hint">Which committee is accountable for getting this delivered.</span>
+          </div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="inventorySubmitBtn">Save item</button>
+        <button type="button" class="btn outline" id="inventoryCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Stock list</span>
+      <button class="btn small" onclick="downloadInventoryListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Item</th><th>Category</th><th>Committee</th><th>Procured</th><th>Distributed</th><th>Remaining</th><th>Status</th><th></th></tr></thead>
+        <tbody id="inventoryTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title">Delivery monitor — by committee</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">Every recipient across every item, rolled up by which committee is responsible for delivering it.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Committee</th><th>Total</th><th>Delivered</th><th>Pending</th><th>Completion</th></tr></thead>
+          <tbody id="inventoryMonitorSummaryBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card table-scroll">
+      <div class="form-grid cols-3">
+        <div class="field"><label>Committee</label>
+          <select id="inventoryMonitorFilterCommittee"><option value="">All committees</option><option value="unassigned">Unassigned</option></select>
+        </div>
+        <div class="field"><label>Status</label>
+          <select id="inventoryMonitorFilterStatus">
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="field"><label>Category</label>
+          <select id="inventoryMonitorFilterRecipientType">
+            <option value="">All categories</option>
+            <option value="participant">Delegates</option>
+            <option value="host_member">Host Members</option>
+            <option value="sponsor">Sponsors</option>
+            <option value="speaker">Guest Speakers</option>
+            <option value="guest_visitor">Guest Visitors</option>
+          </select>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>Item</th><th>Recipient</th><th>Committee</th><th>Assigned to</th><th>Status</th><th>Delivered by</th></tr></thead>
+        <tbody id="inventoryMonitorDetailBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- SPONSORS TAB -->
+  <section class="tab-panel" id="tab-sponsors">
+    <p class="hint" style="margin-top:0;">Register a confirmed/prospective sponsor, issue their Sponsor Pass, assign a host-member Guest Relation contact, and track their benefit checklist. Sponsorship rates are deliberately not shown here.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="sponsorFormTitle">Add sponsor</div>
+      <form id="sponsorForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Sponsor / organization name *</label><input name="name" required /></div>
+          <div class="field"><label>Tier</label>
+            <input name="tier" list="tierSuggestions" placeholder="e.g. Title, Platinum, Gold..." />
+            <datalist id="tierSuggestions">
+              <option value="Title Sponsor"></option>
+              <option value="Platinum Sponsor"></option>
+              <option value="Gold Sponsor"></option>
+              <option value="Silver Sponsor"></option>
+              <option value="Associate Sponsor"></option>
+              <option value="Supporting Sponsor"></option>
+              <option value="Exhibitor"></option>
+            </datalist>
+          </div>
+          <div class="field"><label>Status</label>
+            <select name="status">
+              <option value="lead">Lead</option>
+              <option value="confirmed" selected>Confirmed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Contact person</label><input name="contact_person" /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+        </div>
+        <div class="field">
+          <label>Guest Relation member (host member liaison)</label>
+          <select name="guest_relation_host_member_id" id="sponsorHmSelect"><option value="">-- none --</option></select>
+          <span class="hint">Shows up on this host member's own portal as a responsibility.</span>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="sponsorSubmitBtn">Save Sponsor</button>
+        <button type="button" class="btn outline" id="sponsorCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All sponsors</span>
+      <button class="btn small" onclick="downloadSponsorsListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Logo</th><th>Sponsor Pass</th><th>Name</th><th>Tier</th><th>Guest Relation</th><th>Benefit checklist</th><th>Status</th><th></th></tr></thead>
+        <tbody id="sponsorTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- GUEST SPEAKERS TAB -->
+  <section class="tab-panel" id="tab-speakers">
+    <p class="hint" style="margin-top:0;">Register of guest/celebrity speakers and moderators — what they're speaking on, plus a customizable checklist of what must reach them and what we need to arrange.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="speakerFormTitle">Add guest speaker</div>
+      <form id="speakerForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Name *</label><input name="name" required /></div>
+          <div class="field"><label>Designation</label><input name="designation" /></div>
+          <div class="field"><label>Organization</label><input name="organization" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+          <div class="field"><label>Role</label>
+            <select name="session_type">
+              <option value="Speaker">Speaker</option>
+              <option value="Moderator">Moderator</option>
+              <option value="Panelist">Panelist</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>Topic / session</label><textarea name="topic" placeholder="What they'll speak on or moderate"></textarea></div>
+        <div class="field">
+          <label>Guest Relation member (host member liaison)</label>
+          <select name="guest_relation_host_member_id" id="speakerHmSelect"><option value="">-- none --</option></select>
+          <span class="hint">Shows up on this host member's own portal as a responsibility.</span>
+        </div>
+        <div class="field"><label>Status</label>
+          <select name="status">
+            <option value="invited">Invited</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="speakerSubmitBtn">Save Speaker</button>
+        <button type="button" class="btn outline" id="speakerCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All guest speakers</span>
+      <button class="btn small" onclick="downloadSpeakersListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Photo</th><th>Name</th><th>Role</th><th>Topic</th><th>Guest Relation</th><th>Checklist</th><th>Status</th><th></th></tr></thead>
+        <tbody id="speakerTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- GUEST VISITORS TAB -->
+  <section class="tab-panel" id="tab-guestvisitors">
+    <p class="hint" style="margin-top:0;">VIP / dignitary guest visitors (distinct from delegates, sponsors, and speakers) and what we're offering/providing to each of them.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="gvFormTitle">Add guest visitor</div>
+      <form id="gvForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Name *</label><input name="name" required /></div>
+          <div class="field"><label>Designation</label><input name="designation" /></div>
+          <div class="field"><label>Organization</label><input name="organization" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+          <div class="field"><label>Category</label>
+            <input name="category" list="gvCategorySuggestions" placeholder="e.g. Dignitary, Government, Media..." />
+            <datalist id="gvCategorySuggestions">
+              <option value="Dignitary"></option>
+              <option value="Government"></option>
+              <option value="Media"></option>
+              <option value="Industry Leader"></option>
+              <option value="Other"></option>
+            </datalist>
+          </div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Visit date</label><input name="visit_date" type="date" /></div>
+          <div class="field"><label>Status</label>
+            <select name="status">
+              <option value="invited">Invited</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Guest Relation member (host member liaison)</label>
+          <select name="guest_relation_host_member_id" id="gvHmSelect"><option value="">-- none --</option></select>
+          <span class="hint">Shows up on this host member's own portal as a responsibility.</span>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="gvSubmitBtn">Save Guest Visitor</button>
+        <button type="button" class="btn outline" id="gvCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All guest visitors</span>
+      <button class="btn small" onclick="downloadGuestVisitorsListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Category</th><th>Organization</th><th>Visit date</th><th>Guest Relation</th><th>Offerings</th><th>Status</th><th></th></tr></thead>
+        <tbody id="gvTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- EXPORT TAB -->
+  <section class="tab-panel" id="tab-export">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Export data for voice agent training</div>
+      <p class="hint">Generates a structured JSON knowledge base (facts + Q&amp;A pairs on membership, registrations, payments, travel, pickups, SPOCs, and happenings) plus the raw tables — ready to feed into your voice agent's retrieval or fine-tuning pipeline.</p>
+      <button class="btn gold" id="exportBtn">Download voice-agent-data.json</button>
+    </div>
+  </section>
+
+  <!-- ACTIVITY LOG TAB (super_admin only) -->
+  <section class="tab-panel" id="tab-activitylog">
+    <div class="section-title" style="margin-top:0">Activity Log</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">Every create, update, delete, login, and completion across the admin panel and self-service portals — who did what, and when.</p>
+      <div class="two-col" style="flex-wrap:wrap;gap:10px;">
+        <input type="text" id="alFilterSearch" placeholder="Search name/label/details…" style="min-width:200px;">
+        <select id="alFilterRole"><option value="">All roles</option></select>
+        <select id="alFilterAction"><option value="">All actions</option></select>
+        <select id="alFilterEntityType"><option value="">All entity types</option></select>
+        <input type="date" id="alFilterDateFrom" title="From date">
+        <input type="date" id="alFilterDateTo" title="To date">
+        <button class="btn" type="button" id="alClearFiltersBtn">Clear filters</button>
+      </div>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>When</th><th>User</th><th>Role</th><th>Action</th><th>Entity</th><th>Label</th><th>Details</th></tr></thead>
+        <tbody id="alTableBody"></tbody>
+      </table>
+      <div class="two-col" style="margin-top:12px;align-items:center;">
+        <button class="btn" type="button" id="alPrevPageBtn">‹ Prev</button>
+        <span id="alPageInfo" class="hint"></span>
+        <button class="btn" type="button" id="alNextPageBtn">Next ›</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS TAB (super_admin only) -->
+  <section class="tab-panel" id="tab-settings">
+    <div class="section-title" style="margin-top:0">Import host club data</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">Loads host members, their committee assignments, and payment status from the SINC2026 "Host members Record Sheet" Excel file — and seeds the congress itinerary if it's empty. Safe to run again after the sheet is updated: existing host members are matched by phone number and updated rather than duplicated.</p>
+      <button class="btn gold" type="button" id="seedHostDataBtn">Import Host Members &amp; Committees Now</button>
+      <div id="seedHostDataResult" class="hint" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="section-title">Bulk-create host member logins</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">Creates a login for every host member who doesn't have one yet, using their 10-digit mobile number as the username and <code>pass123</code> as a common temporary password. They can change it after logging in from the "Change password" section on their portal. Members with no valid mobile number on file are skipped.</p>
+      <button class="btn gold" type="button" id="bulkCreateLoginsBtn">Create Logins for All Host Members</button>
+      <div id="bulkCreateLoginsResult" class="hint" style="margin-top:10px;white-space:pre-wrap;"></div>
+    </div>
+
+    <div class="section-title">Pending signup requests</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Username</th><th>Email</th><th>Requested</th><th></th></tr></thead>
+        <tbody id="pendingUsersBody"></tbody>
+      </table>
+    </div>
+
+    <div class="two-col" style="margin-top:14px;">
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Generate a login</div>
+        <p class="hint">Directly create an already-approved account — handy for staff you're onboarding yourself, no approval step needed.</p>
+        <form id="createUserForm">
+          <div class="form-grid cols-2">
+            <div class="field"><label>Username *</label><input name="username" required /></div>
+            <div class="field"><label>Email</label><input name="email" type="email" /></div>
+            <div class="field"><label>Password *</label><input name="password" type="password" required minlength="6" /></div>
+            <div class="field"><label>Role</label>
+              <select name="role" id="createUserRoleSelect">
+                <option value="admin">Admin</option>
+                <option value="super_admin">Super Admin</option>
+                <option value="host_member">Host Member</option>
+                <option value="media">Media (designer — upload video/posters only)</option>
+                <option value="transporter">Transporter (transport vendor coordinator)</option>
+                <option value="driver">Driver</option>
+                <option value="volunteer">Volunteer (external/non-member data-entry helper)</option>
+              </select>
+            </div>
+            <div class="field" id="createUserHmField" style="display:none;">
+              <label>Host member *</label>
+              <select name="host_member_id" id="createUserHmSelect"><option value="">-- select --</option></select>
+            </div>
+            <div class="field" id="createUserDriverField" style="display:none;">
+              <label>Driver *</label>
+              <select name="driver_id" id="createUserDriverSelect"><option value="">-- select --</option></select>
+              <span class="hint">This login will only see this driver's own assigned trips.</span>
+            </div>
+            <div class="field" id="createUserPartnerField" style="display:none;">
+              <label>Transport partner (vendor) *</label>
+              <select name="partner_id" id="createUserPartnerSelect"><option value="">-- select --</option></select>
+              <span class="hint">This login will only see trips involving this vendor's own vehicles/drivers.</span>
+            </div>
+            <div class="field" id="createUserVolunteerField" style="display:none;">
+              <label>Volunteer *</label>
+              <select name="volunteer_id" id="createUserVolunteerSelect"><option value="">-- select --</option></select>
+              <span class="hint">This login will only see the modules granted to this volunteer.</span>
+            </div>
+          </div>
+          <button class="btn gold" type="submit">Create login</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Change my password</div>
+        <form id="changePasswordForm">
+          <div class="field"><label>Current password</label><input name="current_password" type="password" required /></div>
+          <div class="field"><label>New password</label><input name="new_password" type="password" required minlength="6" /></div>
+          <button class="btn" type="submit">Update password</button>
+        </form>
+        <div class="section-title" style="margin-top:18px;">Other logins</div>
+        <p class="hint" style="margin-top:0;">Host members, media, transporters, and drivers all log in from the same link — it shows the right screen for whatever account they have. Share this one link with everyone; none of it exposes the stats dashboard or delegate data.</p>
+        <p class="hint" style="margin:0;">
+          <a href="login.html" target="_blank">Open Login</a>
+        </p>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Notifications</div>
+        <p class="hint" id="pushStatusText" style="margin-top:-6px;">Get a push notification for trip assignments, checklist reminders, and event announcements — even when this tab isn't open.</p>
+        <button class="btn gold" type="button" id="pushToggleBtn">Enable notifications</button>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Send announcement</div>
+        <p class="hint" style="margin-top:-6px;">A push notification to everyone (or just the roles you pick) who has notifications enabled. Requires VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY to be set on the server — see the README.</p>
+        <div class="field" id="broadcastError" style="color:var(--red);font-size:12.5px;display:none;"></div>
+        <div class="field" id="broadcastSuccess" style="color:var(--green);font-size:12.5px;display:none;"></div>
+        <form id="broadcastForm">
+          <div class="field"><label>Title *</label><input name="title" required maxlength="80" /></div>
+          <div class="field"><label>Message</label><input name="body" maxlength="200" /></div>
+          <div class="field">
+            <label>Send to</label>
+            <select name="roles" multiple size="5">
+              <option value="all" selected>Everyone</option>
+              <option value="host_member">Host members</option>
+              <option value="media">Media</option>
+              <option value="transporter">Transporters</option>
+              <option value="driver">Drivers</option>
+            </select>
+            <span class="hint">Ctrl/Cmd-click to select more than one specific role — leave "Everyone" selected to reach all of them.</span>
+          </div>
+          <button class="btn gold" type="submit">Send notification</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="section-title">All logins</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Linked profile</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <tbody id="allUsersBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  </main>
+  </div><!-- /admin-main -->
+</div><!-- /adminShell -->
+
+</div><!-- /appShell -->
+
+<div class="toast" id="toast"></div>
+
+<!-- Shared hidden file input used to upload a sponsor's logo or a speaker's
+     photo — one input, re-targeted per click via imgUploadTarget in admin.js,
+     instead of duplicating a file input in every table row. -->
+<input type="file" id="imgUploadInput" accept="image/*" style="display:none;" />
+
+<!-- Shared, reusable customizable-checklist modal — used by Sponsors (benefit
+     checklist), Guest Speakers (checklist), Guest Visitors (offerings), and
+     the goodies/kit handover checklist on Delegates + Host Members. Items
+     are free-text so new ones can always be added later. -->
+<div class="modal-overlay" id="checklistModal" style="display:none;" onclick="if(event.target===this) closeChecklistModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="section-title" style="margin:0;" id="checklistModalTitle">Checklist</div>
+      <button type="button" class="modal-close" onclick="closeChecklistModal()">&times;</button>
+    </div>
+    <div id="checklistModalBody"></div>
+  </div>
+</div>
+
+<!-- Manage deliveries for one inventory item — recipients, bulk-assign, -->
+<!-- individual add, per-recipient assigned/delivered/status tracking. -->
+<div class="modal-overlay" id="inventoryDistModal" style="display:none;" onclick="if(event.target===this) closeInventoryDistModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="section-title" style="margin:0;" id="inventoryDistModalTitle">Deliveries</div>
+      <button type="button" class="modal-close" onclick="closeInventoryDistModal()">&times;</button>
+    </div>
+    <div id="inventoryDistModalBody"></div>
+  </div>
+</div>
+
+<script src="js/config.js"></script>
+<!-- Client-side PDF generation for Transport/Pre Tour manifests (no backend involved) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.0.0/jspdf.umd.min.js"></script>
+<script src="js/push.js"></script>
+<script src="js/admin.js"></script>
+</body>
+</html>
