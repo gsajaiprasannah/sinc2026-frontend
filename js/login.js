@@ -547,7 +547,7 @@ const MODULE_CONFIG = {
       { name: 'seating_capacity', label: 'Seating capacity', type: 'number' }, { name: 'registration_number', label: 'Registration number' },
       { name: 'partner_id', label: 'Partner ID (number)', type: 'number' }, { name: 'notes', label: 'Notes', type: 'textarea' },
     ] },
-  transport_planning: { label: 'Transport Planning', path: 'transport',
+  transport_planning: { label: 'Transport Planning', path: 'transport', hasArrivalsQueue: true,
     columns: [['trip_date', 'Date'], ['from_location', 'From'], ['to_location', 'To'], ['status', 'Status']],
     fields: [
       { name: 'from_location', label: 'From', required: true }, { name: 'to_location', label: 'To', required: true },
@@ -750,7 +750,101 @@ async function renderHostModuleSection(cfg, section) {
         <button class="btn gold small" type="submit">Add</button>
       </form>
     ` : (cfg.readOnly ? '<p class="hint">This module is view-only from the host portal.</p>' : '')}
+    ${cfg.hasArrivalsQueue ? '<div id="transportQueueBody" style="margin-top:16px;"><p class="hint">Loading arrivals/departures…</p></div>' : ''}
   `;
+  if (cfg.hasArrivalsQueue) renderTransportQueue();
+}
+
+// --- Arrivals & Departures to Plan (Transport Planning module only) ---
+// Delegates who gave flight/train details, auto-grouped by matching travel
+// number + date/time, so the transport committee assigns one vehicle to the
+// whole cluster instead of planning each delegate one at a time. Mirrors the
+// admin panel's version of this panel (admin.js's transportQueueGroupCard),
+// hitting the same /transport/arrivals-queue, /departures-queue, and
+// /group-trip endpoints via the committee's portal-modules mount instead of
+// the admin-only one.
+function transportQueueGroupCardHost(direction, g) {
+  const delegates = g.delegates || [];
+  const hotelIds = new Set(delegates.map((d) => d.hotel_id).filter((x) => x !== null && x !== undefined));
+  const sharedHotel = hotelIds.size === 1 ? delegates.find((d) => d.hotel_id !== null && d.hotel_id !== undefined)?.hotel_name : null;
+  const modeLabel = g.travel_mode === 'flight' ? 'Flight' : 'Train';
+  const fromDefault = direction === 'arrival' ? (g.arrival_point || '') : (sharedHotel || '');
+  const toDefault = direction === 'arrival' ? (sharedHotel || '') : (g.arrival_point || '');
+  const purposeDefault = direction === 'arrival' ? 'Airport/station pickup' : 'Airport/station drop-off';
+  return `
+    <div class="card queue-group" style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+        <strong>${modeLabel} ${g.travel_number} — ${g.travel_datetime}</strong>
+        <span class="hint">${g.delegate_count} delegate${g.delegate_count === 1 ? '' : 's'}${g.arrival_point ? ' · ' + g.arrival_point : ''}${sharedHotel ? ' · all at ' + sharedHotel : ''}</span>
+      </div>
+      <div style="margin:8px 0;">
+        <button type="button" class="btn small" onclick="toggleQueueGroupChecksHost(this, true)">Select all</button>
+        <button type="button" class="btn small" onclick="toggleQueueGroupChecksHost(this, false)">Select none</button>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+        ${delegates.map((d) => `
+          <label style="display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:8px;padding:4px 8px;">
+            <input type="checkbox" class="queue-delegate-cb" value="${d.id}" checked /> ${d.name}${d.hotel_name ? ` <span class="hint">→ ${d.hotel_name}</span>` : ''}
+          </label>
+        `).join('')}
+      </div>
+      <form onsubmit="return submitGroupTripHost(event, '${direction}')">
+        <div class="form-grid cols-2">
+          <div class="field"><label>From *</label><input name="from_location" required value="${escapeHtml(fromDefault)}" /></div>
+          <div class="field"><label>To *</label><input name="to_location" required value="${escapeHtml(toDefault)}" /></div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Trip date</label><input name="trip_date" type="date" /></div>
+          <div class="field"><label>Depart time</label><input name="depart_time" type="time" /></div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Vehicle ID (number)</label><input name="vehicle_id" type="number" /></div>
+          <div class="field"><label>Driver ID (number)</label><input name="driver_id" type="number" /></div>
+        </div>
+        <div class="field"><label>Purpose</label><input name="purpose" value="${escapeHtml(purposeDefault)}" /></div>
+        <button class="btn gold small" type="submit">Create trip for this group</button>
+      </form>
+    </div>
+  `;
+}
+window.toggleQueueGroupChecksHost = (btn, checked) => {
+  btn.closest('.queue-group').querySelectorAll('.queue-delegate-cb').forEach((cb) => { cb.checked = checked; });
+};
+window.submitGroupTripHost = async (e, direction) => {
+  e.preventDefault();
+  const card = e.target.closest('.queue-group');
+  const participant_ids = Array.from(card.querySelectorAll('.queue-delegate-cb:checked')).map((cb) => Number(cb.value));
+  if (!participant_ids.length) { toast('Select at least one delegate for this trip'); return false; }
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  Object.keys(body).forEach((k) => { if (body[k] === '') delete body[k]; });
+  body.direction = direction;
+  body.participant_ids = participant_ids;
+  try {
+    await jpost(`${API}/portal-modules/transport/group-trip`, body);
+    toast('Trip created for the group');
+    renderTransportQueue();
+    if (currentModuleKey === 'transport_planning') renderHostModuleSection(MODULE_CONFIG.transport_planning, MODULE_CONFIG.transport_planning);
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+  return false;
+};
+async function renderTransportQueue() {
+  const el = document.getElementById('transportQueueBody');
+  if (!el) return;
+  try {
+    const [arrivals, departures] = await Promise.all([
+      jget(`${API}/portal-modules/transport/arrivals-queue`),
+      jget(`${API}/portal-modules/transport/departures-queue`),
+    ]);
+    el.innerHTML = `
+      <div class="section-title" style="font-size:14px;">Arrivals to plan (${arrivals.length})</div>
+      ${arrivals.map((g) => transportQueueGroupCardHost('arrival', g)).join('') || '<p class="hint">No unplanned arrivals right now.</p>'}
+      <div class="section-title" style="font-size:14px;">Departures to plan (${departures.length})</div>
+      ${departures.map((g) => transportQueueGroupCardHost('departure', g)).join('') || '<p class="hint">No unplanned departures right now.</p>'}
+    `;
+  } catch (err) {
+    if (err instanceof UnauthorizedError) return;
+    el.innerHTML = `<p class="hint" style="color:var(--red);">${err.message}</p>`;
+  }
 }
 window.submitHostModuleForm = async (e) => {
   e.preventDefault();

@@ -1816,6 +1816,93 @@ async function refreshTransportTrips() {
     </tr>
   `).join('') || '<tr><td colspan="9" class="empty">No trips planned yet</td></tr>';
 }
+// --- Arrivals & Departures to Plan: auto-grouped by flight/train number ---
+// Reuses the existing vehicles/drivers lists (already refreshed by
+// refreshVehicles()/refreshDrivers() into other selects) rather than a
+// second network round trip.
+function transportQueueGroupCard(direction, g) {
+  const delegates = g.delegates || [];
+  const hotelIds = new Set(delegates.map((d) => d.hotel_id).filter((x) => x !== null && x !== undefined));
+  const sharedHotel = hotelIds.size === 1 ? delegates.find((d) => d.hotel_id !== null && d.hotel_id !== undefined)?.hotel_name : null;
+  const modeLabel = g.travel_mode === 'flight' ? 'Flight' : 'Train';
+  const fromDefault = direction === 'arrival' ? (g.arrival_point || '') : (sharedHotel || '');
+  const toDefault = direction === 'arrival' ? (sharedHotel || '') : (g.arrival_point || '');
+  const purposeDefault = direction === 'arrival' ? 'Airport/station pickup' : 'Airport/station drop-off';
+  const vehicleOpts = document.getElementById('tripVehicleSelect')?.innerHTML || '<option value="">-- select vehicle --</option>';
+  const driverOpts = document.getElementById('tripDriverSelect')?.innerHTML || '<option value="">-- none --</option>';
+  return `
+    <div class="card queue-group" style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+        <strong>${modeLabel} ${g.travel_number} — ${g.travel_datetime}</strong>
+        <span class="hint">${g.delegate_count} delegate${g.delegate_count === 1 ? '' : 's'}${g.arrival_point ? ' · ' + g.arrival_point : ''}${sharedHotel ? ' · all at ' + sharedHotel : ''}</span>
+      </div>
+      <div style="margin:8px 0;">
+        <button type="button" class="btn small" onclick="toggleQueueGroupChecks(this, true)">Select all</button>
+        <button type="button" class="btn small" onclick="toggleQueueGroupChecks(this, false)">Select none</button>
+      </div>
+      <div class="queue-group-delegates" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">
+        ${delegates.map((d) => `
+          <label style="display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:8px;padding:4px 8px;">
+            <input type="checkbox" class="queue-delegate-cb" value="${d.id}" checked /> ${d.name}${d.hotel_name ? ` <span class="hint">→ ${d.hotel_name}</span>` : ''}
+          </label>
+        `).join('')}
+      </div>
+      <form onsubmit="return submitGroupTrip(event, '${direction}')">
+        <div class="form-grid cols-3">
+          <div class="field"><label>From *</label><input name="from_location" required value="${fromDefault}" /></div>
+          <div class="field"><label>To *</label><input name="to_location" required value="${toDefault}" /></div>
+          <div class="field"><label>Trip date</label><input name="trip_date" type="date" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Depart time</label><input name="depart_time" type="time" /></div>
+          <div class="field"><label>Vehicle *</label><select name="vehicle_id" required>${vehicleOpts}</select></div>
+          <div class="field"><label>Driver</label><select name="driver_id">${driverOpts}</select></div>
+        </div>
+        <div class="field"><label>Purpose</label><input name="purpose" value="${purposeDefault}" /></div>
+        <button class="btn gold small" type="submit">Create trip for this group</button>
+      </form>
+    </div>
+  `;
+}
+window.toggleQueueGroupChecks = (btn, checked) => {
+  btn.closest('.queue-group').querySelectorAll('.queue-delegate-cb').forEach((cb) => { cb.checked = checked; });
+};
+window.submitGroupTrip = async (e, direction) => {
+  e.preventDefault();
+  const card = e.target.closest('.queue-group');
+  const participant_ids = Array.from(card.querySelectorAll('.queue-delegate-cb:checked')).map((cb) => Number(cb.value));
+  if (!participant_ids.length) { toast('Select at least one delegate for this trip'); return false; }
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  if (!body.driver_id) delete body.driver_id;
+  body.direction = direction;
+  body.participant_ids = participant_ids;
+  try {
+    await jpost(`${API}/transport/group-trip`, body);
+    toast('Trip created for the group');
+    refreshTransportTrips();
+    refreshTransportQueue();
+  } catch (err) { toast(err.message); }
+  return false;
+};
+async function refreshTransportQueue() {
+  const body = document.getElementById('transportQueueBody');
+  if (!body) return;
+  try {
+    const [arrivals, departures] = await Promise.all([
+      jget(`${API}/transport/arrivals-queue`),
+      jget(`${API}/transport/departures-queue`),
+    ]);
+    body.innerHTML = `
+      <div class="section-title" style="font-size:14px;">Arrivals (${arrivals.length})</div>
+      ${arrivals.map((g) => transportQueueGroupCard('arrival', g)).join('') || '<p class="hint">No unplanned arrivals right now.</p>'}
+      <div class="section-title" style="font-size:14px;">Departures (${departures.length})</div>
+      ${departures.map((g) => transportQueueGroupCard('departure', g)).join('') || '<p class="hint">No unplanned departures right now.</p>'}
+    `;
+  } catch (err) {
+    body.innerHTML = `<p class="hint" style="color:var(--red);">${err.message}</p>`;
+  }
+}
+
 window.deleteTrip = async (id) => {
   await jdel(`${API}/transport/${id}`);
   toast('Trip removed');
@@ -3459,6 +3546,7 @@ function loadAllData() {
   refreshVehicles();
   loadNextVehicleCode();
   refreshTransportTrips();
+  refreshTransportQueue();
   refreshPreTours();
   refreshHotels();
   refreshRooms();
