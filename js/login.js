@@ -144,6 +144,61 @@ async function ensureTransportPoint(name) {
     }
   } catch (err) { /* non-critical */ }
 }
+// A plain <input list="transportPointsList"> gives no visible sign that
+// suggestions exist — no arrow, and datalist support/UX on mobile browsers
+// is poor to nonexistent. Mirrors admin.js's version: wraps every such
+// input (once) with an explicit dropdown button + menu that fills the
+// field on click, while the input itself stays a free-typing text field
+// for anything not already in the list.
+function wireLocationDropdowns(root) {
+  (root || document).querySelectorAll('input[list="transportPointsList"]').forEach((input) => {
+    if (input.closest('.location-input-wrap')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'location-input-wrap';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'location-dropdown-btn';
+    btn.title = 'Choose from saved pickup/drop points';
+    btn.textContent = '▾';
+    btn.addEventListener('click', () => toggleLocationDropdown(btn));
+    wrap.appendChild(btn);
+  });
+}
+function toggleLocationDropdown(btn) {
+  const wrap = btn.closest('.location-input-wrap');
+  const input = wrap.querySelector('input');
+  const already = wrap.querySelector('.location-dropdown-menu');
+  document.querySelectorAll('.location-dropdown-menu').forEach((m) => m.remove());
+  if (already) return;
+  const menu = document.createElement('div');
+  menu.className = 'location-dropdown-menu';
+  if (!TRANSPORT_POINTS_CACHE.length) {
+    const empty = document.createElement('div');
+    empty.className = 'location-dropdown-empty';
+    empty.textContent = 'No saved points yet — just type one below.';
+    menu.appendChild(empty);
+  } else {
+    TRANSPORT_POINTS_CACHE.forEach((p) => {
+      const item = document.createElement('div');
+      item.className = 'location-dropdown-item';
+      item.textContent = p.name;
+      item.addEventListener('click', () => {
+        input.value = p.name;
+        menu.remove();
+        input.focus();
+      });
+      menu.appendChild(item);
+    });
+  }
+  wrap.appendChild(menu);
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.location-input-wrap')) {
+    document.querySelectorAll('.location-dropdown-menu').forEach((m) => m.remove());
+  }
+});
 function fmtDate(d) {
   if (!d) return '-';
   return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -789,6 +844,7 @@ async function renderHostModuleSection(cfg, section) {
     ` : (cfg.readOnly ? '<p class="hint">This module is view-only from the host portal.</p>' : '')}
     ${cfg.hasArrivalsQueue ? '<div id="transportQueueBody" style="margin-top:16px;"><p class="hint">Loading arrivals/departures…</p></div>' : ''}
   `;
+  wireLocationDropdowns(body);
   if (cfg.hasArrivalsQueue) { refreshTransportPoints(); renderTransportQueue(); }
 }
 
@@ -881,6 +937,7 @@ async function renderTransportQueue() {
       <div class="section-title" style="font-size:14px;">Departures to plan (${departures.length})</div>
       ${departures.map((g) => transportQueueGroupCardHost('departure', g)).join('') || '<p class="hint">No unplanned departures right now.</p>'}
     `;
+    wireLocationDropdowns(el);
   } catch (err) {
     if (err instanceof UnauthorizedError) return;
     el.innerHTML = `<p class="hint" style="color:var(--red);">${err.message}</p>`;

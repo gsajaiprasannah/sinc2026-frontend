@@ -1102,6 +1102,30 @@ textarea { resize: vertical; min-height: 60px; }
 
 .field { margin-bottom: 10px; }
 
+/* Pickup/drop point fields (arrival point + every From/To in Transport
+   Planning/Pre Tours) — a plain text input + datalist gives no visible
+   affordance that suggestions exist (no arrow, poor/no support on mobile
+   browsers), so these get an explicit dropdown button + menu layered on top
+   of the same free-typing input. See locationInputHtml()/toggleLocationDropdown()
+   in admin.js and login.js. */
+.location-input-wrap { position: relative; }
+.location-input-wrap input { padding-right: 34px; }
+.location-dropdown-btn {
+  position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
+  background: transparent; border: none; cursor: pointer; padding: 6px 8px;
+  font-size: 11px; color: var(--muted); line-height: 1;
+}
+.location-dropdown-btn:hover { color: var(--text); }
+.location-dropdown-menu {
+  position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px;
+  background: #fff; border: 1px solid #d7dbe3; border-radius: var(--radius-sm);
+  box-shadow: 0 10px 28px rgba(15,26,51,0.14); max-height: 220px; overflow-y: auto;
+  z-index: 60;
+}
+.location-dropdown-item { padding: 8px 12px; cursor: pointer; font-size: 13.5px; color: var(--text); }
+.location-dropdown-item:hover { background: rgba(49,70,145,0.06); }
+.location-dropdown-empty { padding: 10px 12px; font-size: 12.5px; color: var(--muted); }
+
 .hint {
   font-size: 11.5px;
   color: var(--muted);

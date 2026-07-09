@@ -91,6 +91,65 @@ window.deleteTransportPoint = async (id) => {
   } catch (err) { toast(err.message); }
 };
 
+// A plain <input list="transportPointsList"> gives no visible sign that
+// suggestions exist — no arrow, and datalist support/UX on mobile browsers
+// is poor to nonexistent. So every such input gets wrapped (once) with an
+// explicit dropdown button + menu that fills the field on click, while the
+// input itself stays a free-typing text field (still with the datalist as
+// a fallback) for anything not already in the list. Safe to call repeatedly
+// — already-wrapped inputs are skipped — so it can run after every render
+// that might introduce new location inputs (page init, the arrivals/
+// departures queue refresh).
+function wireLocationDropdowns(root) {
+  (root || document).querySelectorAll('input[list="transportPointsList"]').forEach((input) => {
+    if (input.closest('.location-input-wrap')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'location-input-wrap';
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'location-dropdown-btn';
+    btn.title = 'Choose from saved pickup/drop points';
+    btn.textContent = '▾';
+    btn.addEventListener('click', () => toggleLocationDropdown(btn));
+    wrap.appendChild(btn);
+  });
+}
+function toggleLocationDropdown(btn) {
+  const wrap = btn.closest('.location-input-wrap');
+  const input = wrap.querySelector('input');
+  const already = wrap.querySelector('.location-dropdown-menu');
+  document.querySelectorAll('.location-dropdown-menu').forEach((m) => m.remove());
+  if (already) return;
+  const menu = document.createElement('div');
+  menu.className = 'location-dropdown-menu';
+  if (!TRANSPORT_POINTS_CACHE.length) {
+    const empty = document.createElement('div');
+    empty.className = 'location-dropdown-empty';
+    empty.textContent = 'No saved points yet — just type one below.';
+    menu.appendChild(empty);
+  } else {
+    TRANSPORT_POINTS_CACHE.forEach((p) => {
+      const item = document.createElement('div');
+      item.className = 'location-dropdown-item';
+      item.textContent = p.name;
+      item.addEventListener('click', () => {
+        input.value = p.name;
+        menu.remove();
+        input.focus();
+      });
+      menu.appendChild(item);
+    });
+  }
+  wrap.appendChild(menu);
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.location-input-wrap')) {
+    document.querySelectorAll('.location-dropdown-menu').forEach((m) => m.remove());
+  }
+});
+
 let toastTimer = null;
 function toast(msg, durationMs) {
   const t = document.getElementById('toast');
@@ -1993,6 +2052,7 @@ async function refreshTransportQueue() {
       <div class="section-title" style="font-size:14px;">Departures (${departures.length})</div>
       ${departures.map((g) => transportQueueGroupCard('departure', g)).join('') || '<p class="hint">No unplanned departures right now.</p>'}
     `;
+    wireLocationDropdowns(body);
   } catch (err) {
     body.innerHTML = `<p class="hint" style="color:var(--red);">${err.message}</p>`;
   }
@@ -4312,6 +4372,7 @@ function loadAllData() {
   refreshVehicles();
   loadNextVehicleCode();
   refreshTransportPoints();
+  wireLocationDropdowns();
   refreshTransportTrips();
   refreshTransportQueue();
   refreshPreTours();
