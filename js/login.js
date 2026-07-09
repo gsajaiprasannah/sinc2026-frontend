@@ -464,6 +464,20 @@ async function loadHostMe() {
   const hasDelivery = (data.committeeChecklists && data.committeeChecklists.length) || (data.committeeDeliveries && data.committeeDeliveries.length);
   const navBtnDelivery = document.getElementById('navBtnDelivery');
   if (navBtnDelivery) navBtnDelivery.style.display = hasDelivery ? '' : 'none';
+
+  // Leadership Briefing — only for host members tagged with a leadership_role
+  // in the admin panel (President, Secretary, VPs, Congress Chairman, etc.).
+  // It's a separate, heavier aggregation call, so only fetch it when the nav
+  // button is actually going to be shown.
+  const navBtnLeadership = document.getElementById('navBtnLeadership');
+  if (navBtnLeadership) {
+    if (data.profile && data.profile.leadership_role) {
+      navBtnLeadership.style.display = '';
+      loadLeadershipBriefing();
+    } else {
+      navBtnLeadership.style.display = 'none';
+    }
+  }
 }
 
 function renderHostProfile(p) {
@@ -1110,6 +1124,90 @@ window.updateHostChecklistStatus = async (id, status) => {
   try { await jput(`${API}/host/checklist/${id}`, { status }); toast('Status updated'); loadHostMe(); }
   catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
 };
+
+// ================= LEADERSHIP BRIEFING =================
+// One-screen "state of the congress" view for tagged leadership roles
+// (President, Secretary, VPs, Congress Chairman/Secretary/Joint
+// Secretary/Treasurer/Sponsor Chairman) — read-only aggregation across
+// delegates/payments, sponsors, checklist delivery, goodies/inventory, and a
+// plain-language recent activity feed. See GET /api/host/leadership-briefing.
+async function loadLeadershipBriefing() {
+  let data;
+  try {
+    data = await jget(`${API}/host/leadership-briefing`);
+  } catch (err) {
+    if (err instanceof UnauthorizedError) return;
+    const el = document.getElementById('leadershipKpis');
+    if (el) el.innerHTML = `<p class="hint" style="color:var(--red);">${err.message}</p>`;
+    return;
+  }
+  renderLeadershipBriefing(data);
+}
+
+function leadershipBar(label, done, total, extraHint) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  return `
+    <div style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;">
+        <span><strong>${label}</strong>${extraHint ? ' <span class="hint">' + extraHint + '</span>' : ''}</span>
+        <span class="hint">${done}/${total} (${pct}%)</span>
+      </div>
+      <div style="background:var(--line);border-radius:6px;height:8px;overflow:hidden;">
+        <div style="background:var(--grad-brand, #314691);width:${pct}%;height:100%;"></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderLeadershipBriefing(data) {
+  const roleHint = document.getElementById('leadershipRoleHint');
+  if (roleHint) roleHint.textContent = `Viewing as: ${data.role || 'Leadership'}. Read-only — figures update automatically as the team works.`;
+
+  const k = data.kpis || {};
+  document.getElementById('leadershipKpis').innerHTML = `
+    <div class="stat-card"><div class="value">${k.totalDelegates ?? '-'}</div><div class="label">Delegates registered</div></div>
+    <div class="stat-card"><div class="value">${k.totalClubs ?? '-'}</div><div class="label">Clubs represented</div></div>
+    <div class="stat-card"><div class="value">${k.paymentCollectionPct != null ? k.paymentCollectionPct + '%' : '-'}</div><div class="label">Payments collected (₹${(k.paymentsCollected || 0).toLocaleString('en-IN')} of ₹${((k.paymentsCollected || 0) + (k.paymentsDue || 0)).toLocaleString('en-IN')})</div></div>
+    <div class="stat-card"><div class="value">${k.sponsorsConfirmed ?? '-'}/${k.sponsorsTotal ?? '-'}</div><div class="label">Sponsors confirmed</div></div>
+    <div class="stat-card"><div class="value">${k.hostTeamPaid ?? '-'}/${k.hostTeamTotal ?? '-'}</div><div class="label">Host team paid up</div></div>
+    <div class="stat-card"><div class="value">${data.checklist && data.checklist.overallPct != null ? data.checklist.overallPct + '%' : '-'}</div><div class="label">Overall checklist complete</div></div>
+  `;
+
+  const checklistRows = (data.checklist && data.checklist.byCommittee) || [];
+  document.getElementById('leadershipChecklistBars').innerHTML = checklistRows.length
+    ? checklistRows.map((c) => leadershipBar(c.committee_name, c.done, c.total, c.overdue ? `⚠ ${c.overdue} overdue` : '')).join('')
+    : '<p class="hint">No checklist items yet.</p>';
+
+  const invRows = (data.inventory && data.inventory.byCommittee) || [];
+  document.getElementById('leadershipInventoryBars').innerHTML = invRows.length
+    ? invRows.map((c) => leadershipBar(c.committee_name, c.delivered, c.total, c.pending ? `${c.pending} pending` : '')).join('')
+    : '<p class="hint">No goodies/inventory distributions tracked yet.</p>';
+
+  const na = data.needsAttention || {};
+  const overdue = na.overdueChecklist || [];
+  const unconfirmedSponsors = na.unconfirmedSponsors || [];
+  const undelivered = na.undeliveredInventory || [];
+  document.getElementById('leadershipNeedsAttention').innerHTML = `
+    ${overdue.length ? `
+      <p style="margin:0 0 6px;"><strong>Overdue checklist items (${overdue.length})</strong></p>
+      ${overdue.map((o) => `<p class="hint" style="margin:0 0 4px;">⚠ ${o.label} — ${o.owner_name || 'Unknown'} <span class="hint">(${o.committee_name || 'Unassigned'}, due ${o.due_date ? new Date(o.due_date).toLocaleDateString() : '-'})</span></p>`).join('')}
+    ` : ''}
+    ${unconfirmedSponsors.length ? `
+      <p style="margin:12px 0 6px;"><strong>Sponsors not yet confirmed (${unconfirmedSponsors.length})</strong></p>
+      ${unconfirmedSponsors.map((s) => `<p class="hint" style="margin:0 0 4px;">${s.name}${s.tier ? ' (' + s.tier + ')' : ''} — <span class="pill ${s.status}">${s.status}</span></p>`).join('')}
+    ` : ''}
+    ${undelivered.length ? `
+      <p style="margin:12px 0 6px;"><strong>Goodies still pending delivery (${undelivered.length})</strong></p>
+      ${undelivered.map((d) => `<p class="hint" style="margin:0 0 4px;">${d.item_name} → ${d.recipient_name || 'Unknown'} <span class="hint">(${d.committee_name || 'Unassigned'})</span></p>`).join('')}
+    ` : ''}
+    ${(!overdue.length && !unconfirmedSponsors.length && !undelivered.length) ? '<p class="hint">Nothing needs attention right now — everything is on track.</p>' : ''}
+  `;
+
+  const activity = data.activity || [];
+  document.getElementById('leadershipActivityFeed').innerHTML = activity.length
+    ? activity.map((a) => `<p class="hint" style="margin:0 0 6px;">${a.sentence} <span class="hint">— ${new Date(a.created_at).toLocaleString()}</span></p>`).join('')
+    : '<p class="hint">No recent activity logged yet.</p>';
+}
 
 // ================= MEDIA =================
 let mediaStarted = false;

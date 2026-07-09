@@ -1152,6 +1152,7 @@ async function refreshHostMembers(query) {
       <td class="sticky-col">${h.name}${h.designation ? ' <span class="hint">(' + h.designation + ')</span>' : ''}</td>
       <td>${h.company || '-'}</td>
       <td>${h.phone || '-'}</td>
+      <td>${h.leadership_role ? `<span class="pill paid">${h.leadership_role}</span>` : '-'}</td>
       <td style="white-space:normal;max-width:220px;" title="${committeeNames.join(', ')}">${committeesLabel}</td>
       <td><span class="pill ${h.payment_status}">${h.payment_status}</span> <span class="hint">₹${h.payment_amount}</span></td>
       <td>${h.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createHostLogin(${h.id}, '${(h.name || '').replace(/'/g, '')}')">Create login</button>`}</td>
@@ -1163,7 +1164,7 @@ async function refreshHostMembers(query) {
       </td>
     </tr>
   `;
-  }).join('') || '<tr><td colspan="7" class="empty">No host members yet</td></tr>';
+  }).join('') || '<tr><td colspan="8" class="empty">No host members yet</td></tr>';
 
   // Keep every other tab's host-member dropdowns in sync with the latest list.
   const opts = rows.map((h) => `<option value="${h.id}">${h.name}${h.company ? ' (' + h.company + ')' : ''}</option>`).join('');
@@ -1186,7 +1187,7 @@ window.createHostLogin = async (id, name) => {
   } catch (err) { toast(err.message); }
 };
 
-const HM_FORM_FIELDS = ['name', 'phone', 'email', 'company', 'designation', 'category', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date', 'notes'];
+const HM_FORM_FIELDS = ['name', 'phone', 'email', 'company', 'designation', 'category', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date', 'notes', 'leadership_role'];
 window.editHm = async (id) => {
   const h = await jget(`${API}/hostmembers/${id}`);
   const form = document.getElementById('hmForm');
