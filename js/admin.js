@@ -303,6 +303,7 @@ function showApp() {
   document.getElementById('logoutLink').style.display = '';
   document.getElementById('whoami').textContent = CURRENT_USER ? `${CURRENT_USER.username} (${CURRENT_USER.role === 'super_admin' ? 'Super Admin' : 'Admin'})` : '';
   document.getElementById('settingsTabBtn').style.display = (CURRENT_USER && CURRENT_USER.role === 'super_admin') ? '' : 'none';
+  document.getElementById('activityLogTabBtn').style.display = (CURRENT_USER && CURRENT_USER.role === 'super_admin') ? '' : 'none';
   loadAllData();
   refreshPushButton();
 }
@@ -690,6 +691,7 @@ function switchAdminTab(tab) {
   btn.classList.add('active');
   panel.classList.add('active');
   if (tab === 'settings') refreshUsersAdmin();
+  if (tab === 'activitylog') refreshActivityLog();
   // On phone/tablet widths the sidebar overlays the content, so tuck it away
   // again once a section has been picked (matches the standard mobile pattern).
   if (window.innerWidth < 860 && adminShell) {
@@ -4519,6 +4521,92 @@ async function refreshInventoryMonitor() {
 }
 ['inventoryMonitorFilterCommittee', 'inventoryMonitorFilterStatus', 'inventoryMonitorFilterRecipientType'].forEach((id) => {
   document.getElementById(id)?.addEventListener('change', refreshInventoryMonitorDetail);
+});
+
+// --- Activity Log (super_admin only) ---
+// Read-only audit trail over the activity_log table — every logActivity()
+// call scattered across the CRUD routes + self-service portal endpoints.
+// Filters + pagination are server-side (server/routes/activityLog.js), this
+// just tracks the current page/filter state and re-fetches on change.
+let alPage = 1;
+let alTotalPages = 1;
+let alFiltersLoaded = false;
+
+async function loadActivityLogFilters() {
+  if (alFiltersLoaded) return;
+  try {
+    const f = await jget(`${API}/activity-log/filters`);
+    const roleSel = document.getElementById('alFilterRole');
+    const actionSel = document.getElementById('alFilterAction');
+    const entitySel = document.getElementById('alFilterEntityType');
+    f.roles.forEach((r) => { roleSel.innerHTML += `<option value="${r}">${r}</option>`; });
+    f.actions.forEach((a) => { actionSel.innerHTML += `<option value="${a}">${a}</option>`; });
+    f.entity_types.forEach((t) => { entitySel.innerHTML += `<option value="${t}">${t}</option>`; });
+    alFiltersLoaded = true;
+  } catch (e) {
+    console.error('Failed to load activity log filters', e.message);
+  }
+}
+
+async function refreshActivityLog() {
+  if (!document.getElementById('alTableBody')) return;
+  await loadActivityLogFilters();
+  const params = new URLSearchParams();
+  const search = document.getElementById('alFilterSearch').value.trim();
+  const role = document.getElementById('alFilterRole').value;
+  const action = document.getElementById('alFilterAction').value;
+  const entityType = document.getElementById('alFilterEntityType').value;
+  const dateFrom = document.getElementById('alFilterDateFrom').value;
+  const dateTo = document.getElementById('alFilterDateTo').value;
+  if (search) params.set('search', search);
+  if (role) params.set('role', role);
+  if (action) params.set('action', action);
+  if (entityType) params.set('entity_type', entityType);
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo) params.set('date_to', dateTo);
+  params.set('page', alPage);
+  params.set('page_size', 50);
+
+  const data = await jget(`${API}/activity-log?${params.toString()}`);
+  alTotalPages = data.total_pages;
+  document.getElementById('alTableBody').innerHTML = data.rows.map((r) => `
+    <tr>
+      <td>${new Date(r.created_at).toLocaleString()}</td>
+      <td>${r.username || '-'}</td>
+      <td>${r.role || '-'}</td>
+      <td>${r.action}</td>
+      <td>${r.entity_type || '-'}${r.entity_id ? ' #' + r.entity_id : ''}</td>
+      <td>${r.label || '-'}</td>
+      <td>${r.details || '-'}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No activity matches this filter.</td></tr>';
+  document.getElementById('alPageInfo').textContent = `Page ${data.page} of ${data.total_pages} (${data.total} total)`;
+  document.getElementById('alPrevPageBtn').disabled = data.page <= 1;
+  document.getElementById('alNextPageBtn').disabled = data.page >= data.total_pages;
+}
+
+['alFilterRole', 'alFilterAction', 'alFilterEntityType', 'alFilterDateFrom', 'alFilterDateTo'].forEach((id) => {
+  document.getElementById(id)?.addEventListener('change', () => { alPage = 1; refreshActivityLog(); });
+});
+document.getElementById('alFilterSearch')?.addEventListener('input', () => {
+  clearTimeout(window._alSearchDebounce);
+  window._alSearchDebounce = setTimeout(() => { alPage = 1; refreshActivityLog(); }, 350);
+});
+document.getElementById('alClearFiltersBtn')?.addEventListener('click', () => {
+  document.getElementById('alFilterSearch').value = '';
+  document.getElementById('alFilterRole').value = '';
+  document.getElementById('alFilterAction').value = '';
+  document.getElementById('alFilterEntityType').value = '';
+  document.getElementById('alFilterDateFrom').value = '';
+  document.getElementById('alFilterDateTo').value = '';
+  alPage = 1;
+  refreshActivityLog();
+});
+document.getElementById('alPrevPageBtn')?.addEventListener('click', () => {
+  if (alPage > 1) { alPage--; refreshActivityLog(); }
+});
+document.getElementById('alNextPageBtn')?.addEventListener('click', () => {
+  if (alPage < alTotalPages) { alPage++; refreshActivityLog(); }
 });
 
 // --- Export ---
