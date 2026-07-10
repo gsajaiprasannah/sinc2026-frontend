@@ -1087,11 +1087,13 @@ async function refreshItinerary() {
       <td>${it.title}</td>
       <td>${it.description || '-'}</td>
       <td>
-        <button class="btn small" onclick="editItin(${it.id})">Edit</button>
+        <button class="btn small" onclick="editItin(${it.id})">Update</button>
+        <button class="btn small" onclick="manageAgenda(${it.id})">Agenda</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteItin(${it.id})">Delete</button>` : ''}
       </td>
     </tr>
   `).join('') || '<tr><td colspan="5" class="empty">No itinerary items yet</td></tr>';
+  refreshAgendaSlots();
 }
 window.deleteItin = async (id) => { await jdel(`${API}/itinerary/${id}`); toast('Itinerary item deleted'); refreshItinerary(); };
 
@@ -1102,7 +1104,7 @@ window.editItin = async (id) => {
     if (form.elements[f]) form.elements[f].value = it[f] !== null && it[f] !== undefined ? it[f] : '';
   });
   form.dataset.editId = id;
-  document.getElementById('itinFormTitle').textContent = 'Edit itinerary item';
+  document.getElementById('itinFormTitle').textContent = 'Update itinerary item';
   document.getElementById('itinSubmitBtn').textContent = 'Update Item';
   document.getElementById('itinCancelEditBtn').style.display = '';
   form.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1134,6 +1136,221 @@ document.getElementById('itinForm').addEventListener('submit', async (e) => {
     refreshItinerary();
   } catch (err) { toast(err.message); }
 });
+
+// --- Agenda Builder (event management within an Itinerary slot) ----------
+// One itinerary slot (e.g. "Inaugural Ceremony") contains an ordered flow of
+// individual events (Prayer Song, National Anthem, dance performances...),
+// each with a description, who organised it (committee + free-text detail),
+// and who's performing (a hired performer group + free-text detail) — kept
+// admin-only, distinct from the public-facing itinerary_items above.
+let ALL_ITINERARY_CACHE = [];
+let ALL_PERFORMER_GROUPS_CACHE = [];
+
+function itinerarySlotLabel(it) {
+  return [it.day_label, it.time_label, it.title].filter(Boolean).join(' · ');
+}
+
+async function refreshAgendaSlots() {
+  ALL_ITINERARY_CACHE = await jget(`${API}/itinerary`);
+  const sel = document.getElementById('agendaSlotSelect');
+  const prevValue = sel.value;
+  sel.innerHTML = '<option value="">-- select an itinerary slot --</option>' +
+    ALL_ITINERARY_CACHE.map((it) => `<option value="${it.id}">${itinerarySlotLabel(it)}</option>`).join('');
+  if (prevValue && ALL_ITINERARY_CACHE.some((it) => String(it.id) === prevValue)) {
+    sel.value = prevValue;
+  }
+}
+window.manageAgenda = (itineraryItemId) => {
+  switchAdminTab('itinerary');
+  const sel = document.getElementById('agendaSlotSelect');
+  sel.value = itineraryItemId;
+  sel.dispatchEvent(new Event('change'));
+  document.getElementById('agendaFormCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+async function refreshAgenda() {
+  const slotId = document.getElementById('agendaSlotSelect').value;
+  const formCard = document.getElementById('agendaFormCard');
+  const tableCard = document.getElementById('agendaTableCard');
+  if (!slotId) {
+    formCard.style.display = 'none';
+    tableCard.style.display = 'none';
+    return;
+  }
+  formCard.style.display = '';
+  tableCard.style.display = '';
+  const rows = await jget(`${API}/agenda?itinerary_item_id=${slotId}`);
+  document.getElementById('agendaTableBody').innerHTML = rows.map((a) => `
+    <tr>
+      <td>${a.time_label || '-'}</td>
+      <td><strong>${a.title}</strong>${a.duration_minutes ? ' <span class="hint">(' + a.duration_minutes + ' min)</span>' : ''}</td>
+      <td style="white-space:normal;max-width:220px;">${a.description || '-'}</td>
+      <td>${[a.organizing_committee_name, a.organized_by].filter(Boolean).join(' · ') || '-'}</td>
+      <td>${[a.performer_group_name, a.performed_by].filter(Boolean).join(' · ') || '-'}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editAgendaEvent(${a.id})">Update</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteAgendaEvent(${a.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">No agenda events yet for this slot</td></tr>';
+}
+document.getElementById('agendaSlotSelect').addEventListener('change', refreshAgenda);
+
+window.deleteAgendaEvent = async (id) => { await jdel(`${API}/agenda/${id}`); toast('Agenda event removed'); refreshAgenda(); };
+
+const AGENDA_FORM_FIELDS = [
+  'time_label', 'title', 'description', 'organizing_committee_id', 'organized_by',
+  'performer_group_id', 'performed_by', 'duration_minutes', 'sort_order', 'notes'
+];
+window.editAgendaEvent = async (id) => {
+  const a = await jget(`${API}/agenda/${id}`);
+  const form = document.getElementById('agendaForm');
+  AGENDA_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = a[f] !== null && a[f] !== undefined ? a[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('agendaFormTitle').textContent = `Update agenda event — ${a.title}`;
+  document.getElementById('agendaSubmitBtn').textContent = 'Update Event';
+  document.getElementById('agendaCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('agendaCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('agendaForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('agendaFormTitle').textContent = 'Add agenda event';
+  document.getElementById('agendaSubmitBtn').textContent = 'Save Event';
+  document.getElementById('agendaCancelEditBtn').style.display = 'none';
+});
+document.getElementById('agendaForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const slotId = document.getElementById('agendaSlotSelect').value;
+  if (!slotId) { toast('Select an itinerary slot first'); return; }
+  const body = Object.fromEntries(new FormData(form).entries());
+  body.itinerary_item_id = slotId;
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/agenda/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('agendaFormTitle').textContent = 'Add agenda event';
+      document.getElementById('agendaSubmitBtn').textContent = 'Save Event';
+      document.getElementById('agendaCancelEditBtn').style.display = 'none';
+      toast('Agenda event updated');
+    } else {
+      await jpost(`${API}/agenda`, body);
+      form.reset();
+      toast('Agenda event saved');
+    }
+    refreshAgenda();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Performer / Vendor Groups (hired to perform in the program) ---------
+async function refreshPerformerGroups() {
+  ALL_PERFORMER_GROUPS_CACHE = await jget(`${API}/performer-groups`);
+  document.getElementById('performerTableBody').innerHTML = ALL_PERFORMER_GROUPS_CACHE.map((p) => `
+    <tr>
+      <td><strong>${p.name}</strong></td>
+      <td>${p.category || '-'}</td>
+      <td>${p.contact_person || '-'}${p.phone ? ' <span class="hint">' + p.phone + '</span>' : ''}</td>
+      <td>${Number(p.fee_amount || 0).toLocaleString('en-IN')}</td>
+      <td><span class="pill ${p.payment_status}">${p.payment_status === 'paid' ? 'Paid' : 'Pending'}</span></td>
+      <td>${p.agenda_event_count || 0}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editPerformerGroup(${p.id})">Update</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deletePerformerGroup(${p.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No performer/vendor groups yet</td></tr>';
+
+  const opts = ALL_PERFORMER_GROUPS_CACHE.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
+  const sel = document.getElementById('agendaPerformerSelect');
+  if (sel) sel.innerHTML = '<option value="">-- none --</option>' + opts;
+}
+window.deletePerformerGroup = async (id) => { await jdel(`${API}/performer-groups/${id}`); toast('Performer group removed'); refreshPerformerGroups(); refreshAgenda(); };
+
+const PERFORMER_FORM_FIELDS = ['name', 'category', 'contact_person', 'phone', 'email', 'fee_amount', 'payment_status', 'payment_mode', 'payment_date', 'notes'];
+window.editPerformerGroup = async (id) => {
+  const rows = await jget(`${API}/performer-groups`);
+  const p = rows.find((r) => r.id === id);
+  if (!p) return;
+  const form = document.getElementById('performerForm');
+  PERFORMER_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = p[f] !== null && p[f] !== undefined ? p[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('performerFormTitle').textContent = `Update performer / vendor group — ${p.name}`;
+  document.getElementById('performerSubmitBtn').textContent = 'Update Group';
+  document.getElementById('performerCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('performerCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('performerForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('performerFormTitle').textContent = 'Add performer / vendor group';
+  document.getElementById('performerSubmitBtn').textContent = 'Save Group';
+  document.getElementById('performerCancelEditBtn').style.display = 'none';
+});
+document.getElementById('performerForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/performer-groups/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('performerFormTitle').textContent = 'Add performer / vendor group';
+      document.getElementById('performerSubmitBtn').textContent = 'Save Group';
+      document.getElementById('performerCancelEditBtn').style.display = 'none';
+      toast('Performer group updated');
+    } else {
+      await jpost(`${API}/performer-groups`, body);
+      form.reset();
+      toast('Performer group saved');
+    }
+    refreshPerformerGroups();
+    refreshAgenda();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Agenda / Performer Groups PDFs ---------------------------------------
+window.downloadAgendaPdf = async () => {
+  try {
+    const slotId = document.getElementById('agendaSlotSelect').value;
+    if (!slotId) { toast('Select an itinerary slot first'); return; }
+    const slot = ALL_ITINERARY_CACHE.find((it) => String(it.id) === String(slotId));
+    if (!slot) { toast('Itinerary slot not found'); return; }
+    const rows = await jget(`${API}/agenda?itinerary_item_id=${slotId}`);
+    const doc = pdfDoc();
+    let y = await pdfLetterhead(doc, `Agenda — ${slot.title}`, itinerarySlotLabel(slot));
+    y = pdfTable(doc, y, [
+      { label: 'Time', width: 55 },
+      { label: 'Event', width: 110 },
+      { label: 'Description', width: 145 },
+      { label: 'Organized By', width: 95 },
+      { label: 'Performed By', width: 95 },
+    ], rows.map((a) => [
+      a.time_label || '-',
+      a.title + (a.duration_minutes ? ` (${a.duration_minutes} min)` : ''),
+      a.description || '-',
+      [a.organizing_committee_name, a.organized_by].filter(Boolean).join(' · ') || '-',
+      [a.performer_group_name, a.performed_by].filter(Boolean).join(' · ') || '-',
+    ]));
+    pdfFinalize(doc);
+    doc.save(`agenda-${slot.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadPerformerGroupsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/performer-groups`);
+    await downloadListReportPdf('Performer / Vendor Groups', `${rows.length} group(s)`, [
+      { label: 'Name', width: 140, get: (r) => r.name },
+      { label: 'Category', width: 90, get: (r) => r.category },
+      { label: 'Contact', width: 100, get: (r) => r.contact_person },
+      { label: 'Phone', width: 80, get: (r) => r.phone },
+      { label: 'Fee (₹)', width: 70, get: (r) => Number(r.fee_amount || 0).toLocaleString('en-IN'), align: 'right' },
+      { label: 'Payment', width: 55, get: (r) => r.payment_status },
+    ], rows, 'performer-groups.pdf');
+  } catch (err) { toast(err.message); }
+};
 
 // --- Host Members ---
 async function refreshHostMembers(query) {
@@ -1324,7 +1541,7 @@ async function moduleKeysCache() {
 // the checklist modal (see committeeSelectOptions()).
 function populateCommitteeSelects() {
   const opts = ALL_COMMITTEES_CACHE.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
-  ['checklistTemplateCommitteeSelect', 'bulkAssignCommitteeSelect'].forEach((id) => {
+  ['checklistTemplateCommitteeSelect', 'bulkAssignCommitteeSelect', 'agendaCommitteeSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
     const cur = el.value;
@@ -5284,6 +5501,7 @@ function loadAllData() {
   refreshStallHalls();
   refreshStalls();
   refreshStallBookings();
+  refreshPerformerGroups();
   if (CURRENT_USER && CURRENT_USER.role === 'super_admin') refreshUsersAdmin();
 }
 
