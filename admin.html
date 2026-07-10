@@ -144,6 +144,15 @@
           </div>
         </details>
         <details class="nav-group" open>
+          <summary class="nav-group-label">Finance <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="financeoverview">Overview</button>
+            <button data-tab="financeinward">Inward Ledger</button>
+            <button data-tab="financeoutward">Outward Payments</button>
+            <button data-tab="financepurchases">Purchase Requests</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
           <summary class="nav-group-label">Tools <span class="chevron">›</span></summary>
           <div class="admin-nav">
             <button data-tab="export">Voice Agent Export</button>
@@ -564,6 +573,7 @@
               <option value="Congress Chairman">Congress Chairman</option>
               <option value="Congress Secretary">Congress Secretary</option>
               <option value="Congress Joint Secretary">Congress Joint Secretary</option>
+              <option value="Congress Treasurer">Congress Treasurer</option>
               <option value="Congress Sponsor Chairman">Congress Sponsor Chairman</option>
             </select>
           </div>
@@ -1702,6 +1712,125 @@
       <table>
         <thead><tr><th>Company</th><th>Contact</th><th>Status</th><th>Stall</th><th>Amount (₹)</th><th>Payment</th><th></th></tr></thead>
         <tbody id="stallBookingTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- FINANCE OVERVIEW TAB -->
+  <section class="tab-panel" id="tab-financeoverview">
+    <p class="hint" style="margin-top:0;">One-screen snapshot of all money in and out of the congress. Inward pulls automatically from Registrations, Host Members, Stall Bookings, and Pre Tours, plus any manual entries. Outward covers payment requests and goodies purchases once approved and paid.</p>
+    <div class="grid-stats" id="financeOverviewCards">
+      <div class="stat-card"><div class="value" id="finTotalInward">₹0</div><div class="label">Total Inward</div></div>
+      <div class="stat-card"><div class="value" id="finTotalOutwardPaid">₹0</div><div class="label">Total Outward (Paid)</div></div>
+      <div class="stat-card"><div class="value" id="finNetBalance">₹0</div><div class="label">Net Balance</div></div>
+      <div class="stat-card"><div class="value" id="finPendingApprovalCount">0</div><div class="label">Pending Approval</div></div>
+      <div class="stat-card"><div class="value" id="finPendingApprovalAmount">₹0</div><div class="label">Pending Approval Amount</div></div>
+      <div class="stat-card"><div class="value" id="finApprovedAwaitingCount">0</div><div class="label">Approved, Awaiting Payment</div></div>
+    </div>
+  </section>
+
+  <!-- FINANCE INWARD TAB -->
+  <section class="tab-panel" id="tab-financeinward">
+    <p class="hint" style="margin-top:0;">Auto-pulled rows (Registration Fee, Host Member Fee, Stall Booking, Pre-Tour Payment) come from their own modules and can't be edited here — fix them at the source. Add a manual entry for anything else (donation, grant, sponsorship not yet tracked elsewhere).</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="finInwardFormTitle">Add manual inward entry</div>
+      <form id="finInwardForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Category</label><input name="category" placeholder="e.g. Donation, Grant" /></div>
+          <div class="field"><label>Received from</label><input name="payee_or_payer" placeholder="Payer / source name" /></div>
+          <div class="field"><label>Amount (₹) *</label><input name="amount" type="number" min="0" step="0.01" required /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Date</label><input name="transaction_date" type="date" /></div>
+          <div class="field"><label>Payment mode</label><input name="payment_mode" placeholder="UPI / Bank transfer / Cash / Others" /></div>
+        </div>
+        <div class="field"><label>Description</label><input name="description" /></div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="finInwardSubmitBtn">Save Entry</button>
+        <button type="button" class="btn outline" id="finInwardCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All inward transactions</span>
+      <button class="btn small" onclick="downloadFinanceInwardListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Date</th><th>Source</th><th>Category</th><th>From</th><th>Amount (₹)</th><th>Mode</th><th></th></tr></thead>
+        <tbody id="finInwardTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- FINANCE OUTWARD PAYMENTS TAB -->
+  <section class="tab-panel" id="tab-financeoutward">
+    <p class="hint" style="margin-top:0;">Every payment request needs unanimous sign-off from all five office-bearers — President, Secretary, Treasurer, Congress Chairman, and Congress Treasurer — before it can be marked paid. They approve from their own self-service portal login.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="finOutwardFormTitle">New payment request</div>
+      <form id="finOutwardForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Category</label><input name="category" placeholder="e.g. Vendor, Honorarium, Misc" /></div>
+          <div class="field"><label>Payee *</label><input name="payee_or_payer" required /></div>
+          <div class="field"><label>Amount (₹) *</label><input name="amount" type="number" min="0" step="0.01" required /></div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Date</label><input name="transaction_date" type="date" /></div>
+          <div class="field"><label>Payment mode</label><input name="payment_mode" placeholder="filled in when marked paid" /></div>
+        </div>
+        <div class="field"><label>Description</label><input name="description" /></div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="finOutwardSubmitBtn">Save Payment Request</button>
+        <button type="button" class="btn outline" id="finOutwardCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All payment requests</span>
+      <button class="btn small" onclick="downloadFinanceOutwardListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Payee</th><th>Category</th><th>Amount (₹)</th><th>Status</th><th>Approvals</th><th></th></tr></thead>
+        <tbody id="finOutwardTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- FINANCE PURCHASE REQUESTS TAB -->
+  <section class="tab-panel" id="tab-financepurchases">
+    <p class="hint" style="margin-top:0;">Purchases for goodies/inventory items only need President + Treasurer to approve — lighter than a plain payment. The moment both approve, the item is automatically created (or topped up) in Goodies &amp; Inventory. This is the recommended way to grow inventory stock; the Inventory tab's manual add stays available for corrections or already-owned stock.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="finPurchaseFormTitle">New purchase request</div>
+      <form id="finPurchaseForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Item name *</label><input name="purchase_item_name" required /></div>
+          <div class="field"><label>Category</label><input name="purchase_category" placeholder="e.g. Goodies, Stationery" /></div>
+          <div class="field"><label>Unit</label><input name="purchase_unit" placeholder="pcs" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Quantity *</label><input name="purchase_quantity" type="number" min="0" step="1" required /></div>
+          <div class="field"><label>Unit cost (₹)</label><input name="purchase_unit_cost" type="number" min="0" step="0.01" /></div>
+          <div class="field"><label>Vendor</label><input name="payee_or_payer" /></div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Date</label><input name="transaction_date" type="date" /></div>
+        </div>
+        <div class="field"><label>Description</label><input name="description" /></div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="finPurchaseSubmitBtn">Save Purchase Request</button>
+        <button type="button" class="btn outline" id="finPurchaseCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All purchase requests</span>
+      <button class="btn small" onclick="downloadFinancePurchasesListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Item</th><th>Qty x Cost</th><th>Amount (₹)</th><th>Status</th><th>Approvals</th><th>Inventory link</th><th></th></tr></thead>
+        <tbody id="finPurchaseTableBody"></tbody>
       </table>
     </div>
   </section>
