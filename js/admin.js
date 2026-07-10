@@ -1157,9 +1157,10 @@ async function refreshHostMembers(query) {
       <td><span class="pill ${h.payment_status}">${h.payment_status}</span> <span class="hint">₹${h.payment_amount}</span></td>
       <td>${h.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createHostLogin(${h.id}, '${(h.name || '').replace(/'/g, '')}')">Create login</button>`}</td>
       <td class="sticky-actions">
-        <button class="btn small" onclick="editHm(${h.id})">Edit</button>
+        <button class="btn small" onclick="editHm(${h.id})">Update</button>
         <button class="btn small" onclick="openChecklistModal('host_member', ${h.id})">Kit</button>
         <button class="btn small" onclick="downloadHostMemberDetailPdf(${h.id})">PDF</button>
+        <button class="btn small" onclick="downloadHostMemberReceiptPdf(${h.id})">Receipt</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteHm(${h.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -1286,7 +1287,10 @@ async function refreshHostPayments() {
       <td><input id="hp-mode-${h.id}" type="text" value="${(h.payment_mode || '').replace(/"/g, '&quot;')}" style="width:120px;" placeholder="UPI / Bank / Others" /></td>
       <td><input id="hp-date-${h.id}" type="date" value="${h.payment_date ? new Date(h.payment_date).toISOString().slice(0, 10) : ''}" /></td>
       <td><input id="hp-notes-${h.id}" type="text" value="${(h.notes || '').replace(/"/g, '&quot;')}" style="width:150px;" /></td>
-      <td class="sticky-actions"><button class="btn small" onclick="saveHostPayment(${h.id})">Save</button></td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="saveHostPayment(${h.id})">Save</button>
+        <button class="btn small" onclick="downloadHostMemberReceiptPdf(${h.id})">Receipt</button>
+      </td>
     </tr>
   `).join('') || '<tr><td colspan="9" class="empty">No host members yet</td></tr>';
 }
@@ -1353,7 +1357,7 @@ async function refreshCommittees() {
           <span class="pill ${m.is_lead ? 'lead' : 'single'}" style="display:inline-flex;align-items:center;gap:6px;" title="${m.is_lead ? 'Committee lead — delegates tasks and verifies completions' : 'Click the star to make this person the committee lead'}">
             ${m.is_lead ? '★' : `<a href="#" onclick="makeCommitteeLead(${c.id}, ${m.id});return false;" style="color:inherit;">☆</a>`}
             ${m.name}
-            <a href="#" onclick="editCommitteeMemberDetails(${m.id});return false;" style="color:inherit;" title="Edit this host member's details">✎</a>
+            <a href="#" onclick="editCommitteeMemberDetails(${m.id});return false;" style="color:inherit;" title="Update this host member's details">✎</a>
             ${canDelete() ? ` <a href="#" onclick="removeCommitteeMember(${c.id}, ${m.id});return false;" style="color:inherit;">✕</a>` : ''}
           </span>
         `).join('') || '<span class="hint">No members assigned yet</span>'}
@@ -3260,6 +3264,83 @@ window.downloadHostMemberDetailPdf = async (id) => {
       { label: 'Payment', pairs: [['Status', h.payment_status], ['Amount', `₹${h.payment_amount}`], ['Mode', h.payment_mode], ['Date', h.payment_date]] },
       { label: 'Notes', pairs: [['Notes', h.notes]] },
     ], `host-member-${h.name}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
+// Payment Receipt PDF (Host Member's own ₹5,000 host-club contribution) —
+// same letterhead/badge/watermark treatment as the delegate Payment Receipt
+// above, just for a single host member's own payment instead of a
+// registration covering 1-2 delegates. Host members don't have a natural
+// receipt number the way registrations have reg_number, so one is
+// synthesized as HC-<zero-padded id>.
+function hostMemberReceiptNo(h) {
+  return `HC-${String(h.id).padStart(6, '0')}`;
+}
+// Draws one full host-member receipt onto `doc`, starting a fresh page
+// first unless `firstPage` is true — shared by the single-receipt download
+// and the "download all" combined PDF, same pattern as pdfAddReceiptBody.
+async function pdfAddHostMemberReceiptBody(doc, h, firstPage) {
+  if (!firstPage) doc.addPage();
+  const receiptNo = hostMemberReceiptNo(h);
+  let y = await pdfLetterhead(doc, 'Payment Receipt', `Receipt No. ${receiptNo}  ·  Issued ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`);
+
+  if (h.payment_status === 'paid') {
+    doc.setFont(undefined, 'bold'); doc.setFontSize(70);
+    doc.setTextColor(236, 243, 233);
+    doc.text('PAID', 300, 430, { align: 'center', angle: 30 });
+    doc.setTextColor(0, 0, 0);
+  }
+
+  pdfBadge(doc, PDF_CONTENT_RIGHT - 110, y - 14, h.payment_status === 'paid' ? 'PAID' : 'PAYMENT PENDING', h.payment_status === 'paid' ? 'paid' : 'neutral');
+
+  y = pdfSectionLabel(doc, y, 'Billed To');
+  y = pdfKeyValues(doc, y, [
+    ['Name', h.name || '-'],
+    ['Designation', h.designation || '-'],
+    ['Company', h.company || '-'],
+  ]);
+
+  y = pdfSectionLabel(doc, y, 'Payment Details');
+  y = pdfTable(doc, y, [
+    { label: 'Description', width: 355 },
+    { label: 'Amount (₹)', width: 160, align: 'right' },
+  ], [[`Host Club Contribution — ${receiptNo}`, Number(h.payment_amount || 0).toLocaleString('en-IN')]]);
+
+  y = pdfSectionLabel(doc, y + 8, 'Payment Information');
+  y = pdfKeyValues(doc, y, [
+    ['Status', receiptStatusLabel(h.payment_status === 'paid' ? 'paid' : 'pending')],
+    ['Payment Mode', h.payment_mode || '-'],
+    ['Payment Date', h.payment_date ? new Date(h.payment_date).toLocaleDateString('en-IN') : '-'],
+  ]);
+
+  y = pdfMaybeNewPage(doc, y, 30);
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
+  doc.text('This receipt confirms the host club contribution payment recorded in the SINC2026 system. For queries, contact the Host Club team.', PDF_MARGIN, y, { maxWidth: 515 });
+  doc.setTextColor(0, 0, 0);
+  return y;
+}
+window.downloadHostMemberReceiptPdf = async (id) => {
+  try {
+    const rows = await jget(`${API}/hostmembers`);
+    const h = rows.find((r) => r.id === id);
+    if (!h) { toast('Host member not found'); return; }
+    const doc = pdfDoc();
+    await pdfAddHostMemberReceiptBody(doc, h, true);
+    pdfFinalize(doc);
+    doc.save(`receipt-${hostMemberReceiptNo(h)}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadAllHostMemberReceiptsPdf = async () => {
+  try {
+    const rows = await jget(`${API}/hostmembers`);
+    if (!rows.length) { toast('No host members to generate receipts for'); return; }
+    const doc = pdfDoc();
+    for (let i = 0; i < rows.length; i++) {
+      await pdfAddHostMemberReceiptBody(doc, rows[i], i === 0);
+    }
+    pdfFinalize(doc);
+    doc.save('all-host-member-receipts.pdf');
   } catch (err) { toast(err.message); }
 };
 
