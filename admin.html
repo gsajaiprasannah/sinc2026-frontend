@@ -137,6 +137,13 @@
           </div>
         </details>
         <details class="nav-group" open>
+          <summary class="nav-group-label">Stalls <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="stallhalls">Halls &amp; Stalls</button>
+            <button data-tab="stallbookings">Enquiries &amp; Bookings</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
           <summary class="nav-group-label">Tools <span class="chevron">›</span></summary>
           <div class="admin-nav">
             <button data-tab="export">Voice Agent Export</button>
@@ -1470,6 +1477,149 @@
       <table>
         <thead><tr><th>Name</th><th>Category</th><th>Organization</th><th>Visit date</th><th>Guest Relation</th><th>Offerings</th><th>Status</th><th></th></tr></thead>
         <tbody id="gvTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- STALLS: HALLS & STALLS TAB -->
+  <section class="tab-panel" id="tab-stallhalls">
+    <p class="hint" style="margin-top:0;">Halls and stall counts aren't finalized yet — add halls and generate/edit their stalls here as the venue plan firms up. Stall pricing can vary per stall (e.g. corner vs. regular).</p>
+    <div class="two-col">
+      <div class="card">
+        <div class="section-title" style="margin-top:0" id="stallHallFormTitle">Add hall</div>
+        <form id="stallHallForm">
+          <div class="field"><label>Hall name *</label><input name="name" required /></div>
+          <div class="field"><label>Capacity (approx. no. of stalls)</label><input name="capacity" type="number" min="0" placeholder="optional" /></div>
+          <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+          <button class="btn gold" type="submit" id="stallHallSubmitBtn">Save Hall</button>
+          <button type="button" class="btn outline" id="stallHallCancelEditBtn" style="display:none;">Cancel edit</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Generate stalls in bulk</div>
+        <form id="stallGenerateForm">
+          <div class="field"><label>Hall *</label><select name="hall_id" id="stallGenerateHallSelect" required></select></div>
+          <div class="form-grid cols-2">
+            <div class="field"><label>Stall number prefix</label><input name="prefix" placeholder="e.g. A- (optional)" /></div>
+            <div class="field"><label>Size</label><input name="size" placeholder="e.g. 6x6 ft" /></div>
+          </div>
+          <div class="form-grid cols-2">
+            <div class="field"><label>Start number *</label><input name="start" type="number" min="1" required /></div>
+            <div class="field"><label>End number *</label><input name="end" type="number" min="1" required /></div>
+          </div>
+          <div class="field"><label>Price per stall (₹)</label><input name="price" type="number" min="0" step="0.01" placeholder="0" /></div>
+          <button class="btn gold" type="submit">Generate Stalls</button>
+          <span class="hint">Re-running with an overlapping range is safe — existing stall numbers are skipped, not duplicated.</span>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="stallFormTitle">Add a single stall</div>
+      <form id="stallForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Hall *</label><select name="hall_id" id="stallHallSelect" required></select></div>
+          <div class="field"><label>Stall number *</label><input name="stall_number" required /></div>
+          <div class="field"><label>Size</label><input name="size" placeholder="e.g. 6x6 ft" /></div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Price (₹)</label><input name="price" type="number" min="0" step="0.01" placeholder="0" /></div>
+          <div class="field"><label>Notes</label><input name="notes" /></div>
+        </div>
+        <button class="btn gold" type="submit" id="stallSubmitBtn">Save Stall</button>
+        <button type="button" class="btn outline" id="stallCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="section-title">Halls</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Capacity</th><th>Stalls</th><th>Available</th><th>Allocated</th><th></th></tr></thead>
+        <tbody id="stallHallTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Stalls</span>
+      <button class="btn small" onclick="downloadStallsListPdf()">Download PDF</button>
+    </div>
+    <div class="card">
+      <div class="form-grid cols-2">
+        <div class="field"><label>Filter by hall</label>
+          <select id="stallFilterHall"><option value="">All halls</option></select>
+        </div>
+        <div class="field"><label>Filter by status</label>
+          <select id="stallFilterStatus">
+            <option value="">All statuses</option>
+            <option value="available">Available</option>
+            <option value="allocated">Allocated</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Hall</th><th>Stall #</th><th>Size</th><th>Price (₹)</th><th>Status</th><th>Booked by</th><th></th></tr></thead>
+          <tbody id="stallTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- STALLS: ENQUIRIES & BOOKINGS TAB -->
+  <section class="tab-panel" id="tab-stallbookings">
+    <p class="hint" style="margin-top:0;">Workflow: Enquiry → Billed → Allocated. The buyer is an external exhibitor/vendor company. One stall per booking — a company wanting several stalls submits several enquiries.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="stallBookingFormTitle">New stall enquiry</div>
+      <form id="stallBookingForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Company / exhibitor name *</label><input name="company_name" required /></div>
+          <div class="field"><label>Contact person</label><input name="contact_person" /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+          <div class="field"><label>GSTIN</label><input name="gstin" placeholder="optional" /></div>
+          <div class="field"><label>Status</label>
+            <select name="status">
+              <option value="enquiry">Enquiry</option>
+              <option value="billed">Billed</option>
+              <option value="allocated">Allocated</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+        </div>
+        <div class="field"><label>Requirement notes</label><textarea name="requirement_notes" placeholder="e.g. preferred hall, size, corner stall"></textarea></div>
+
+        <div class="form-grid cols-3">
+          <div class="field"><label>Stall allocated</label>
+            <select name="stall_id" id="stallBookingStallSelect"><option value="">-- none yet --</option></select>
+          </div>
+          <div class="field"><label>Billed amount (₹)</label><input name="amount" type="number" min="0" step="0.01" placeholder="0" /></div>
+          <div class="field"><label>Payment status</label>
+            <select name="payment_status">
+              <option value="pending">Pending</option>
+              <option value="paid">Paid</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Payment mode</label><input name="payment_mode" placeholder="UPI / Bank transfer / Cash / Others" /></div>
+          <div class="field"><label>Payment date</label><input name="payment_date" type="date" /></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="stallBookingSubmitBtn">Save Enquiry</button>
+        <button type="button" class="btn outline" id="stallBookingCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>All enquiries &amp; bookings</span>
+      <button class="btn small" onclick="downloadStallBookingsListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Company</th><th>Contact</th><th>Status</th><th>Stall</th><th>Amount (₹)</th><th>Payment</th><th></th></tr></thead>
+        <tbody id="stallBookingTableBody"></tbody>
       </table>
     </div>
   </section>
