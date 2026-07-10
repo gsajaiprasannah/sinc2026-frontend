@@ -478,6 +478,20 @@ async function loadHostMe() {
       navBtnLeadership.style.display = 'none';
     }
   }
+
+  // Approvals — only for the specific office-bearer roles the Finance
+  // module can ever route a payment/purchase to (a subset of all leadership
+  // roles — e.g. a Vice President never gets asked to approve anything).
+  const FINANCE_APPROVER_ROLES = ['President', 'Secretary', 'Treasurer', 'Congress Chairman', 'Congress Treasurer'];
+  const navBtnApprovals = document.getElementById('navBtnApprovals');
+  if (navBtnApprovals) {
+    if (data.profile && FINANCE_APPROVER_ROLES.includes(data.profile.leadership_role)) {
+      navBtnApprovals.style.display = '';
+      loadFinanceApprovals();
+    } else {
+      navBtnApprovals.style.display = 'none';
+    }
+  }
 }
 
 function renderHostProfile(p) {
@@ -1498,6 +1512,84 @@ window.markAnnouncementRead = async (messageId) => {
 window.markAnnouncementActionDone = async (messageId) => {
   try { await jput(`${API}/messages/${messageId}/action-done`, {}); toast('Marked done'); refreshAnnouncements(); }
   catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
+
+// ================= FINANCE APPROVALS =================
+// For the small set of office-bearers the Finance module can route a
+// payment/purchase request to (President, Secretary, Treasurer, Congress
+// Chairman, Congress Treasurer) — a plain payment needs all five, a goodies
+// purchase needs just President+Treasurer, but either way this person only
+// ever sees requests waiting on THEIR OWN role. See GET
+// /api/host/finance/approvals and POST .../approvals/:id/decide.
+async function loadFinanceApprovals() {
+  let pendingData, historyData;
+  try {
+    pendingData = await jget(`${API}/host/finance/approvals`);
+  } catch (err) {
+    if (err instanceof UnauthorizedError) return;
+    const el = document.getElementById('approvalsPendingList');
+    if (el) el.innerHTML = `<p class="hint" style="color:var(--red);">${err.message}</p>`;
+    return;
+  }
+  try {
+    historyData = await jget(`${API}/host/finance/approvals/history`);
+  } catch (err) {
+    historyData = [];
+  }
+  renderFinanceApprovals(pendingData, historyData);
+}
+
+function financeApprovalRowSummary(r) {
+  if (r.subtype === 'purchase') {
+    return `<strong>${r.purchase_item_name}</strong> — ${r.purchase_quantity} ${r.purchase_unit || ''} × ₹${Number(r.purchase_unit_cost || 0).toLocaleString('en-IN')} = ₹${Number(r.amount || 0).toLocaleString('en-IN')}${r.payee_or_payer ? ' from ' + r.payee_or_payer : ''}`;
+  }
+  return `<strong>₹${Number(r.amount || 0).toLocaleString('en-IN')}</strong> to ${r.payee_or_payer}${r.category ? ' (' + r.category + ')' : ''}`;
+}
+
+function renderFinanceApprovals(pendingData, historyRows) {
+  const roleHint = document.getElementById('approvalsRoleHint');
+  if (roleHint) roleHint.textContent = `Viewing as: ${pendingData.role || 'Approver'}.`;
+
+  const pending = pendingData.pending || [];
+  const badge = document.getElementById('approvalsBadge');
+  if (badge) {
+    if (pending.length) { badge.textContent = pending.length; badge.style.display = ''; }
+    else { badge.style.display = 'none'; }
+  }
+
+  document.getElementById('approvalsPendingList').innerHTML = pending.length ? pending.map((r) => `
+    <div class="card" style="margin-bottom:10px;">
+      <p style="margin:0 0 4px;">${financeApprovalRowSummary(r)}</p>
+      ${r.description ? `<p class="hint" style="margin:0 0 8px;">${r.description}</p>` : ''}
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn small" onclick="decideFinanceApproval(${r.approval_id}, 'approved')">Approve</button>
+        <button type="button" class="btn small outline" onclick="decideFinanceApproval(${r.approval_id}, 'rejected')">Reject</button>
+      </div>
+    </div>
+  `).join('') : '<p class="hint">Nothing waiting on your approval right now.</p>';
+
+  document.getElementById('approvalsHistoryList').innerHTML = (historyRows || []).length ? historyRows.map((r) => `
+    <p class="hint" style="margin:0 0 6px;">
+      <span class="pill ${r.my_status}">${r.my_status}</span>
+      ${financeApprovalRowSummary(r)}
+      ${r.decided_at ? ' — ' + new Date(r.decided_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+      ${r.remarks ? ' · "' + r.remarks + '"' : ''}
+    </p>
+  `).join('') : '<p class="hint">No decisions yet.</p>';
+}
+
+window.decideFinanceApproval = async (approvalId, decision) => {
+  let remarks = '';
+  if (decision === 'rejected') {
+    remarks = prompt('Optional: reason for rejecting (visible to admins):', '') || '';
+  }
+  try {
+    await jpost(`${API}/host/finance/approvals/${approvalId}/decide`, { decision, remarks });
+    toast(decision === 'approved' ? 'Approved' : 'Rejected');
+    loadFinanceApprovals();
+  } catch (err) {
+    if (!(err instanceof UnauthorizedError)) toast(err.message);
+  }
 };
 
 // ================= BOOT =================

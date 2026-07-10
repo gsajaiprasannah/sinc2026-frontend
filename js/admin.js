@@ -5502,7 +5502,334 @@ function loadAllData() {
   refreshStalls();
   refreshStallBookings();
   refreshPerformerGroups();
+  refreshFinanceSummary();
+  refreshFinanceInward();
+  refreshFinanceOutward();
+  refreshFinancePurchases();
   if (CURRENT_USER && CURRENT_USER.role === 'super_admin') refreshUsersAdmin();
 }
+
+// ============================================================
+// --- Finance module: inward/outward tracking + approvals ---
+// ============================================================
+// Outward payments/purchases carry an `approvals` array (from the server's
+// JSON-aggregated subquery) — one entry per required role, each already
+// including who's currently assigned to that role (or null if nobody is
+// tagged with it yet, which would leave that slot stuck forever until an
+// admin fixes the Host Members leadership_role tagging).
+function financeApprovalChipsHtml(approvals) {
+  return (approvals || []).map((a) => {
+    if (a.status === 'approved') return `<span class="approval-chip approved">✓ ${a.required_role}${a.approved_by ? ' — ' + a.approved_by : ''}</span>`;
+    if (a.status === 'rejected') return `<span class="approval-chip rejected">✗ ${a.required_role}${a.approved_by ? ' — ' + a.approved_by : ''}</span>`;
+    if (!a.assigned_to) return `<span class="approval-chip unassigned">${a.required_role}: nobody assigned</span>`;
+    return `<span class="approval-chip pending">${a.required_role}: pending (${a.assigned_to})</span>`;
+  }).join(' ');
+}
+const FINANCE_STATUS_LABEL = {
+  recorded: 'Recorded', pending_approval: 'Pending Approval', approved: 'Approved', rejected: 'Rejected', paid: 'Paid'
+};
+
+async function refreshFinanceSummary() {
+  try {
+    const s = await jget(`${API}/finance/summary`);
+    document.getElementById('finTotalInward').textContent = '₹' + Number(s.total_inward).toLocaleString('en-IN');
+    document.getElementById('finTotalOutwardPaid').textContent = '₹' + Number(s.total_outward_paid).toLocaleString('en-IN');
+    document.getElementById('finNetBalance').textContent = '₹' + Number(s.net_balance).toLocaleString('en-IN');
+    document.getElementById('finPendingApprovalCount').textContent = s.pending_approval_count;
+    document.getElementById('finPendingApprovalAmount').textContent = '₹' + Number(s.pending_approval_amount).toLocaleString('en-IN');
+    document.getElementById('finApprovedAwaitingCount').textContent = s.approved_awaiting_payment_count;
+  } catch (err) { toast(err.message); }
+}
+
+// --- Inward ledger ---
+const FINANCE_SOURCE_LABEL = {
+  registration: 'Registration', host_member: 'Host Member', stall_booking: 'Stall Booking',
+  pre_tour: 'Pre-Tour', manual: 'Manual entry'
+};
+async function refreshFinanceInward() {
+  try {
+    const rows = await jget(`${API}/finance/inward`);
+    document.getElementById('finInwardTableBody').innerHTML = rows.map((r) => `
+      <tr>
+        <td>${r.transaction_date ? new Date(r.transaction_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</td>
+        <td>${FINANCE_SOURCE_LABEL[r.source] || r.source}</td>
+        <td>${r.category || '-'}</td>
+        <td>${r.reference || '-'}</td>
+        <td>${Number(r.amount || 0).toLocaleString('en-IN')}</td>
+        <td>${r.payment_mode || '-'}</td>
+        <td class="sticky-actions">
+          ${r.source === 'manual' ? `
+            <button class="btn small" onclick="editFinanceInward(${r.source_id})">Update</button>
+            ${canDelete() ? `<button class="btn danger small" onclick="deleteFinanceInward(${r.source_id})">Delete</button>` : ''}
+          ` : ''}
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" class="empty">No inward transactions yet</td></tr>';
+  } catch (err) { toast(err.message); }
+}
+window.deleteFinanceInward = async (id) => {
+  try { await jdel(`${API}/finance/inward/${id}`); toast('Entry removed'); refreshFinanceInward(); refreshFinanceSummary(); }
+  catch (err) { toast(err.message); }
+};
+const FINANCE_INWARD_FORM_FIELDS = ['category', 'payee_or_payer', 'amount', 'transaction_date', 'payment_mode', 'description', 'notes'];
+window.editFinanceInward = async (id) => {
+  const rows = await jget(`${API}/finance/inward`);
+  const r = rows.find((x) => x.source === 'manual' && x.source_id === id);
+  if (!r) return;
+  const form = document.getElementById('finInwardForm');
+  form.elements.category.value = r.category || '';
+  form.elements.payee_or_payer.value = r.reference || '';
+  form.elements.amount.value = r.amount || '';
+  form.elements.transaction_date.value = r.transaction_date ? String(r.transaction_date).slice(0, 10) : '';
+  form.elements.payment_mode.value = r.payment_mode || '';
+  form.elements.notes.value = r.notes || '';
+  form.dataset.editId = id;
+  document.getElementById('finInwardFormTitle').textContent = 'Update manual inward entry';
+  document.getElementById('finInwardSubmitBtn').textContent = 'Update Entry';
+  document.getElementById('finInwardCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('finInwardCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('finInwardForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('finInwardFormTitle').textContent = 'Add manual inward entry';
+  document.getElementById('finInwardSubmitBtn').textContent = 'Save Entry';
+  document.getElementById('finInwardCancelEditBtn').style.display = 'none';
+});
+document.getElementById('finInwardForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/finance/inward/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('finInwardFormTitle').textContent = 'Add manual inward entry';
+      document.getElementById('finInwardSubmitBtn').textContent = 'Save Entry';
+      document.getElementById('finInwardCancelEditBtn').style.display = 'none';
+      toast('Entry updated');
+    } else {
+      await jpost(`${API}/finance/inward`, body);
+      form.reset();
+      toast('Entry saved');
+    }
+    refreshFinanceInward();
+    refreshFinanceSummary();
+  } catch (err) { toast(err.message); }
+});
+window.downloadFinanceInwardListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/finance/inward`);
+    await downloadListReportPdf('Inward Ledger', `${rows.length} transaction(s)`, [
+      { label: 'Date', width: 65, get: (r) => r.transaction_date ? String(r.transaction_date).slice(0, 10) : '-' },
+      { label: 'Source', width: 80, get: (r) => FINANCE_SOURCE_LABEL[r.source] || r.source },
+      { label: 'Category', width: 90, get: (r) => r.category },
+      { label: 'From', width: 130, get: (r) => r.reference },
+      { label: 'Amount (₹)', width: 70, get: (r) => Number(r.amount || 0).toLocaleString('en-IN'), align: 'right' },
+      { label: 'Mode', width: 70, get: (r) => r.payment_mode },
+    ], rows, 'finance-inward.pdf');
+  } catch (err) { toast(err.message); }
+};
+
+// --- Outward: plain payments ---
+async function refreshFinanceOutward() {
+  try {
+    const rows = await jget(`${API}/finance/outward?subtype=payment`);
+    document.getElementById('finOutwardTableBody').innerHTML = rows.map((r) => `
+      <tr>
+        <td><strong>${r.payee_or_payer}</strong>${r.description ? '<div class="hint">' + r.description + '</div>' : ''}</td>
+        <td>${r.category || '-'}</td>
+        <td>${Number(r.amount || 0).toLocaleString('en-IN')}</td>
+        <td><span class="pill ${r.status}">${FINANCE_STATUS_LABEL[r.status] || r.status}</span></td>
+        <td>${financeApprovalChipsHtml(r.approvals)}</td>
+        <td class="sticky-actions">
+          ${r.status === 'pending_approval' ? `<button class="btn small" onclick="editFinanceOutward(${r.id})">Update</button>` : ''}
+          ${r.status === 'approved' ? `<button class="btn small" onclick="markFinanceOutwardPaid(${r.id})">Mark Paid</button>` : ''}
+          <button class="btn small" onclick="downloadFinanceOutwardVoucherPdf(${r.id})">Voucher</button>
+          ${canDelete() && r.status !== 'paid' ? `<button class="btn danger small" onclick="deleteFinanceOutward(${r.id})">Delete</button>` : ''}
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="6" class="empty">No payment requests yet</td></tr>';
+  } catch (err) { toast(err.message); }
+}
+window.deleteFinanceOutward = async (id) => {
+  try { await jdel(`${API}/finance/outward/${id}`); toast('Request removed'); refreshFinanceOutward(); refreshFinanceSummary(); }
+  catch (err) { toast(err.message); }
+};
+window.markFinanceOutwardPaid = async (id) => {
+  const payment_mode = prompt('Payment mode (UPI / Bank transfer / Cash / Others):', '');
+  if (payment_mode === null) return;
+  try {
+    await jpost(`${API}/finance/outward/${id}/mark-paid`, { payment_mode });
+    toast('Marked as paid');
+    refreshFinanceOutward();
+    refreshFinancePurchases();
+    refreshFinanceSummary();
+  } catch (err) { toast(err.message); }
+};
+const FINANCE_OUTWARD_FORM_FIELDS = ['category', 'payee_or_payer', 'amount', 'transaction_date', 'payment_mode', 'description', 'notes'];
+window.editFinanceOutward = async (id) => {
+  const rows = await jget(`${API}/finance/outward?subtype=payment`);
+  const r = rows.find((x) => x.id === id);
+  if (!r) return;
+  const form = document.getElementById('finOutwardForm');
+  FINANCE_OUTWARD_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = r[f] !== null && r[f] !== undefined ? String(r[f]).slice(0, f === 'transaction_date' ? 10 : undefined) : ''; });
+  form.dataset.editId = id;
+  document.getElementById('finOutwardFormTitle').textContent = `Update payment request — ${r.payee_or_payer}`;
+  document.getElementById('finOutwardSubmitBtn').textContent = 'Update Request';
+  document.getElementById('finOutwardCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('finOutwardCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('finOutwardForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('finOutwardFormTitle').textContent = 'New payment request';
+  document.getElementById('finOutwardSubmitBtn').textContent = 'Save Payment Request';
+  document.getElementById('finOutwardCancelEditBtn').style.display = 'none';
+});
+document.getElementById('finOutwardForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/finance/outward/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('finOutwardFormTitle').textContent = 'New payment request';
+      document.getElementById('finOutwardSubmitBtn').textContent = 'Save Payment Request';
+      document.getElementById('finOutwardCancelEditBtn').style.display = 'none';
+      toast('Request updated');
+    } else {
+      await jpost(`${API}/finance/outward`, body);
+      form.reset();
+      toast('Payment request submitted for approval');
+    }
+    refreshFinanceOutward();
+    refreshFinanceSummary();
+  } catch (err) { toast(err.message); }
+});
+window.downloadFinanceOutwardListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/finance/outward?subtype=payment`);
+    await downloadListReportPdf('Outward Payments', `${rows.length} request(s)`, [
+      { label: 'Payee', width: 120, get: (r) => r.payee_or_payer },
+      { label: 'Category', width: 90, get: (r) => r.category },
+      { label: 'Amount (₹)', width: 70, get: (r) => Number(r.amount || 0).toLocaleString('en-IN'), align: 'right' },
+      { label: 'Status', width: 90, get: (r) => FINANCE_STATUS_LABEL[r.status] || r.status },
+      { label: 'Date', width: 65, get: (r) => r.transaction_date ? String(r.transaction_date).slice(0, 10) : '-' },
+    ], rows, 'finance-outward-payments.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadFinanceOutwardVoucherPdf = async (id) => {
+  try {
+    const r = await jget(`${API}/finance/outward/${id}`);
+    const receiptNo = `PV-${String(r.id).padStart(6, '0')}`;
+    await downloadDetailPdf(
+      r.subtype === 'purchase' ? 'Purchase Voucher' : 'Payment Voucher',
+      `Voucher No. ${receiptNo}  ·  Issued ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+      [
+        {
+          label: 'Details', pairs: r.subtype === 'purchase' ? [
+            ['Item', r.purchase_item_name], ['Category', r.purchase_category],
+            ['Quantity', `${r.purchase_quantity} ${r.purchase_unit || ''}`],
+            ['Unit Cost (₹)', Number(r.purchase_unit_cost || 0).toLocaleString('en-IN')],
+            ['Vendor', r.payee_or_payer], ['Amount (₹)', Number(r.amount || 0).toLocaleString('en-IN')],
+            ['Status', FINANCE_STATUS_LABEL[r.status] || r.status],
+            ['Date', r.transaction_date ? String(r.transaction_date).slice(0, 10) : '-']
+          ] : [
+            ['Payee', r.payee_or_payer], ['Category', r.category],
+            ['Amount (₹)', Number(r.amount || 0).toLocaleString('en-IN')],
+            ['Status', FINANCE_STATUS_LABEL[r.status] || r.status],
+            ['Payment Mode', r.payment_mode], ['Date', r.transaction_date ? String(r.transaction_date).slice(0, 10) : '-'],
+            ['Description', r.description]
+          ]
+        },
+        { label: 'Approvals', table: { columns: [
+          { label: 'Role', width: 150 }, { label: 'Status', width: 90 }, { label: 'By', width: 130 }, { label: 'Remarks', width: 130 }
+        ], rows: (r.approvals || []).map((a) => [a.required_role, a.status, a.approved_by || '-', a.remarks || '-']) } }
+      ],
+      `${r.subtype || 'payment'}-${receiptNo}.pdf`
+    );
+  } catch (err) { toast(err.message); }
+};
+
+// --- Outward: purchase requests (goodies/inventory procurement) ---
+async function refreshFinancePurchases() {
+  try {
+    const rows = await jget(`${API}/finance/outward?subtype=purchase`);
+    document.getElementById('finPurchaseTableBody').innerHTML = rows.map((r) => `
+      <tr>
+        <td><strong>${r.purchase_item_name}</strong>${r.purchase_category ? '<div class="hint">' + r.purchase_category + '</div>' : ''}</td>
+        <td>${r.purchase_quantity} ${r.purchase_unit || ''} × ₹${Number(r.purchase_unit_cost || 0).toLocaleString('en-IN')}</td>
+        <td>${Number(r.amount || 0).toLocaleString('en-IN')}</td>
+        <td><span class="pill ${r.status}">${FINANCE_STATUS_LABEL[r.status] || r.status}</span></td>
+        <td>${financeApprovalChipsHtml(r.approvals)}</td>
+        <td>${r.inventory_item_id ? `Linked (item #${r.inventory_item_id})` : '-'}</td>
+        <td class="sticky-actions">
+          ${r.status === 'pending_approval' ? `<button class="btn small" onclick="editFinancePurchase(${r.id})">Update</button>` : ''}
+          ${r.status === 'approved' ? `<button class="btn small" onclick="markFinanceOutwardPaid(${r.id})">Mark Paid</button>` : ''}
+          <button class="btn small" onclick="downloadFinanceOutwardVoucherPdf(${r.id})">Voucher</button>
+          ${canDelete() && r.status !== 'paid' ? `<button class="btn danger small" onclick="deleteFinanceOutward(${r.id})">Delete</button>` : ''}
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" class="empty">No purchase requests yet</td></tr>';
+  } catch (err) { toast(err.message); }
+}
+const FINANCE_PURCHASE_FORM_FIELDS = ['purchase_item_name', 'purchase_category', 'purchase_unit', 'purchase_quantity', 'purchase_unit_cost', 'payee_or_payer', 'transaction_date', 'description', 'notes'];
+window.editFinancePurchase = async (id) => {
+  const rows = await jget(`${API}/finance/outward?subtype=purchase`);
+  const r = rows.find((x) => x.id === id);
+  if (!r) return;
+  const form = document.getElementById('finPurchaseForm');
+  FINANCE_PURCHASE_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = r[f] !== null && r[f] !== undefined ? String(r[f]).slice(0, f === 'transaction_date' ? 10 : undefined) : ''; });
+  form.dataset.editId = id;
+  document.getElementById('finPurchaseFormTitle').textContent = `Update purchase request — ${r.purchase_item_name}`;
+  document.getElementById('finPurchaseSubmitBtn').textContent = 'Update Request';
+  document.getElementById('finPurchaseCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('finPurchaseCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('finPurchaseForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('finPurchaseFormTitle').textContent = 'New purchase request';
+  document.getElementById('finPurchaseSubmitBtn').textContent = 'Save Purchase Request';
+  document.getElementById('finPurchaseCancelEditBtn').style.display = 'none';
+});
+document.getElementById('finPurchaseForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/finance/outward/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('finPurchaseFormTitle').textContent = 'New purchase request';
+      document.getElementById('finPurchaseSubmitBtn').textContent = 'Save Purchase Request';
+      document.getElementById('finPurchaseCancelEditBtn').style.display = 'none';
+      toast('Request updated');
+    } else {
+      await jpost(`${API}/finance/purchases`, body);
+      form.reset();
+      toast('Purchase request submitted for approval');
+    }
+    refreshFinancePurchases();
+    refreshFinanceSummary();
+  } catch (err) { toast(err.message); }
+});
+window.downloadFinancePurchasesListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/finance/outward?subtype=purchase`);
+    await downloadListReportPdf('Purchase Requests', `${rows.length} request(s)`, [
+      { label: 'Item', width: 120, get: (r) => r.purchase_item_name },
+      { label: 'Category', width: 80, get: (r) => r.purchase_category },
+      { label: 'Qty', width: 40, get: (r) => r.purchase_quantity, align: 'right' },
+      { label: 'Amount (₹)', width: 70, get: (r) => Number(r.amount || 0).toLocaleString('en-IN'), align: 'right' },
+      { label: 'Status', width: 90, get: (r) => FINANCE_STATUS_LABEL[r.status] || r.status },
+    ], rows, 'finance-purchase-requests.pdf');
+  } catch (err) { toast(err.message); }
+};
 
 tryResumeSession();
