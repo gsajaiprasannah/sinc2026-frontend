@@ -5777,15 +5777,29 @@ async function refreshFinanceOutward() {
           ${r.status === 'pending_approval' ? `<button class="btn small" onclick="editFinanceOutward(${r.id})">Update</button>` : ''}
           ${r.status === 'approved' ? `<button class="btn small" onclick="markFinanceOutwardPaid(${r.id})">Mark Paid</button>` : ''}
           <button class="btn small" onclick="downloadFinanceOutwardVoucherPdf(${r.id})">Voucher</button>
-          ${canDelete() && r.status !== 'paid' ? `<button class="btn danger small" onclick="deleteFinanceOutward(${r.id})">Delete</button>` : ''}
+          ${canDelete() ? `<button class="btn danger small" onclick="deleteFinanceOutward(${r.id}, '${r.status}')">Delete</button>` : ''}
         </td>
       </tr>
     `).join('') || '<tr><td colspan="6" class="empty">No payment requests yet</td></tr>';
   } catch (err) { toast(err.message); }
 }
-window.deleteFinanceOutward = async (id) => {
-  try { await jdel(`${API}/finance/outward/${id}`); toast('Request removed'); refreshFinanceOutward(); refreshFinanceSummary(); }
-  catch (err) { toast(err.message); }
+// Deleting a request that's already fully paid is a permanent removal from
+// the financial record (super_admin only, per the global DELETE gate) — so
+// it gets its own, much stronger confirmation before we ever send
+// ?confirm=true to the backend. Non-paid requests keep the lighter prompt.
+window.deleteFinanceOutward = async (id, status) => {
+  const isPaid = status === 'paid';
+  const warning = isPaid
+    ? 'This request is already marked PAID and is part of your financial record.\n\nDeleting it is PERMANENT, cannot be undone, and will remove it from all totals/reports.\n\nType-check with yourself: are you sure you want to permanently delete this paid transaction?'
+    : 'Delete this payment request?';
+  if (!confirm(warning)) return;
+  try {
+    await jdel(`${API}/finance/outward/${id}${isPaid ? '?confirm=true' : ''}`);
+    toast('Request removed');
+    refreshFinanceOutward();
+    refreshFinancePurchases();
+    refreshFinanceSummary();
+  } catch (err) { toast(err.message); }
 };
 window.markFinanceOutwardPaid = async (id) => {
   const payment_mode = prompt('Payment mode (UPI / Bank transfer / Cash / Others):', '');
@@ -5901,7 +5915,7 @@ async function refreshFinancePurchases() {
           ${r.status === 'pending_approval' ? `<button class="btn small" onclick="editFinancePurchase(${r.id})">Update</button>` : ''}
           ${r.status === 'approved' ? `<button class="btn small" onclick="markFinanceOutwardPaid(${r.id})">Mark Paid</button>` : ''}
           <button class="btn small" onclick="downloadFinanceOutwardVoucherPdf(${r.id})">Voucher</button>
-          ${canDelete() && r.status !== 'paid' ? `<button class="btn danger small" onclick="deleteFinanceOutward(${r.id})">Delete</button>` : ''}
+          ${canDelete() ? `<button class="btn danger small" onclick="deleteFinanceOutward(${r.id}, '${r.status}')">Delete</button>` : ''}
         </td>
       </tr>
     `).join('') || '<tr><td colspan="7" class="empty">No purchase requests yet</td></tr>';
