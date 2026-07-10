@@ -1576,6 +1576,38 @@
   <!-- STALLS: HALLS & STALLS TAB -->
   <section class="tab-panel" id="tab-stallhalls">
     <p class="hint" style="margin-top:0;">Halls and stall counts aren't finalized yet — add halls and generate/edit their stalls here as the venue plan firms up. Stall pricing can vary per stall (e.g. corner vs. regular).</p>
+
+    <div class="section-title" style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+      <span>All Exhibitors</span>
+      <button class="btn small" onclick="downloadExhibitorsListPdf()">Download PDF</button>
+    </div>
+    <div class="card table-scroll">
+      <p class="hint" style="margin-top:0;">Every company that has enquired for a stall, across every status — this is the master exhibitor list. To edit an entry or move it through Enquiry → Billed → Allocated, use Enquiries &amp; Bookings.</p>
+      <div class="form-grid cols-3">
+        <div class="field"><label>Status</label>
+          <select id="exhibitorFilterStatus">
+            <option value="">All statuses</option>
+            <option value="enquiry">Enquiry</option>
+            <option value="billed">Billed</option>
+            <option value="allocated">Allocated</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="field"><label>Payment</label>
+          <select id="exhibitorFilterPayment">
+            <option value="">All</option>
+            <option value="paid">Paid</option>
+            <option value="pending">Pending</option>
+          </select>
+        </div>
+        <div class="field"><label>Search</label><input id="exhibitorSearchInput" placeholder="Company, contact, phone..." /></div>
+      </div>
+      <table>
+        <thead><tr><th>Company</th><th>Contact</th><th>Hall / Stall</th><th>Status</th><th>Payment</th><th>Amount (₹)</th></tr></thead>
+        <tbody id="exhibitorTableBody"></tbody>
+      </table>
+    </div>
+
     <div class="two-col">
       <div class="card">
         <div class="section-title" style="margin-top:0" id="stallHallFormTitle">Add hall</div>
@@ -2026,6 +2058,21 @@
       <button type="button" class="modal-close" onclick="closeInventoryDistModal()">&times;</button>
     </div>
     <div id="inventoryDistModalBody"></div>
+  </div>
+</div>
+
+<!-- Manage one PERSON's goodies/kit items — the mirror image of -->
+<!-- inventoryDistModal (which is per-item). Opened from the "Goodies" -->
+<!-- button on Delegates/Host Members so the distribution team can see and -->
+<!-- mark delivered everything assigned to that one person in one place, -->
+<!-- without hunting through the whole Goodies & Inventory stock list. -->
+<div class="modal-overlay" id="goodiesModal" style="display:none;" onclick="if(event.target===this) closeGoodiesModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="section-title" style="margin:0;" id="goodiesModalTitle">Goodies</div>
+      <button type="button" class="modal-close" onclick="closeGoodiesModal()">&times;</button>
+    </div>
+    <div id="goodiesModalBody"></div>
   </div>
 </div>
 
