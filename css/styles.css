@@ -531,6 +531,11 @@ tr:nth-child(even) .sticky-col-left { background: #fff; }
 .pill.overdue { background: #fdeaea; color: var(--red); font-weight: 800; }
 .pill.lead { background: var(--gold-2, #fdf3d8); color: #8a6a00; }
 .pill.verified { background: #e3f7f8; color: #0f7a6a; font-weight: 800; }
+.pill.enquiry { background: #eef1f5; color: #55606e; }
+.pill.billed { background: #fdf8e0; color: #a6900a; }
+.pill.allocated { background: #e3f7f8; color: #1f9a86; }
+.pill.cancelled { background: #fdeaea; color: var(--red); }
+.pill.available { background: #eafbea; color: #1f8a3d; }
 .module-checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px 16px; margin: 8px 0 12px; }
 .module-checkbox-grid label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--text); cursor: pointer; }
 .module-checkbox-grid input[type="checkbox"] {
