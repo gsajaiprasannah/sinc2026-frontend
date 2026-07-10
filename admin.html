@@ -457,6 +457,88 @@
         <tbody id="itinTableBody"></tbody>
       </table>
     </div>
+
+    <div class="section-title">Agenda builder</div>
+    <p class="hint" style="margin-top:0;">Within a congress itinerary slot, build out its detailed flow of events (Prayer Song, National Anthem, dance performances, etc.) with a description, who organised it, and who's performing — admin-only, not shown on the public site.</p>
+    <div class="card">
+      <div class="field"><label>Itinerary slot</label>
+        <select id="agendaSlotSelect"><option value="">-- select an itinerary slot --</option></select>
+      </div>
+    </div>
+    <div class="card" id="agendaFormCard" style="display:none;">
+      <div class="section-title" style="margin-top:0" id="agendaFormTitle">Add agenda event</div>
+      <form id="agendaForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Time</label><input name="time_label" placeholder="e.g. 9:05 AM" /></div>
+          <div class="field"><label>Event title *</label><input name="title" required placeholder="e.g. Prayer Song" /></div>
+          <div class="field"><label>Duration (minutes)</label><input name="duration_minutes" type="number" min="0" placeholder="optional" /></div>
+        </div>
+        <div class="field"><label>Description</label><textarea name="description" placeholder="What this event is about"></textarea></div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Organizing committee</label><select name="organizing_committee_id" id="agendaCommitteeSelect"></select></div>
+          <div class="field"><label>Organized by (additional detail)</label><input name="organized_by" placeholder="e.g. external agency, individual" /></div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Performing group</label><select name="performer_group_id" id="agendaPerformerSelect"></select></div>
+          <div class="field"><label>Performed by (additional detail)</label><input name="performed_by" placeholder="e.g. individual name, if not a group" /></div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="0" /></div>
+          <div class="field"><label>Notes</label><input name="notes" /></div>
+        </div>
+        <button class="btn gold" type="submit" id="agendaSubmitBtn">Save Event</button>
+        <button type="button" class="btn outline" id="agendaCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="card table-scroll" id="agendaTableCard" style="display:none;">
+      <div class="section-title" style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+        <span>Events in this slot</span>
+        <button class="btn small" onclick="downloadAgendaPdf()">Download Agenda PDF</button>
+      </div>
+      <table>
+        <thead><tr><th>Time</th><th>Event</th><th>Description</th><th>Organized by</th><th>Performed by</th><th></th></tr></thead>
+        <tbody id="agendaTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Performer / vendor groups</span>
+      <button class="btn small" onclick="downloadPerformerGroupsListPdf()">Download PDF</button>
+    </div>
+    <p class="hint" style="margin-top:0;">Groups hired to perform in the program, and tracking their fee/payment.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="performerFormTitle">Add performer / vendor group</div>
+      <form id="performerForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Group / vendor name *</label><input name="name" required /></div>
+          <div class="field"><label>Category</label><input name="category" placeholder="e.g. Dance, Music, Anchor, Choir" /></div>
+          <div class="field"><label>Contact person</label><input name="contact_person" /></div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Fee (₹)</label><input name="fee_amount" type="number" min="0" step="0.01" placeholder="0" /></div>
+          <div class="field"><label>Payment status</label>
+            <select name="payment_status"><option value="pending">Pending</option><option value="paid">Paid</option></select>
+          </div>
+          <div class="field"><label>Payment mode</label><input name="payment_mode" placeholder="UPI / Bank transfer / Cash / Others" /></div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Payment date</label><input name="payment_date" type="date" /></div>
+          <div class="field"><label>Notes</label><input name="notes" /></div>
+        </div>
+        <button class="btn gold" type="submit" id="performerSubmitBtn">Save Group</button>
+        <button type="button" class="btn outline" id="performerCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Category</th><th>Contact</th><th>Fee (₹)</th><th>Payment</th><th>Agenda events</th><th></th></tr></thead>
+        <tbody id="performerTableBody"></tbody>
+      </table>
+    </div>
   </section>
 
   <!-- HOST MEMBERS TAB -->
