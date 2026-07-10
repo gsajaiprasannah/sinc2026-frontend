@@ -4881,6 +4881,366 @@ document.getElementById('changePasswordForm').addEventListener('submit', async (
   } catch (err) { toast(err.message); }
 });
 
+// --- Stalls: enquiry -> billed -> allocated workflow -----------------------
+// Halls and stalls are simple admin-managed masters (the venue's final
+// hall/stall count isn't fixed yet); stall_bookings is the enquiry/company
+// side — always an external exhibitor, never a host member.
+const STALL_STATUS_LABEL = { enquiry: 'Enquiry', billed: 'Billed', allocated: 'Allocated', cancelled: 'Cancelled' };
+
+// --- Halls ---
+async function refreshStallHalls() {
+  const rows = await jget(`${API}/stall-halls`);
+  document.getElementById('stallHallTableBody').innerHTML = rows.map((h) => `
+    <tr>
+      <td><strong>${h.name}</strong>${h.notes ? '<div class="hint">' + h.notes + '</div>' : ''}</td>
+      <td>${h.capacity != null ? h.capacity : '-'}</td>
+      <td>${h.stall_count}</td>
+      <td>${h.available_count}</td>
+      <td>${h.allocated_count}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editStallHall(${h.id})">Update</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteStallHall(${h.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">No halls yet</td></tr>';
+
+  const opts = rows.map((h) => `<option value="${h.id}">${h.name}</option>`).join('');
+  ['stallGenerateHallSelect', 'stallHallSelect'].forEach((id) => {
+    const sel = document.getElementById(id);
+    if (sel) sel.innerHTML = '<option value="">-- select hall --</option>' + opts;
+  });
+  const filterSel = document.getElementById('stallFilterHall');
+  if (filterSel) filterSel.innerHTML = '<option value="">All halls</option>' + opts;
+}
+window.deleteStallHall = async (id) => {
+  try { await jdel(`${API}/stall-halls/${id}`); toast('Hall removed'); refreshStallHalls(); refreshStalls(); }
+  catch (err) { toast(err.message); }
+};
+const STALL_HALL_FORM_FIELDS = ['name', 'capacity', 'notes'];
+window.editStallHall = async (id) => {
+  const rows = await jget(`${API}/stall-halls`);
+  const h = rows.find((r) => r.id === id);
+  if (!h) return;
+  const form = document.getElementById('stallHallForm');
+  STALL_HALL_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = h[f] !== null && h[f] !== undefined ? h[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('stallHallFormTitle').textContent = 'Update hall';
+  document.getElementById('stallHallSubmitBtn').textContent = 'Update Hall';
+  document.getElementById('stallHallCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('stallHallCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('stallHallForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('stallHallFormTitle').textContent = 'Add hall';
+  document.getElementById('stallHallSubmitBtn').textContent = 'Save Hall';
+  document.getElementById('stallHallCancelEditBtn').style.display = 'none';
+});
+document.getElementById('stallHallForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/stall-halls/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('stallHallFormTitle').textContent = 'Add hall';
+      document.getElementById('stallHallSubmitBtn').textContent = 'Save Hall';
+      document.getElementById('stallHallCancelEditBtn').style.display = 'none';
+      toast('Hall updated');
+    } else {
+      await jpost(`${API}/stall-halls`, body);
+      form.reset();
+      toast('Hall saved');
+    }
+    refreshStallHalls();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Stalls (per hall) ---
+async function refreshStalls() {
+  const hallId = document.getElementById('stallFilterHall')?.value || '';
+  const status = document.getElementById('stallFilterStatus')?.value || '';
+  const params = new URLSearchParams();
+  if (hallId) params.set('hall_id', hallId);
+  if (status) params.set('status', status);
+  const qs = params.toString();
+  const rows = await jget(`${API}/stalls${qs ? '?' + qs : ''}`);
+  document.getElementById('stallTableBody').innerHTML = rows.map((s) => `
+    <tr>
+      <td>${s.hall_name}</td>
+      <td><strong>${s.stall_number}</strong></td>
+      <td>${s.size || '-'}</td>
+      <td>${Number(s.price || 0).toLocaleString('en-IN')}</td>
+      <td><span class="pill ${s.status}">${s.status === 'allocated' ? 'Allocated' : 'Available'}</span></td>
+      <td>${s.booked_company_name || '-'}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editStall(${s.id})">Update</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteStall(${s.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No stalls yet</td></tr>';
+
+  // Refresh the stall picker on the Enquiries & Bookings form too, so a
+  // newly generated/edited stall shows up there without a manual reload.
+  refreshStallBookingStallOptions();
+}
+window.deleteStall = async (id) => {
+  try { await jdel(`${API}/stalls/${id}`); toast('Stall removed'); refreshStalls(); refreshStallHalls(); }
+  catch (err) { toast(err.message); }
+};
+const STALL_FORM_FIELDS = ['hall_id', 'stall_number', 'size', 'price', 'notes'];
+window.editStall = async (id) => {
+  const rows = await jget(`${API}/stalls`);
+  const s = rows.find((r) => r.id === id);
+  if (!s) return;
+  const form = document.getElementById('stallForm');
+  STALL_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = s[f] !== null && s[f] !== undefined ? s[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('stallFormTitle').textContent = 'Update stall';
+  document.getElementById('stallSubmitBtn').textContent = 'Update Stall';
+  document.getElementById('stallCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('stallCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('stallForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('stallFormTitle').textContent = 'Add a single stall';
+  document.getElementById('stallSubmitBtn').textContent = 'Save Stall';
+  document.getElementById('stallCancelEditBtn').style.display = 'none';
+});
+document.getElementById('stallForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/stalls/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('stallFormTitle').textContent = 'Add a single stall';
+      document.getElementById('stallSubmitBtn').textContent = 'Save Stall';
+      document.getElementById('stallCancelEditBtn').style.display = 'none';
+      toast('Stall updated');
+    } else {
+      await jpost(`${API}/stalls`, body);
+      form.reset();
+      toast('Stall saved');
+    }
+    refreshStalls();
+    refreshStallHalls();
+  } catch (err) { toast(err.message); }
+});
+document.getElementById('stallGenerateForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    const res = await jpost(`${API}/stalls/generate`, body);
+    toast(`Generated ${res.created} stall(s)${res.skipped ? `, ${res.skipped} already existed` : ''}`);
+    form.reset();
+    refreshStalls();
+    refreshStallHalls();
+  } catch (err) { toast(err.message); }
+});
+document.getElementById('stallFilterHall').addEventListener('change', refreshStalls);
+document.getElementById('stallFilterStatus').addEventListener('change', refreshStalls);
+
+// --- Stall Bookings (enquiry -> billed -> allocated) ---
+// The stall picker only ever offers stalls that are available OR are the
+// booking currently being edited's own stall — so admins can't accidentally
+// pick a stall someone else already holds.
+async function refreshStallBookingStallOptions(selectedStallId) {
+  const sel = document.getElementById('stallBookingStallSelect');
+  if (!sel) return;
+  const rows = await jget(`${API}/stalls`);
+  const usable = rows.filter((s) => s.status === 'available' || String(s.id) === String(selectedStallId));
+  sel.innerHTML = '<option value="">-- none yet --</option>' + usable.map((s) =>
+    `<option value="${s.id}" ${String(selectedStallId) === String(s.id) ? 'selected' : ''}>${s.hall_name} — ${s.stall_number} (₹${Number(s.price || 0).toLocaleString('en-IN')})</option>`
+  ).join('');
+}
+async function refreshStallBookings() {
+  const rows = await jget(`${API}/stall-bookings`);
+  document.getElementById('stallBookingTableBody').innerHTML = rows.map((b) => `
+    <tr>
+      <td><strong>${b.company_name}</strong>${b.gstin ? '<div class="hint">GSTIN: ' + b.gstin + '</div>' : ''}</td>
+      <td>${b.contact_person || '-'}${b.phone ? '<div class="hint">' + b.phone + '</div>' : ''}</td>
+      <td><span class="pill ${b.status}">${STALL_STATUS_LABEL[b.status] || b.status}</span></td>
+      <td>${b.stall_number ? b.hall_name + ' — ' + b.stall_number : '-'}</td>
+      <td>${Number(b.amount || 0).toLocaleString('en-IN')}</td>
+      <td><span class="pill ${b.payment_status}">${b.payment_status === 'paid' ? 'Paid' : 'Pending'}</span></td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editStallBooking(${b.id})">Update</button>
+        <button class="btn small" onclick="downloadStallBookingReceiptPdf(${b.id})">Receipt</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteStallBooking(${b.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No enquiries yet</td></tr>';
+}
+window.deleteStallBooking = async (id) => {
+  try { await jdel(`${API}/stall-bookings/${id}`); toast('Enquiry removed'); refreshStallBookings(); refreshStalls(); }
+  catch (err) { toast(err.message); }
+};
+const STALL_BOOKING_FORM_FIELDS = [
+  'company_name', 'contact_person', 'phone', 'email', 'gstin', 'requirement_notes',
+  'status', 'amount', 'payment_status', 'payment_mode', 'payment_date', 'notes'
+];
+window.editStallBooking = async (id) => {
+  const rows = await jget(`${API}/stall-bookings`);
+  const b = rows.find((r) => r.id === id);
+  if (!b) return;
+  const form = document.getElementById('stallBookingForm');
+  STALL_BOOKING_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = b[f] !== null && b[f] !== undefined ? b[f] : ''; });
+  await refreshStallBookingStallOptions(b.stall_id);
+  form.dataset.editId = id;
+  document.getElementById('stallBookingFormTitle').textContent = `Update enquiry — ${b.company_name}`;
+  document.getElementById('stallBookingSubmitBtn').textContent = 'Update Enquiry';
+  document.getElementById('stallBookingCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('stallBookingCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('stallBookingForm');
+  form.reset(); delete form.dataset.editId;
+  refreshStallBookingStallOptions();
+  document.getElementById('stallBookingFormTitle').textContent = 'New stall enquiry';
+  document.getElementById('stallBookingSubmitBtn').textContent = 'Save Enquiry';
+  document.getElementById('stallBookingCancelEditBtn').style.display = 'none';
+});
+document.getElementById('stallBookingForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/stall-bookings/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      refreshStallBookingStallOptions();
+      document.getElementById('stallBookingFormTitle').textContent = 'New stall enquiry';
+      document.getElementById('stallBookingSubmitBtn').textContent = 'Save Enquiry';
+      document.getElementById('stallBookingCancelEditBtn').style.display = 'none';
+      toast('Enquiry updated');
+    } else {
+      await jpost(`${API}/stall-bookings`, body);
+      form.reset();
+      toast('Enquiry saved');
+    }
+    refreshStallBookings();
+    refreshStalls();
+    refreshStallHalls();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Stalls PDFs: list reports + receipt ---
+window.downloadStallsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/stalls`);
+    await downloadListReportPdf('Stalls', `${rows.length} stall(s)`, [
+      { label: 'Hall', width: 110, get: (r) => r.hall_name },
+      { label: 'Stall #', width: 70, get: (r) => r.stall_number },
+      { label: 'Size', width: 80, get: (r) => r.size },
+      { label: 'Price (₹)', width: 75, get: (r) => Number(r.price || 0).toLocaleString('en-IN'), align: 'right' },
+      { label: 'Status', width: 65, get: (r) => r.status },
+      { label: 'Booked by', width: 115, get: (r) => r.booked_company_name },
+    ], rows, 'stalls.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadStallBookingsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/stall-bookings`);
+    await downloadListReportPdf('Stall Enquiries & Bookings', `${rows.length} enquir${rows.length === 1 ? 'y' : 'ies'}`, [
+      { label: 'Company', width: 130, get: (r) => r.company_name },
+      { label: 'Contact', width: 90, get: (r) => r.contact_person },
+      { label: 'Phone', width: 80, get: (r) => r.phone },
+      { label: 'Status', width: 60, get: (r) => STALL_STATUS_LABEL[r.status] || r.status },
+      { label: 'Stall', width: 80, get: (r) => r.stall_number ? `${r.hall_name} — ${r.stall_number}` : '-' },
+      { label: 'Amount (₹)', width: 60, get: (r) => Number(r.amount || 0).toLocaleString('en-IN'), align: 'right' },
+    ], rows, 'stall-bookings.pdf');
+  } catch (err) { toast(err.message); }
+};
+
+// Receipt for a stall booking's payment — same letterhead/badge/watermark
+// treatment as the delegate and host-member receipts. No natural receipt
+// number exists for a booking the way registrations have reg_number, so one
+// is synthesized as ST-<zero-padded id>, same convention as HC-<id> for host
+// members.
+function stallBookingReceiptNo(b) {
+  return `ST-${String(b.id).padStart(6, '0')}`;
+}
+async function pdfAddStallBookingReceiptBody(doc, b, firstPage) {
+  if (!firstPage) doc.addPage();
+  const receiptNo = stallBookingReceiptNo(b);
+  let y = await pdfLetterhead(doc, 'Stall Booking Receipt', `Receipt No. ${receiptNo}  ·  Issued ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`);
+
+  if (b.payment_status === 'paid') {
+    doc.setFont(undefined, 'bold'); doc.setFontSize(70);
+    doc.setTextColor(236, 243, 233);
+    doc.text('PAID', 300, 430, { align: 'center', angle: 30 });
+    doc.setTextColor(0, 0, 0);
+  }
+
+  pdfBadge(doc, PDF_CONTENT_RIGHT - 110, y - 14, b.payment_status === 'paid' ? 'PAID' : 'PAYMENT PENDING', b.payment_status === 'paid' ? 'paid' : 'neutral');
+
+  y = pdfSectionLabel(doc, y, 'Billed To');
+  y = pdfKeyValues(doc, y, [
+    ['Company', b.company_name || '-'],
+    ['Contact Person', b.contact_person || '-'],
+    ['Phone', b.phone || '-'],
+    ['GSTIN', b.gstin || '-'],
+  ]);
+
+  y = pdfSectionLabel(doc, y, 'Stall Details');
+  y = pdfKeyValues(doc, y, [
+    ['Hall', b.hall_name || '-'],
+    ['Stall Number', b.stall_number || '-'],
+    ['Status', STALL_STATUS_LABEL[b.status] || b.status],
+  ]);
+
+  y = pdfSectionLabel(doc, y, 'Payment Details');
+  y = pdfTable(doc, y, [
+    { label: 'Description', width: 355 },
+    { label: 'Amount (₹)', width: 160, align: 'right' },
+  ], [[`Exhibition Stall Booking — ${receiptNo}`, Number(b.amount || 0).toLocaleString('en-IN')]]);
+
+  y = pdfSectionLabel(doc, y + 8, 'Payment Information');
+  y = pdfKeyValues(doc, y, [
+    ['Status', b.payment_status === 'paid' ? 'PAID' : 'PAYMENT PENDING'],
+    ['Payment Mode', b.payment_mode || '-'],
+    ['Payment Date', b.payment_date ? new Date(b.payment_date).toLocaleDateString('en-IN') : '-'],
+  ]);
+
+  y = pdfMaybeNewPage(doc, y, 30);
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
+  doc.text('This receipt confirms the exhibition stall booking payment recorded in the SINC2026 system. For queries, contact the Stalls team.', PDF_MARGIN, y, { maxWidth: 515 });
+  doc.setTextColor(0, 0, 0);
+  return y;
+}
+window.downloadStallBookingReceiptPdf = async (id) => {
+  try {
+    const rows = await jget(`${API}/stall-bookings`);
+    const b = rows.find((r) => r.id === id);
+    if (!b) { toast('Booking not found'); return; }
+    const doc = pdfDoc();
+    await pdfAddStallBookingReceiptBody(doc, b, true);
+    pdfFinalize(doc);
+    doc.save(`receipt-${stallBookingReceiptNo(b)}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadAllStallBookingReceiptsPdf = async () => {
+  try {
+    const rows = await jget(`${API}/stall-bookings`);
+    if (!rows.length) { toast('No bookings to generate receipts for'); return; }
+    const doc = pdfDoc();
+    for (let i = 0; i < rows.length; i++) {
+      await pdfAddStallBookingReceiptBody(doc, rows[i], i === 0);
+    }
+    pdfFinalize(doc);
+    doc.save('all-stall-booking-receipts.pdf');
+  } catch (err) { toast(err.message); }
+};
+
 function refreshStatsDependents() { if (dashboardStarted) refreshDashboardStats(); }
 
 // --- Init ---
@@ -4921,6 +5281,9 @@ function loadAllData() {
   refreshSponsors();
   refreshSpeakers();
   refreshGuestVisitors();
+  refreshStallHalls();
+  refreshStalls();
+  refreshStallBookings();
   if (CURRENT_USER && CURRENT_USER.role === 'super_admin') refreshUsersAdmin();
 }
 
