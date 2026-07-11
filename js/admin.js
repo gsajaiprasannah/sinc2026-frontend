@@ -5647,6 +5647,7 @@ function loadAllData() {
   refreshHotels();
   refreshRooms();
   refreshVendors();
+  refreshVendorProductPicker();
   refreshInventoryItems();
   refreshInventoryMonitor();
   refreshSponsors();
@@ -5957,6 +5958,74 @@ window.updateFinancePurchaseDelivery = async (id, delivery_status) => {
   try { await jput(`${API}/finance/outward/${id}/delivery`, { delivery_status }); toast('Delivery status updated'); refreshFinancePurchases(); }
   catch (err) { toast(err.message); }
 };
+// Purchase Request "quick pick from vendor catalogs" — lets the item field
+// be filled from any vendor's product catalog instead of typed fresh every
+// time, and auto-populates which vendor supplies it. "+ Add new item" either
+// saves the item to whichever vendor is currently selected below (so it's
+// pickable next time too) or, if no vendor is selected, just fills the name
+// in as a one-off — matching how the form already supports vendor-less
+// one-off purchases via the "Vendor (one-off name)" field.
+let ALL_VENDOR_PRODUCTS = [];
+async function refreshVendorProductPicker() {
+  const sel = document.getElementById('finPurchaseItemPicker');
+  if (!sel) return;
+  try {
+    ALL_VENDOR_PRODUCTS = await jget(`${API}/vendors/products/all`);
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">-- Select an item from a vendor\'s catalog --</option>'
+      + '<option value="__new__">+ Add new item…</option>'
+      + ALL_VENDOR_PRODUCTS.map((p) => `<option value="${p.id}">${p.name} — ${p.vendor_name}</option>`).join('');
+    if (cur && sel.querySelector(`option[value="${cur}"]`)) sel.value = cur;
+  } catch (err) { /* quiet — this is a convenience picker, not core data */ }
+}
+window.onFinPurchaseItemPickerChange = () => {
+  const sel = document.getElementById('finPurchaseItemPicker');
+  const wrap = document.getElementById('finPurchaseNewItemWrap');
+  if (!sel) return;
+  if (sel.value === '__new__') {
+    if (wrap) wrap.style.display = 'flex';
+    const input = document.getElementById('finPurchaseNewItemName');
+    if (input) { input.value = ''; input.focus(); }
+    return;
+  }
+  if (wrap) wrap.style.display = 'none';
+  if (!sel.value) return;
+  const product = ALL_VENDOR_PRODUCTS.find((p) => String(p.id) === sel.value);
+  if (!product) return;
+  const form = document.getElementById('finPurchaseForm');
+  if (form.elements['purchase_item_name']) form.elements['purchase_item_name'].value = product.name;
+  if (form.elements['purchase_category']) form.elements['purchase_category'].value = product.category || '';
+  if (form.elements['purchase_unit']) form.elements['purchase_unit'].value = product.unit || 'pcs';
+  if (form.elements['purchase_unit_cost'] && product.unit_price) form.elements['purchase_unit_cost'].value = product.unit_price;
+  const vendorSelect = document.getElementById('finPurchaseVendorSelect');
+  if (vendorSelect) vendorSelect.value = product.vendor_id;
+};
+window.cancelFinPurchaseNewItem = () => {
+  const sel = document.getElementById('finPurchaseItemPicker');
+  const wrap = document.getElementById('finPurchaseNewItemWrap');
+  if (wrap) wrap.style.display = 'none';
+  if (sel) sel.value = '';
+};
+window.submitFinPurchaseNewItem = async () => {
+  const input = document.getElementById('finPurchaseNewItemName');
+  const name = ((input && input.value) || '').trim();
+  if (!name) { toast('Enter an item name'); return; }
+  const form = document.getElementById('finPurchaseForm');
+  const vendorSelect = document.getElementById('finPurchaseVendorSelect');
+  const vendorId = vendorSelect ? vendorSelect.value : '';
+  if (vendorId) {
+    try {
+      await jpost(`${API}/vendors/${vendorId}/products`, { name });
+      toast('Item added to vendor catalog');
+      await refreshVendorProductPicker();
+    } catch (err) { toast(err.message); return; }
+  } else {
+    toast('Item name filled in — pick a vendor above first if this item should be saved to their catalog');
+  }
+  if (form.elements['purchase_item_name']) form.elements['purchase_item_name'].value = name;
+  window.cancelFinPurchaseNewItem();
+};
+
 const FINANCE_PURCHASE_FORM_FIELDS = ['purchase_item_name', 'purchase_category', 'purchase_unit', 'purchase_quantity', 'purchase_unit_cost', 'vendor_id', 'payee_or_payer', 'transaction_date', 'expected_delivery_date', 'description', 'notes'];
 window.editFinancePurchase = async (id) => {
   const rows = await jget(`${API}/finance/outward?subtype=purchase`);
