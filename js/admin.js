@@ -6165,13 +6165,21 @@ async function renderVendorModalBody() {
     </div>
     <div class="section-title" style="margin-top:0;">Product catalog</div>
     ${productsHtml}
-    <form onsubmit="return submitVendorAddProduct(event, ${vendorId})" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">
-      <input name="name" placeholder="Product name" required style="min-width:160px;" />
-      <input name="category" placeholder="Category" style="max-width:140px;" />
-      <input name="unit" placeholder="Unit" value="pcs" style="max-width:80px;" />
-      <input name="unit_price" type="number" min="0" step="0.01" placeholder="Unit price ₹" style="max-width:120px;" />
-      <button class="btn gold small" type="submit">Add product</button>
-    </form>
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">
+      <label class="hint" style="display:block;margin-bottom:6px;">Products this vendor is responsible for</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <select id="vendorProductQuickSelect" onchange="onVendorProductQuickSelectChange(${vendorId})" style="min-width:200px;">
+          <option value="">${products.length ? "-- This vendor's products --" : 'No products yet'}</option>
+          ${products.map((p) => `<option value="${p.id}">${p.name}</option>`).join('')}
+          <option value="__new__">+ Add new product…</option>
+        </select>
+        <span id="vendorProductNewWrap" style="display:none;gap:8px;flex-wrap:wrap;">
+          <input type="text" id="vendorProductNewName" placeholder="New product name" style="min-width:160px;" onkeydown="if(event.key==='Enter'){event.preventDefault();submitVendorQuickAddProduct(${vendorId});}" />
+          <button type="button" class="btn gold small" onclick="submitVendorQuickAddProduct(${vendorId})">Add</button>
+          <button type="button" class="btn small" onclick="cancelVendorProductQuickAdd()">Cancel</button>
+        </span>
+      </div>
+    </div>
 
     <div class="section-title">Purchase requests from this vendor</div>
     ${purchasesHtml}
@@ -6181,15 +6189,45 @@ async function renderVendorModalBody() {
   `;
 }
 
-window.submitVendorAddProduct = async (e, vendorId) => {
-  e.preventDefault();
-  const body = Object.fromEntries(new FormData(e.target).entries());
+// Dropdown-based "add product" control on the vendor Details modal: the
+// dropdown lists this vendor's own already-added products (for reference),
+// plus a "+ Add new product…" option that reveals a one-field input so new
+// products can be added one at a time without a big form each time.
+window.onVendorProductQuickSelectChange = (vendorId) => {
+  const sel = document.getElementById('vendorProductQuickSelect');
+  const wrap = document.getElementById('vendorProductNewWrap');
+  if (!sel || !wrap) return;
+  if (sel.value === '__new__') {
+    wrap.style.display = 'flex';
+    const input = document.getElementById('vendorProductNewName');
+    if (input) { input.value = ''; input.focus(); }
+  } else {
+    wrap.style.display = 'none';
+  }
+};
+window.cancelVendorProductQuickAdd = () => {
+  const sel = document.getElementById('vendorProductQuickSelect');
+  const wrap = document.getElementById('vendorProductNewWrap');
+  if (wrap) wrap.style.display = 'none';
+  if (sel) sel.value = '';
+};
+window.submitVendorQuickAddProduct = async (vendorId) => {
+  const input = document.getElementById('vendorProductNewName');
+  const name = ((input && input.value) || '').trim();
+  if (!name) { toast('Enter a product name'); return; }
   try {
-    await jpost(`${API}/vendors/${vendorId}/products`, body);
+    await jpost(`${API}/vendors/${vendorId}/products`, { name });
     toast('Product added');
     await renderVendorModalBody();
+    // Keep the "add new" input open right after re-render so the next
+    // product can be added immediately — one by one, no re-clicking needed.
+    const sel = document.getElementById('vendorProductQuickSelect');
+    const wrap = document.getElementById('vendorProductNewWrap');
+    if (sel) sel.value = '__new__';
+    if (wrap) wrap.style.display = 'flex';
+    const freshInput = document.getElementById('vendorProductNewName');
+    if (freshInput) freshInput.focus();
   } catch (err) { toast(err.message); }
-  return false;
 };
 window.editVendorProduct = async (productId, vendorId) => {
   const data = await jget(`${API}/vendors/${vendorId}`);
