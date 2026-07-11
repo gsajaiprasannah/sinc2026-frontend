@@ -273,6 +273,10 @@ document.getElementById('imgUploadInput').addEventListener('change', async (e) =
       await uploadFileBlob(`${API}/speakers/${target.id}/photo`, file);
       toast('Speaker photo updated');
       refreshSpeakers();
+    } else if (target.kind === 'vendor_product') {
+      await uploadFileBlob(`${API}/vendors/products/${target.id}/photo`, file);
+      toast('Product photo updated');
+      if (typeof renderVendorModalBody === 'function') renderVendorModalBody();
     }
   } catch (err) {
     toast(err.message);
@@ -280,6 +284,7 @@ document.getElementById('imgUploadInput').addEventListener('change', async (e) =
 });
 window.triggerSponsorLogoUpload = (id) => { imgUploadTarget = { kind: 'sponsor', id }; document.getElementById('imgUploadInput').click(); };
 window.triggerSpeakerPhotoUpload = (id) => { imgUploadTarget = { kind: 'speaker', id }; document.getElementById('imgUploadInput').click(); };
+window.triggerVendorProductPhotoUpload = (id) => { imgUploadTarget = { kind: 'vendor_product', id }; document.getElementById('imgUploadInput').click(); };
 window.removeSponsorLogo = async (id) => {
   try { await jdel(`${API}/sponsors/${id}/logo`); toast('Logo removed'); refreshSponsors(); }
   catch (err) { toast(err.message); }
@@ -4578,12 +4583,20 @@ async function refreshInventoryItems() {
     <tr class="${i.low_stock ? 'row-overdue' : ''}">
       <td><strong>${i.name}</strong>${i.notes ? `<br><span class="hint">${i.notes}</span>` : ''}</td>
       <td>${i.category || '-'}</td>
+      <td>${i.vendor_name || '-'}</td>
       <td>${i.responsible_committee_name || 'Unassigned'}</td>
       <td>${i.quantity_procured} ${i.unit}</td>
       <td>${i.quantity_distributed} ${i.unit}</td>
       <td>${i.quantity_remaining} ${i.unit}${i.low_stock ? ' <span class="pill overdue">Low stock</span>' : ''}</td>
-      <td><span class="pill ${i.procurement_status === 'completed' ? 'done' : i.procurement_status === 'planned' ? 'not_started' : 'in_progress'}">${i.procurement_status}</span>
+      <td>
+        <select onchange="updateInventoryDelivery(${i.id}, 'procurement_status', this.value)">
+          ${['planned', 'ordered', 'received', 'distributing', 'completed', 'delayed'].map((s) => `<option value="${s}" ${i.procurement_status === s ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}
+        </select>
         <br><span class="hint">${i.delivered_count}/${i.recipient_count} delivered</span></td>
+      <td>
+        ${i.expected_delivery_date ? `Exp: ${new Date(i.expected_delivery_date).toLocaleDateString()}` : '-'}
+        ${i.actual_delivery_date ? `<br>Actual: ${new Date(i.actual_delivery_date).toLocaleDateString()}` : ''}
+      </td>
       <td class="sticky-actions">
         <button class="btn small" onclick="editInventoryItem(${i.id})">Edit</button>
         <button class="btn small" onclick="openInventoryDistModal(${i.id}, '${(i.name || '').replace(/'/g, "\\'")}')">Deliveries</button>
@@ -4591,10 +4604,14 @@ async function refreshInventoryItems() {
         ${canDelete() ? `<button class="btn danger small" onclick="deleteInventoryItem(${i.id})">Delete</button>` : ''}
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="8" class="empty">No inventory items yet — add one above.</td></tr>';
+  `).join('') || '<tr><td colspan="10" class="empty">No inventory items yet — add one above.</td></tr>';
 }
+window.updateInventoryDelivery = async (id, field, value) => {
+  try { await jput(`${API}/inventory/${id}/delivery`, { [field]: value }); toast('Delivery updated'); refreshInventoryItems(); refreshInventoryMonitor(); }
+  catch (err) { toast(err.message); }
+};
 
-const INVENTORY_FORM_FIELDS = ['name', 'category', 'unit', 'quantity_procured', 'reorder_threshold', 'vendor_name', 'unit_cost', 'procurement_status', 'responsible_committee_id', 'notes'];
+const INVENTORY_FORM_FIELDS = ['name', 'category', 'unit', 'quantity_procured', 'reorder_threshold', 'vendor_id', 'vendor_name', 'unit_cost', 'procurement_status', 'responsible_committee_id', 'expected_delivery_date', 'actual_delivery_date', 'notes'];
 window.editInventoryItem = async (id) => {
   const rows = await jget(`${API}/inventory`);
   const item = rows.find((r) => r.id === id);
@@ -5084,7 +5101,7 @@ async function refreshUsersAdmin() {
     </tr>
   `).join('') || '<tr><td colspan="4" class="empty">No pending requests</td></tr>';
 
-  const linkedProfile = (u) => u.host_member_name || u.driver_name || u.partner_name || u.volunteer_name || '<span class="hint">-</span>';
+  const linkedProfile = (u) => u.host_member_name || u.driver_name || u.partner_name || u.volunteer_name || u.vendor_name || '<span class="hint">-</span>';
   document.getElementById('allUsersBody').innerHTML = users.map((u) => `
     <tr>
       <td>${u.username}</td><td>${u.email || '-'}</td><td>${u.role}</td>
@@ -5127,6 +5144,8 @@ const createUserPartnerField = document.getElementById('createUserPartnerField')
 const createUserPartnerSelect = document.getElementById('createUserPartnerSelect');
 const createUserVolunteerField = document.getElementById('createUserVolunteerField');
 const createUserVolunteerSelect = document.getElementById('createUserVolunteerSelect');
+const createUserVendorField = document.getElementById('createUserVendorField');
+const createUserVendorSelect = document.getElementById('createUserVendorSelect');
 if (createUserRoleSelect) {
   createUserRoleSelect.addEventListener('change', () => {
     const role = createUserRoleSelect.value;
@@ -5134,6 +5153,7 @@ if (createUserRoleSelect) {
     const isDriver = role === 'driver';
     const isTransporter = role === 'transporter';
     const isVolunteer = role === 'volunteer';
+    const isVendor = role === 'vendor';
     createUserHmField.style.display = isHostMember ? '' : 'none';
     if (createUserHmSelect) createUserHmSelect.required = isHostMember;
     createUserDriverField.style.display = isDriver ? '' : 'none';
@@ -5142,6 +5162,8 @@ if (createUserRoleSelect) {
     if (createUserPartnerSelect) createUserPartnerSelect.required = isTransporter;
     if (createUserVolunteerField) createUserVolunteerField.style.display = isVolunteer ? '' : 'none';
     if (createUserVolunteerSelect) createUserVolunteerSelect.required = isVolunteer;
+    if (createUserVendorField) createUserVendorField.style.display = isVendor ? '' : 'none';
+    if (createUserVendorSelect) createUserVendorSelect.required = isVendor;
   });
 }
 
@@ -5149,9 +5171,9 @@ document.getElementById('createUserForm').addEventListener('submit', async (e) =
   e.preventDefault();
   const fd = new FormData(e.target);
   const body = Object.fromEntries(fd.entries());
-  const LINKED_FIELD_BY_ROLE = { host_member: 'host_member_id', driver: 'driver_id', transporter: 'partner_id', volunteer: 'volunteer_id' };
-  const LINKED_LABEL_BY_ROLE = { host_member: 'host member', driver: 'driver', transporter: 'transport partner', volunteer: 'volunteer' };
-  for (const field of ['host_member_id', 'driver_id', 'partner_id', 'volunteer_id']) {
+  const LINKED_FIELD_BY_ROLE = { host_member: 'host_member_id', driver: 'driver_id', transporter: 'partner_id', volunteer: 'volunteer_id', vendor: 'vendor_id' };
+  const LINKED_LABEL_BY_ROLE = { host_member: 'host member', driver: 'driver', transporter: 'transport partner', volunteer: 'volunteer', vendor: 'vendor' };
+  for (const field of ['host_member_id', 'driver_id', 'partner_id', 'volunteer_id', 'vendor_id']) {
     if (LINKED_FIELD_BY_ROLE[body.role] !== field) delete body[field];
   }
   const requiredField = LINKED_FIELD_BY_ROLE[body.role];
@@ -5166,10 +5188,12 @@ document.getElementById('createUserForm').addEventListener('submit', async (e) =
     createUserDriverField.style.display = 'none';
     createUserPartnerField.style.display = 'none';
     if (createUserVolunteerField) createUserVolunteerField.style.display = 'none';
+    if (createUserVendorField) createUserVendorField.style.display = 'none';
     toast('Login created');
     refreshUsersAdmin();
     refreshHostMembers();
     refreshVolunteers();
+    if (typeof refreshVendors === 'function') refreshVendors();
   } catch (err) { toast(err.message); }
 });
 
@@ -5622,6 +5646,7 @@ function loadAllData() {
   refreshPreTours();
   refreshHotels();
   refreshRooms();
+  refreshVendors();
   refreshInventoryItems();
   refreshInventoryMonitor();
   refreshSponsors();
@@ -5905,11 +5930,18 @@ async function refreshFinancePurchases() {
     const rows = await jget(`${API}/finance/outward?subtype=purchase`);
     document.getElementById('finPurchaseTableBody').innerHTML = rows.map((r) => `
       <tr>
-        <td><strong>${r.purchase_item_name}</strong>${r.purchase_category ? '<div class="hint">' + r.purchase_category + '</div>' : ''}</td>
+        <td><strong>${r.purchase_item_name}</strong>${r.purchase_category ? '<div class="hint">' + r.purchase_category + '</div>' : ''}${r.payee_or_payer ? `<div class="hint">Vendor: ${r.payee_or_payer}</div>` : ''}</td>
         <td>${r.purchase_quantity} ${r.purchase_unit || ''} × ₹${Number(r.purchase_unit_cost || 0).toLocaleString('en-IN')}</td>
         <td>${Number(r.amount || 0).toLocaleString('en-IN')}</td>
         <td><span class="pill ${r.status}">${FINANCE_STATUS_LABEL[r.status] || r.status}</span></td>
         <td>${financeApprovalChipsHtml(r.approvals)}</td>
+        <td>
+          <select onchange="updateFinancePurchaseDelivery(${r.id}, this.value)">
+            ${['ordered', 'in_transit', 'delivered', 'delayed', 'cancelled'].map((s) => `<option value="${s}" ${r.delivery_status === s ? 'selected' : ''}>${s.replace('_', ' ').replace(/^./, (c) => c.toUpperCase())}</option>`).join('')}
+          </select>
+          ${r.expected_delivery_date ? `<div class="hint">Exp: ${new Date(r.expected_delivery_date).toLocaleDateString()}</div>` : ''}
+          ${r.actual_delivery_date ? `<div class="hint">Actual: ${new Date(r.actual_delivery_date).toLocaleDateString()}</div>` : ''}
+        </td>
         <td>${r.inventory_item_id ? `Linked (item #${r.inventory_item_id})` : '-'}</td>
         <td class="sticky-actions">
           ${r.status === 'pending_approval' ? `<button class="btn small" onclick="editFinancePurchase(${r.id})">Update</button>` : ''}
@@ -5918,10 +5950,14 @@ async function refreshFinancePurchases() {
           ${canDelete() ? `<button class="btn danger small" onclick="deleteFinanceOutward(${r.id}, '${r.status}')">Delete</button>` : ''}
         </td>
       </tr>
-    `).join('') || '<tr><td colspan="7" class="empty">No purchase requests yet</td></tr>';
+    `).join('') || '<tr><td colspan="8" class="empty">No purchase requests yet</td></tr>';
   } catch (err) { toast(err.message); }
 }
-const FINANCE_PURCHASE_FORM_FIELDS = ['purchase_item_name', 'purchase_category', 'purchase_unit', 'purchase_quantity', 'purchase_unit_cost', 'payee_or_payer', 'transaction_date', 'description', 'notes'];
+window.updateFinancePurchaseDelivery = async (id, delivery_status) => {
+  try { await jput(`${API}/finance/outward/${id}/delivery`, { delivery_status }); toast('Delivery status updated'); refreshFinancePurchases(); }
+  catch (err) { toast(err.message); }
+};
+const FINANCE_PURCHASE_FORM_FIELDS = ['purchase_item_name', 'purchase_category', 'purchase_unit', 'purchase_quantity', 'purchase_unit_cost', 'vendor_id', 'payee_or_payer', 'transaction_date', 'expected_delivery_date', 'description', 'notes'];
 window.editFinancePurchase = async (id) => {
   const rows = await jget(`${API}/finance/outward?subtype=purchase`);
   const r = rows.find((x) => x.id === id);
@@ -5974,6 +6010,203 @@ window.downloadFinancePurchasesListPdf = async () => {
       { label: 'Status', width: 90, get: (r) => FINANCE_STATUS_LABEL[r.status] || r.status },
     ], rows, 'finance-purchase-requests.pdf');
   } catch (err) { toast(err.message); }
+};
+
+// --- Vendor Management: the master list of outside suppliers, connected to
+// Purchase Requests (Finance) and Inventory Items (Goodies & Inventory).
+// A vendor with their own login sees this exact same catalog + order list —
+// scoped to themselves — inside their own portal (vendorPortal.js).
+async function refreshVendors() {
+  const rows = await jget(`${API}/vendors`);
+  document.getElementById('vendorTableBody').innerHTML = rows.map((v) => `
+    <tr>
+      <td><strong>${v.name}</strong>${v.contact_person ? `<div class="hint">${v.contact_person}</div>` : ''}</td>
+      <td>${v.category || '-'}</td>
+      <td>${v.phone || v.email || '-'}</td>
+      <td>${v.product_count}</td>
+      <td>${v.purchase_count}</td>
+      <td>${v.inventory_item_count}</td>
+      <td>${v.user_id ? '<span class="pill paid">Has login</span>' : '<span class="hint">None yet</span>'}</td>
+      <td><span class="pill ${v.status === 'active' ? 'paid' : 'pending'}">${v.status}</span></td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="openVendorModal(${v.id})">Details</button>
+        <button class="btn small" onclick="editVendor(${v.id})">Edit</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteVendor(${v.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="9" class="empty">No vendors yet — add one above.</td></tr>';
+
+  const opts = rows.map((v) => `<option value="${v.id}">${v.name}${v.category ? ' (' + v.category + ')' : ''}</option>`).join('');
+  ['finPurchaseVendorSelect', 'inventoryVendorSelect'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) { const cur = el.value; el.innerHTML = '<option value="">-- none / one-off --</option>' + opts; if (cur) el.value = cur; }
+  });
+  const createUserVendorSelect = document.getElementById('createUserVendorSelect');
+  if (createUserVendorSelect) createUserVendorSelect.innerHTML = '<option value="">-- select --</option>' + rows.filter((v) => !v.user_id).map((v) => `<option value="${v.id}">${v.name}</option>`).join('');
+}
+
+const VENDOR_FORM_FIELDS = ['name', 'category', 'status', 'contact_person', 'phone', 'email', 'address', 'gst_number', 'notes'];
+window.editVendor = async (id) => {
+  const rows = await jget(`${API}/vendors`);
+  const v = rows.find((r) => r.id === id);
+  if (!v) return;
+  const form = document.getElementById('vendorForm');
+  VENDOR_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = v[f] !== null && v[f] !== undefined ? v[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('vendorFormTitle').textContent = `Edit vendor — ${v.name}`;
+  document.getElementById('vendorSubmitBtn').textContent = 'Update vendor';
+  document.getElementById('vendorCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('vendorCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('vendorForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('vendorFormTitle').textContent = 'Add vendor';
+  document.getElementById('vendorSubmitBtn').textContent = 'Save vendor';
+  document.getElementById('vendorCancelEditBtn').style.display = 'none';
+});
+document.getElementById('vendorForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/vendors/${form.dataset.editId}`, body);
+      toast('Vendor updated');
+    } else {
+      await jpost(`${API}/vendors`, body);
+      toast('Vendor saved');
+    }
+    delete form.dataset.editId;
+    form.reset();
+    document.getElementById('vendorFormTitle').textContent = 'Add vendor';
+    document.getElementById('vendorSubmitBtn').textContent = 'Save vendor';
+    document.getElementById('vendorCancelEditBtn').style.display = 'none';
+    refreshVendors();
+  } catch (err) { toast(err.message); }
+});
+window.deleteVendor = async (id) => {
+  try { await jdel(`${API}/vendors/${id}`); toast('Vendor removed'); refreshVendors(); refreshFinancePurchases(); refreshInventoryItems(); }
+  catch (err) { toast(err.message); }
+};
+
+// Vendor detail modal — product catalog (with photos, add/edit/delete) plus
+// everything ordered from this vendor across Purchase Requests and Inventory
+// Items, each with the same inline delivery-status control used in the
+// main tables. This is the "what is this vendor supplying, and what's the
+// order/delivery status of each" view the module exists to answer.
+let vendorModalCtx = { vendorId: null };
+const VENDOR_DELIVERY_OPTS_PURCHASE = ['ordered', 'in_transit', 'delivered', 'delayed', 'cancelled'];
+const VENDOR_DELIVERY_OPTS_INVENTORY = ['planned', 'ordered', 'received', 'distributing', 'completed', 'delayed'];
+function capitalizeWords(s) { return (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()); }
+
+window.openVendorModal = async (vendorId) => {
+  vendorModalCtx = { vendorId };
+  document.getElementById('vendorModal').style.display = '';
+  await renderVendorModalBody();
+};
+window.closeVendorModal = () => {
+  document.getElementById('vendorModal').style.display = 'none';
+  vendorModalCtx = { vendorId: null };
+};
+
+async function renderVendorModalBody() {
+  const { vendorId } = vendorModalCtx;
+  if (!vendorId) return;
+  const data = await jget(`${API}/vendors/${vendorId}`);
+  const { vendor, products, purchases, inventoryItems, loginUser } = data;
+  document.getElementById('vendorModalTitle').textContent = vendor.name;
+
+  const productsHtml = products.map((p) => `
+    <div class="checklist-row">
+      <span class="checklist-label" style="display:flex;align-items:center;gap:8px;">
+        ${p.photo_url
+          ? `<img src="${mediaUrl(p.photo_url)}" alt="${p.name}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border,#ddd);" />`
+          : `<div style="width:36px;height:36px;border-radius:6px;background:var(--bg2,#f2f2f2);"></div>`}
+        <span>
+          <strong>${p.name}</strong>${p.category ? ` <span class="hint">(${p.category})</span>` : ''}
+          ${p.unit_price ? `<br><span class="hint">₹${Number(p.unit_price).toLocaleString('en-IN')} / ${p.unit}</span>` : ''}
+        </span>
+      </span>
+      <button type="button" class="btn small" onclick="triggerVendorProductPhotoUpload(${p.id})">${p.photo_url ? 'Replace photo' : 'Upload photo'}</button>
+      <button type="button" class="btn small" onclick="editVendorProduct(${p.id}, ${vendorId})">Edit</button>
+      ${canDelete() ? `<button type="button" class="btn danger small" onclick="deleteVendorProduct(${p.id})">Delete</button>` : ''}
+    </div>
+  `).join('') || '<p class="empty">No products in this vendor\'s catalog yet.</p>';
+
+  const purchasesHtml = purchases.map((r) => `
+    <div class="checklist-row">
+      <span class="checklist-label">
+        <strong>${r.purchase_item_name}</strong> — ${r.purchase_quantity} ${r.purchase_unit || ''} × ₹${Number(r.purchase_unit_cost || 0).toLocaleString('en-IN')}
+        <br><span class="hint">Payment: ${FINANCE_STATUS_LABEL[r.approval_status] || r.approval_status}${r.expected_delivery_date ? ` · Exp: ${new Date(r.expected_delivery_date).toLocaleDateString()}` : ''}</span>
+      </span>
+      <select onchange="updateFinancePurchaseDelivery(${r.id}, this.value); setTimeout(renderVendorModalBody, 300)">
+        ${VENDOR_DELIVERY_OPTS_PURCHASE.map((s) => `<option value="${s}" ${r.delivery_status === s ? 'selected' : ''}>${capitalizeWords(s)}</option>`).join('')}
+      </select>
+    </div>
+  `).join('') || '<p class="empty">No purchase requests linked to this vendor yet.</p>';
+
+  const inventoryHtml = inventoryItems.map((i) => `
+    <div class="checklist-row">
+      <span class="checklist-label">
+        <strong>${i.name}</strong> — ${i.quantity_procured} ${i.unit}
+        <br><span class="hint">${i.expected_delivery_date ? `Exp: ${new Date(i.expected_delivery_date).toLocaleDateString()}` : ''}</span>
+      </span>
+      <select onchange="updateInventoryDelivery(${i.id}, 'procurement_status', this.value); setTimeout(renderVendorModalBody, 300)">
+        ${VENDOR_DELIVERY_OPTS_INVENTORY.map((s) => `<option value="${s}" ${i.procurement_status === s ? 'selected' : ''}>${capitalizeWords(s)}</option>`).join('')}
+      </select>
+    </div>
+  `).join('') || '<p class="empty">No inventory items linked to this vendor yet.</p>';
+
+  document.getElementById('vendorModalBody').innerHTML = `
+    <div class="hint" style="margin-bottom:10px;">
+      ${vendor.category ? vendor.category + ' · ' : ''}${vendor.contact_person || ''} ${vendor.phone ? '· ' + vendor.phone : ''} ${vendor.email ? '· ' + vendor.email : ''}
+      <br>Login: ${loginUser ? `${loginUser.username} (${loginUser.status})` : 'No login created yet — use Settings → Create Login → role Vendor.'}
+    </div>
+    <div class="section-title" style="margin-top:0;">Product catalog</div>
+    ${productsHtml}
+    <form onsubmit="return submitVendorAddProduct(event, ${vendorId})" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">
+      <input name="name" placeholder="Product name" required style="min-width:160px;" />
+      <input name="category" placeholder="Category" style="max-width:140px;" />
+      <input name="unit" placeholder="Unit" value="pcs" style="max-width:80px;" />
+      <input name="unit_price" type="number" min="0" step="0.01" placeholder="Unit price ₹" style="max-width:120px;" />
+      <button class="btn gold small" type="submit">Add product</button>
+    </form>
+
+    <div class="section-title">Purchase requests from this vendor</div>
+    ${purchasesHtml}
+
+    <div class="section-title">Inventory items from this vendor</div>
+    ${inventoryHtml}
+  `;
+}
+
+window.submitVendorAddProduct = async (e, vendorId) => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  try {
+    await jpost(`${API}/vendors/${vendorId}/products`, body);
+    toast('Product added');
+    await renderVendorModalBody();
+  } catch (err) { toast(err.message); }
+  return false;
+};
+window.editVendorProduct = async (productId, vendorId) => {
+  const data = await jget(`${API}/vendors/${vendorId}`);
+  const p = data.products.find((x) => x.id === productId);
+  if (!p) return;
+  const name = prompt('Product name:', p.name);
+  if (name === null) return;
+  const unit_price = prompt('Unit price (₹, blank for none):', p.unit_price || '');
+  if (unit_price === null) return;
+  try {
+    await jput(`${API}/vendors/products/${productId}`, { name, unit_price });
+    await renderVendorModalBody();
+  } catch (err) { toast(err.message); }
+};
+window.deleteVendorProduct = async (productId) => {
+  try { await jdel(`${API}/vendors/products/${productId}`); toast('Product removed'); await renderVendorModalBody(); }
+  catch (err) { toast(err.message); }
 };
 
 tryResumeSession();
