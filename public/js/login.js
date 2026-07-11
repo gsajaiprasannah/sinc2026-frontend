@@ -90,6 +90,20 @@ async function jpost(url, body) {
   if (!r.ok) { const err = new Error(data.error || `Request failed (HTTP ${r.status})`); err.data = data; err.status = r.status; throw err; }
   return data;
 }
+async function jdel(url) {
+  const r = await fetch(url, { method: 'DELETE', headers: authHeaders() });
+  if (r.status === 401) { handleUnauthorized(); throw new UnauthorizedError('Please log in again.'); }
+  const text = await r.text();
+  let data;
+  try { data = text ? JSON.parse(text) : {}; }
+  catch (e) {
+    throw new Error(!r.ok
+      ? `Server returned HTTP ${r.status} instead of JSON — the backend may not have this endpoint deployed yet.`
+      : 'Server returned an unexpected (non-JSON) response.');
+  }
+  if (!r.ok) { const err = new Error(data.error || `Request failed (HTTP ${r.status})`); err.data = data; err.status = r.status; throw err; }
+  return data;
+}
 async function uploadFile(url, formEl) {
   let r;
   try {
@@ -103,6 +117,46 @@ async function uploadFile(url, formEl) {
   if (!r.ok) throw new Error(data.error || 'Upload failed');
   return data;
 }
+
+async function uploadFileBlob(url, file) {
+  const fd = new FormData();
+  fd.append('file', file);
+  let r;
+  try {
+    r = await fetch(url, { method: 'POST', headers: authHeaders(), body: fd });
+  } catch (networkErr) {
+    throw new Error('Upload failed — the connection was interrupted. Check your internet connection and try again.');
+  }
+  if (r.status === 401) { handleUnauthorized(); throw new UnauthorizedError('Please log in again.'); }
+  let data;
+  try { data = await r.json(); } catch (e) { throw new Error(`Server returned an unexpected response (status ${r.status}). Please try again.`); }
+  if (!r.ok) throw new Error(data.error || 'Upload failed');
+  return data;
+}
+
+// Shared hidden file inputs for a vendor's product photo — re-targeted per
+// click via vendorPhotoTargetId, same pattern as admin.js's imgUploadInput.
+let vendorPhotoTargetId = null;
+async function handleVendorPhotoPicked(e) {
+  const file = e.target.files[0];
+  const productId = vendorPhotoTargetId;
+  e.target.value = '';
+  vendorPhotoTargetId = null;
+  if (!file || !productId) return;
+  try {
+    await uploadFileBlob(`${API}/vendor-portal/products/${productId}/photo`, file);
+    toast('Product photo updated');
+    loadVendorMe();
+  } catch (err) {
+    if (!(err instanceof UnauthorizedError)) toast(err.message);
+  }
+}
+const vendorProductCameraInput = document.getElementById('vendorProductCameraInput');
+const vendorProductFileInput = document.getElementById('vendorProductFileInput');
+if (vendorProductCameraInput) vendorProductCameraInput.addEventListener('change', handleVendorPhotoPicked);
+if (vendorProductFileInput) vendorProductFileInput.addEventListener('change', handleVendorPhotoPicked);
+window.triggerVendorProductCamera = (id) => { vendorPhotoTargetId = id; vendorProductCameraInput.click(); };
+window.triggerVendorProductUpload = (id) => { vendorPhotoTargetId = id; vendorProductFileInput.click(); };
 
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -221,17 +275,19 @@ const ROLE_TABS = {
   media: ['media-upload'],
   driver: ['driver-profile', 'driver-trips'],
   transporter: ['transporter-profile', 'transporter-drivers', 'transporter-trips'],
-  volunteer: ['host-modules']
+  volunteer: ['host-modules'],
+  vendor: ['vendor-profile', 'vendor-products', 'vendor-orders']
 };
-const ROLE_DEFAULT_TAB = { host_member: 'host-profile', media: 'media-upload', driver: 'driver-profile', transporter: 'transporter-profile', volunteer: 'host-modules' };
+const ROLE_DEFAULT_TAB = { host_member: 'host-profile', media: 'media-upload', driver: 'driver-profile', transporter: 'transporter-profile', volunteer: 'host-modules', vendor: 'vendor-profile' };
 const ROLE_TITLE = {
   host_member: ['Host Portal', "Your committees, delegates & checklist"],
   media: ['Media Portal', 'Upload the event video reel & posters'],
   driver: ['Driver Portal', 'Your assigned trips'],
   transporter: ['Transporter Portal', "Your fleet's trip requirements"],
-  volunteer: ['Volunteer Portal', 'Your granted modules']
+  volunteer: ['Volunteer Portal', 'Your granted modules'],
+  vendor: ['Vendor Portal', 'Your product catalog & order deliveries']
 };
-const ALLOWED_ROLES = ['host_member', 'media', 'transporter', 'driver', 'volunteer'];
+const ALLOWED_ROLES = ['host_member', 'media', 'transporter', 'driver', 'volunteer', 'vendor'];
 
 // ================= SIDEBAR + TABS =================
 // Same collapsible-sidebar / tab-panel pattern as admin.js, so the portal
@@ -282,7 +338,7 @@ function showAuthGate() {
   document.getElementById('sidebarToggle').style.display = 'none';
   document.getElementById('whoami').textContent = '';
   document.getElementById('portalTitle').textContent = 'Login';
-  document.getElementById('portalSubtitle').textContent = 'Host member, media, transporter, driver & volunteer logins';
+  document.getElementById('portalSubtitle').textContent = 'Host member, media, transporter, driver, volunteer & vendor logins';
 }
 
 function showApp() {
@@ -312,6 +368,7 @@ function showApp() {
   else if (role === 'driver') startDriver();
   else if (role === 'transporter') startTransporter();
   else if (role === 'volunteer') startVolunteer();
+  else if (role === 'vendor') startVendor();
 
   // Announcements inbox is shared across every role (see tab-announcements) —
   // unlike the role-specific start*() calls above, this always runs.
@@ -476,6 +533,20 @@ async function loadHostMe() {
       loadLeadershipBriefing();
     } else {
       navBtnLeadership.style.display = 'none';
+    }
+  }
+
+  // Approvals — only for the specific office-bearer roles the Finance
+  // module can ever route a payment/purchase to (a subset of all leadership
+  // roles — e.g. a Vice President never gets asked to approve anything).
+  const FINANCE_APPROVER_ROLES = ['President', 'Secretary', 'Treasurer', 'Congress Chairman', 'Congress Treasurer'];
+  const navBtnApprovals = document.getElementById('navBtnApprovals');
+  if (navBtnApprovals) {
+    if (data.profile && FINANCE_APPROVER_ROLES.includes(data.profile.leadership_role)) {
+      navBtnApprovals.style.display = '';
+      loadFinanceApprovals();
+    } else {
+      navBtnApprovals.style.display = 'none';
     }
   }
 }
@@ -1450,6 +1521,159 @@ async function loadVolunteerMe() {
   }
 }
 
+// ================= VENDOR =================
+// An outside supplier — maintains their own product catalog (with photos)
+// and updates the delivery status of what's been ordered from them, scoped
+// entirely to their own vendor_id (see requireVendorRole in vendorPortal.js).
+// They never see any other vendor's data, or anything about payment/approval
+// amounts — only the delivery side of their own orders.
+let vendorStarted = false;
+function startVendor() { if (vendorStarted) return; vendorStarted = true; loadVendorMe(); }
+
+const VENDOR_DELIVERY_LABEL = { ordered: 'Ordered', in_transit: 'In transit', delivered: 'Delivered', delayed: 'Delayed', cancelled: 'Cancelled' };
+const VENDOR_PROC_LABEL = { planned: 'Planned (not yet ordered)', ordered: 'Ordered', received: 'Received', distributing: 'Distributing', completed: 'Completed', delayed: 'Delayed' };
+
+function renderVendorProfile(p) {
+  const el = document.getElementById('vendorProfileBody');
+  const avatar = document.getElementById('vendorAvatar');
+  if (!p) { el.innerHTML = '<div class="empty">Vendor profile not found.</div>'; return; }
+  if (avatar) avatar.textContent = initials(p.name);
+  el.innerHTML = `
+    <div class="form-grid cols-3">
+      <div><strong>${escapeHtml(p.name)}</strong><div class="hint">Company</div></div>
+      <div>${escapeHtml(p.category || '-')}<div class="hint">Category</div></div>
+      <div>${escapeHtml(p.contact_person || '-')}<div class="hint">Contact person</div></div>
+    </div>
+    <div class="form-grid cols-3" style="margin-top:10px;">
+      <div>${escapeHtml(p.phone || '-')}<div class="hint">Phone</div></div>
+      <div>${escapeHtml(p.email || '-')}<div class="hint">Email</div></div>
+      <div><span class="pill ${p.status === 'active' ? 'paid' : 'pending'}">${escapeHtml(p.status)}</span><div class="hint">Status</div></div>
+    </div>
+  `;
+}
+
+let LAST_VENDOR_PRODUCTS = [];
+function renderVendorProducts(products) {
+  LAST_VENDOR_PRODUCTS = products;
+  document.getElementById('vendorProductsBody').innerHTML = products.map((p) => `
+    <div class="card" style="margin-bottom:10px;">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        ${p.photo_url
+          ? `<img src="${mediaUrl(p.photo_url)}" alt="${escapeHtml(p.name)}" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--border,#ddd);" />`
+          : `<div style="width:56px;height:56px;border-radius:8px;background:var(--bg2,#f2f2f2);"></div>`}
+        <div style="flex:1;min-width:160px;">
+          <strong>${escapeHtml(p.name)}</strong>${p.category ? ` <span class="hint">(${escapeHtml(p.category)})</span>` : ''}
+          ${p.unit_price ? `<div class="hint">₹${Number(p.unit_price).toLocaleString('en-IN')} / ${escapeHtml(p.unit)}</div>` : ''}
+          <div><span class="pill ${p.status === 'active' ? 'paid' : 'pending'}">${escapeHtml(p.status)}</span></div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button type="button" class="btn small" onclick="triggerVendorProductCamera(${p.id})">Take photo</button>
+          <button type="button" class="btn small" onclick="triggerVendorProductUpload(${p.id})">${p.photo_url ? 'Replace image' : 'Upload image'}</button>
+          <button type="button" class="btn small" onclick="editVendorProductPortal(${p.id})">Edit</button>
+        </div>
+      </div>
+    </div>
+  `).join('') || '<div class="card"><div class="empty">No products yet — add your first one above.</div></div>';
+}
+
+const VENDOR_PRODUCT_FORM_FIELDS = ['name', 'category', 'unit', 'unit_price', 'status', 'description'];
+window.editVendorProductPortal = (id) => {
+  const p = LAST_VENDOR_PRODUCTS.find((x) => x.id === id);
+  if (!p) return;
+  const form = document.getElementById('vendorProductForm');
+  VENDOR_PRODUCT_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = p[f] !== null && p[f] !== undefined ? p[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('vendorProductFormTitle').textContent = `Edit product — ${p.name}`;
+  document.getElementById('vendorProductSubmitBtn').textContent = 'Update product';
+  document.getElementById('vendorProductCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('vendorProductCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('vendorProductForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('vendorProductFormTitle').textContent = 'Add product';
+  document.getElementById('vendorProductSubmitBtn').textContent = 'Save product';
+  document.getElementById('vendorProductCancelEditBtn').style.display = 'none';
+});
+document.getElementById('vendorProductForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/vendor-portal/products/${form.dataset.editId}`, body);
+      toast('Product updated');
+    } else {
+      await jpost(`${API}/vendor-portal/products`, body);
+      toast('Product added');
+    }
+    delete form.dataset.editId;
+    form.reset();
+    document.getElementById('vendorProductFormTitle').textContent = 'Add product';
+    document.getElementById('vendorProductSubmitBtn').textContent = 'Save product';
+    document.getElementById('vendorProductCancelEditBtn').style.display = 'none';
+    loadVendorMe();
+  } catch (err) { toast(err.message); }
+});
+// No delete button here by design — permanent deletion is super_admin-only
+// everywhere in this system (see the global DELETE gate in server/index.js),
+// and a vendor login never has that role. To retire a product, edit it and
+// set Status to Inactive instead.
+
+function renderVendorOrders(purchases, inventoryItems) {
+  document.getElementById('vendorOrdersPurchasesBody').innerHTML = purchases.map((r) => `
+    <div class="card" style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div>
+          <strong>${escapeHtml(r.purchase_item_name)}</strong>
+          <div class="hint">${r.purchase_quantity} ${escapeHtml(r.purchase_unit || '')} × ₹${Number(r.purchase_unit_cost || 0).toLocaleString('en-IN')}${r.expected_delivery_date ? ` · Expected: ${new Date(r.expected_delivery_date).toLocaleDateString()}` : ''}</div>
+        </div>
+        <select onchange="updateVendorPurchaseDelivery(${r.id}, this.value)">
+          ${Object.keys(VENDOR_DELIVERY_LABEL).map((s) => `<option value="${s}" ${r.delivery_status === s ? 'selected' : ''}>${VENDOR_DELIVERY_LABEL[s]}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+  `).join('') || '<div class="card"><div class="empty">Nothing ordered yet.</div></div>';
+
+  document.getElementById('vendorOrdersInventoryBody').innerHTML = inventoryItems.map((i) => `
+    <div class="card" style="margin-bottom:10px;">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div>
+          <strong>${escapeHtml(i.name)}</strong>
+          <div class="hint">${i.quantity_procured} ${escapeHtml(i.unit)}${i.expected_delivery_date ? ` · Expected: ${new Date(i.expected_delivery_date).toLocaleDateString()}` : ''}</div>
+          <div class="hint">Current: ${VENDOR_PROC_LABEL[i.procurement_status] || i.procurement_status}</div>
+        </div>
+        <select onchange="updateVendorInventoryDelivery(${i.id}, this.value)">
+          <option value="">-- set status --</option>
+          <option value="ordered" ${i.procurement_status === 'ordered' ? 'selected' : ''}>Ordered</option>
+          <option value="received" ${i.procurement_status === 'received' ? 'selected' : ''}>Received</option>
+          <option value="delayed" ${i.procurement_status === 'delayed' ? 'selected' : ''}>Delayed</option>
+        </select>
+      </div>
+    </div>
+  `).join('') || '<div class="card"><div class="empty">Nothing ordered yet.</div></div>';
+}
+window.updateVendorPurchaseDelivery = async (id, delivery_status) => {
+  try { await jput(`${API}/vendor-portal/orders/purchase/${id}/delivery`, { delivery_status }); toast('Delivery status updated'); loadVendorMe(); }
+  catch (err) { toast(err.message); }
+};
+window.updateVendorInventoryDelivery = async (id, procurement_status) => {
+  if (!procurement_status) return;
+  try { await jput(`${API}/vendor-portal/orders/inventory/${id}/delivery`, { procurement_status }); toast('Delivery status updated'); loadVendorMe(); }
+  catch (err) { toast(err.message); }
+};
+
+async function loadVendorMe() {
+  try {
+    const data = await jget(`${API}/vendor-portal/me`);
+    renderVendorProfile(data.profile);
+    renderVendorProducts(data.products || []);
+    renderVendorOrders(data.purchases || [], data.inventoryItems || []);
+  } catch (err) {
+    if (!(err instanceof UnauthorizedError)) toast(err.message);
+  }
+}
+
 // ================= ANNOUNCEMENTS (shared across every role) =================
 // One-way messages from the admin team — see server/routes/messages.js.
 // No replies/threads: just a read state and, if the message carried one, a
@@ -1498,6 +1722,84 @@ window.markAnnouncementRead = async (messageId) => {
 window.markAnnouncementActionDone = async (messageId) => {
   try { await jput(`${API}/messages/${messageId}/action-done`, {}); toast('Marked done'); refreshAnnouncements(); }
   catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
+
+// ================= FINANCE APPROVALS =================
+// For the small set of office-bearers the Finance module can route a
+// payment/purchase request to (President, Secretary, Treasurer, Congress
+// Chairman, Congress Treasurer) — a plain payment needs all five, a goodies
+// purchase needs just President+Treasurer, but either way this person only
+// ever sees requests waiting on THEIR OWN role. See GET
+// /api/host/finance/approvals and POST .../approvals/:id/decide.
+async function loadFinanceApprovals() {
+  let pendingData, historyData;
+  try {
+    pendingData = await jget(`${API}/host/finance/approvals`);
+  } catch (err) {
+    if (err instanceof UnauthorizedError) return;
+    const el = document.getElementById('approvalsPendingList');
+    if (el) el.innerHTML = `<p class="hint" style="color:var(--red);">${err.message}</p>`;
+    return;
+  }
+  try {
+    historyData = await jget(`${API}/host/finance/approvals/history`);
+  } catch (err) {
+    historyData = [];
+  }
+  renderFinanceApprovals(pendingData, historyData);
+}
+
+function financeApprovalRowSummary(r) {
+  if (r.subtype === 'purchase') {
+    return `<strong>${r.purchase_item_name}</strong> — ${r.purchase_quantity} ${r.purchase_unit || ''} × ₹${Number(r.purchase_unit_cost || 0).toLocaleString('en-IN')} = ₹${Number(r.amount || 0).toLocaleString('en-IN')}${r.payee_or_payer ? ' from ' + r.payee_or_payer : ''}`;
+  }
+  return `<strong>₹${Number(r.amount || 0).toLocaleString('en-IN')}</strong> to ${r.payee_or_payer}${r.category ? ' (' + r.category + ')' : ''}`;
+}
+
+function renderFinanceApprovals(pendingData, historyRows) {
+  const roleHint = document.getElementById('approvalsRoleHint');
+  if (roleHint) roleHint.textContent = `Viewing as: ${pendingData.role || 'Approver'}.`;
+
+  const pending = pendingData.pending || [];
+  const badge = document.getElementById('approvalsBadge');
+  if (badge) {
+    if (pending.length) { badge.textContent = pending.length; badge.style.display = ''; }
+    else { badge.style.display = 'none'; }
+  }
+
+  document.getElementById('approvalsPendingList').innerHTML = pending.length ? pending.map((r) => `
+    <div class="card" style="margin-bottom:10px;">
+      <p style="margin:0 0 4px;">${financeApprovalRowSummary(r)}</p>
+      ${r.description ? `<p class="hint" style="margin:0 0 8px;">${r.description}</p>` : ''}
+      <div style="display:flex;gap:8px;">
+        <button type="button" class="btn small" onclick="decideFinanceApproval(${r.approval_id}, 'approved')">Approve</button>
+        <button type="button" class="btn small outline" onclick="decideFinanceApproval(${r.approval_id}, 'rejected')">Reject</button>
+      </div>
+    </div>
+  `).join('') : '<p class="hint">Nothing waiting on your approval right now.</p>';
+
+  document.getElementById('approvalsHistoryList').innerHTML = (historyRows || []).length ? historyRows.map((r) => `
+    <p class="hint" style="margin:0 0 6px;">
+      <span class="pill ${r.my_status}">${r.my_status}</span>
+      ${financeApprovalRowSummary(r)}
+      ${r.decided_at ? ' — ' + new Date(r.decided_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+      ${r.remarks ? ' · "' + r.remarks + '"' : ''}
+    </p>
+  `).join('') : '<p class="hint">No decisions yet.</p>';
+}
+
+window.decideFinanceApproval = async (approvalId, decision) => {
+  let remarks = '';
+  if (decision === 'rejected') {
+    remarks = prompt('Optional: reason for rejecting (visible to admins):', '') || '';
+  }
+  try {
+    await jpost(`${API}/host/finance/approvals/${approvalId}/decide`, { decision, remarks });
+    toast(decision === 'approved' ? 'Approved' : 'Rejected');
+    loadFinanceApprovals();
+  } catch (err) {
+    if (!(err instanceof UnauthorizedError)) toast(err.message);
+  }
 };
 
 // ================= BOOT =================

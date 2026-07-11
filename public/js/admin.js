@@ -273,6 +273,10 @@ document.getElementById('imgUploadInput').addEventListener('change', async (e) =
       await uploadFileBlob(`${API}/speakers/${target.id}/photo`, file);
       toast('Speaker photo updated');
       refreshSpeakers();
+    } else if (target.kind === 'vendor_product') {
+      await uploadFileBlob(`${API}/vendors/products/${target.id}/photo`, file);
+      toast('Product photo updated');
+      if (typeof renderVendorModalBody === 'function') renderVendorModalBody();
     }
   } catch (err) {
     toast(err.message);
@@ -280,6 +284,7 @@ document.getElementById('imgUploadInput').addEventListener('change', async (e) =
 });
 window.triggerSponsorLogoUpload = (id) => { imgUploadTarget = { kind: 'sponsor', id }; document.getElementById('imgUploadInput').click(); };
 window.triggerSpeakerPhotoUpload = (id) => { imgUploadTarget = { kind: 'speaker', id }; document.getElementById('imgUploadInput').click(); };
+window.triggerVendorProductPhotoUpload = (id) => { imgUploadTarget = { kind: 'vendor_product', id }; document.getElementById('imgUploadInput').click(); };
 window.removeSponsorLogo = async (id) => {
   try { await jdel(`${API}/sponsors/${id}/logo`); toast('Logo removed'); refreshSponsors(); }
   catch (err) { toast(err.message); }
@@ -853,7 +858,7 @@ async function refreshParts(query) {
       <td>${paymentPill(p.payment_status)}</td>
       <td>
         <button class="btn small" onclick="editPart(${p.id})">Update</button>
-        <button class="btn small" onclick="openChecklistModal('participant', ${p.id})">Kit</button>
+        <button class="btn small" onclick="openGoodiesModal('participant', ${p.id}, '${(p.name || '').replace(/'/g, "\\'")}')">Goodies</button>
         <button class="btn small" onclick="downloadDelegateDetailPdf(${p.id})">PDF</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deletePart(${p.id})">Delete</button>` : ''}
       </td>
@@ -1087,11 +1092,13 @@ async function refreshItinerary() {
       <td>${it.title}</td>
       <td>${it.description || '-'}</td>
       <td>
-        <button class="btn small" onclick="editItin(${it.id})">Edit</button>
+        <button class="btn small" onclick="editItin(${it.id})">Update</button>
+        <button class="btn small" onclick="manageAgenda(${it.id})">Agenda</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteItin(${it.id})">Delete</button>` : ''}
       </td>
     </tr>
   `).join('') || '<tr><td colspan="5" class="empty">No itinerary items yet</td></tr>';
+  refreshAgendaSlots();
 }
 window.deleteItin = async (id) => { await jdel(`${API}/itinerary/${id}`); toast('Itinerary item deleted'); refreshItinerary(); };
 
@@ -1102,7 +1109,7 @@ window.editItin = async (id) => {
     if (form.elements[f]) form.elements[f].value = it[f] !== null && it[f] !== undefined ? it[f] : '';
   });
   form.dataset.editId = id;
-  document.getElementById('itinFormTitle').textContent = 'Edit itinerary item';
+  document.getElementById('itinFormTitle').textContent = 'Update itinerary item';
   document.getElementById('itinSubmitBtn').textContent = 'Update Item';
   document.getElementById('itinCancelEditBtn').style.display = '';
   form.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1135,6 +1142,221 @@ document.getElementById('itinForm').addEventListener('submit', async (e) => {
   } catch (err) { toast(err.message); }
 });
 
+// --- Agenda Builder (event management within an Itinerary slot) ----------
+// One itinerary slot (e.g. "Inaugural Ceremony") contains an ordered flow of
+// individual events (Prayer Song, National Anthem, dance performances...),
+// each with a description, who organised it (committee + free-text detail),
+// and who's performing (a hired performer group + free-text detail) — kept
+// admin-only, distinct from the public-facing itinerary_items above.
+let ALL_ITINERARY_CACHE = [];
+let ALL_PERFORMER_GROUPS_CACHE = [];
+
+function itinerarySlotLabel(it) {
+  return [it.day_label, it.time_label, it.title].filter(Boolean).join(' · ');
+}
+
+async function refreshAgendaSlots() {
+  ALL_ITINERARY_CACHE = await jget(`${API}/itinerary`);
+  const sel = document.getElementById('agendaSlotSelect');
+  const prevValue = sel.value;
+  sel.innerHTML = '<option value="">-- select an itinerary slot --</option>' +
+    ALL_ITINERARY_CACHE.map((it) => `<option value="${it.id}">${itinerarySlotLabel(it)}</option>`).join('');
+  if (prevValue && ALL_ITINERARY_CACHE.some((it) => String(it.id) === prevValue)) {
+    sel.value = prevValue;
+  }
+}
+window.manageAgenda = (itineraryItemId) => {
+  switchAdminTab('itinerary');
+  const sel = document.getElementById('agendaSlotSelect');
+  sel.value = itineraryItemId;
+  sel.dispatchEvent(new Event('change'));
+  document.getElementById('agendaFormCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+async function refreshAgenda() {
+  const slotId = document.getElementById('agendaSlotSelect').value;
+  const formCard = document.getElementById('agendaFormCard');
+  const tableCard = document.getElementById('agendaTableCard');
+  if (!slotId) {
+    formCard.style.display = 'none';
+    tableCard.style.display = 'none';
+    return;
+  }
+  formCard.style.display = '';
+  tableCard.style.display = '';
+  const rows = await jget(`${API}/agenda?itinerary_item_id=${slotId}`);
+  document.getElementById('agendaTableBody').innerHTML = rows.map((a) => `
+    <tr>
+      <td>${a.time_label || '-'}</td>
+      <td><strong>${a.title}</strong>${a.duration_minutes ? ' <span class="hint">(' + a.duration_minutes + ' min)</span>' : ''}</td>
+      <td style="white-space:normal;max-width:220px;">${a.description || '-'}</td>
+      <td>${[a.organizing_committee_name, a.organized_by].filter(Boolean).join(' · ') || '-'}</td>
+      <td>${[a.performer_group_name, a.performed_by].filter(Boolean).join(' · ') || '-'}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editAgendaEvent(${a.id})">Update</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteAgendaEvent(${a.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">No agenda events yet for this slot</td></tr>';
+}
+document.getElementById('agendaSlotSelect').addEventListener('change', refreshAgenda);
+
+window.deleteAgendaEvent = async (id) => { await jdel(`${API}/agenda/${id}`); toast('Agenda event removed'); refreshAgenda(); };
+
+const AGENDA_FORM_FIELDS = [
+  'time_label', 'title', 'description', 'organizing_committee_id', 'organized_by',
+  'performer_group_id', 'performed_by', 'duration_minutes', 'sort_order', 'notes'
+];
+window.editAgendaEvent = async (id) => {
+  const a = await jget(`${API}/agenda/${id}`);
+  const form = document.getElementById('agendaForm');
+  AGENDA_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = a[f] !== null && a[f] !== undefined ? a[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('agendaFormTitle').textContent = `Update agenda event — ${a.title}`;
+  document.getElementById('agendaSubmitBtn').textContent = 'Update Event';
+  document.getElementById('agendaCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('agendaCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('agendaForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('agendaFormTitle').textContent = 'Add agenda event';
+  document.getElementById('agendaSubmitBtn').textContent = 'Save Event';
+  document.getElementById('agendaCancelEditBtn').style.display = 'none';
+});
+document.getElementById('agendaForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const slotId = document.getElementById('agendaSlotSelect').value;
+  if (!slotId) { toast('Select an itinerary slot first'); return; }
+  const body = Object.fromEntries(new FormData(form).entries());
+  body.itinerary_item_id = slotId;
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/agenda/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('agendaFormTitle').textContent = 'Add agenda event';
+      document.getElementById('agendaSubmitBtn').textContent = 'Save Event';
+      document.getElementById('agendaCancelEditBtn').style.display = 'none';
+      toast('Agenda event updated');
+    } else {
+      await jpost(`${API}/agenda`, body);
+      form.reset();
+      toast('Agenda event saved');
+    }
+    refreshAgenda();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Performer / Vendor Groups (hired to perform in the program) ---------
+async function refreshPerformerGroups() {
+  ALL_PERFORMER_GROUPS_CACHE = await jget(`${API}/performer-groups`);
+  document.getElementById('performerTableBody').innerHTML = ALL_PERFORMER_GROUPS_CACHE.map((p) => `
+    <tr>
+      <td><strong>${p.name}</strong></td>
+      <td>${p.category || '-'}</td>
+      <td>${p.contact_person || '-'}${p.phone ? ' <span class="hint">' + p.phone + '</span>' : ''}</td>
+      <td>${Number(p.fee_amount || 0).toLocaleString('en-IN')}</td>
+      <td><span class="pill ${p.payment_status}">${p.payment_status === 'paid' ? 'Paid' : 'Pending'}</span></td>
+      <td>${p.agenda_event_count || 0}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editPerformerGroup(${p.id})">Update</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deletePerformerGroup(${p.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No performer/vendor groups yet</td></tr>';
+
+  const opts = ALL_PERFORMER_GROUPS_CACHE.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
+  const sel = document.getElementById('agendaPerformerSelect');
+  if (sel) sel.innerHTML = '<option value="">-- none --</option>' + opts;
+}
+window.deletePerformerGroup = async (id) => { await jdel(`${API}/performer-groups/${id}`); toast('Performer group removed'); refreshPerformerGroups(); refreshAgenda(); };
+
+const PERFORMER_FORM_FIELDS = ['name', 'category', 'contact_person', 'phone', 'email', 'fee_amount', 'payment_status', 'payment_mode', 'payment_date', 'notes'];
+window.editPerformerGroup = async (id) => {
+  const rows = await jget(`${API}/performer-groups`);
+  const p = rows.find((r) => r.id === id);
+  if (!p) return;
+  const form = document.getElementById('performerForm');
+  PERFORMER_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = p[f] !== null && p[f] !== undefined ? p[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('performerFormTitle').textContent = `Update performer / vendor group — ${p.name}`;
+  document.getElementById('performerSubmitBtn').textContent = 'Update Group';
+  document.getElementById('performerCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('performerCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('performerForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('performerFormTitle').textContent = 'Add performer / vendor group';
+  document.getElementById('performerSubmitBtn').textContent = 'Save Group';
+  document.getElementById('performerCancelEditBtn').style.display = 'none';
+});
+document.getElementById('performerForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/performer-groups/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('performerFormTitle').textContent = 'Add performer / vendor group';
+      document.getElementById('performerSubmitBtn').textContent = 'Save Group';
+      document.getElementById('performerCancelEditBtn').style.display = 'none';
+      toast('Performer group updated');
+    } else {
+      await jpost(`${API}/performer-groups`, body);
+      form.reset();
+      toast('Performer group saved');
+    }
+    refreshPerformerGroups();
+    refreshAgenda();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Agenda / Performer Groups PDFs ---------------------------------------
+window.downloadAgendaPdf = async () => {
+  try {
+    const slotId = document.getElementById('agendaSlotSelect').value;
+    if (!slotId) { toast('Select an itinerary slot first'); return; }
+    const slot = ALL_ITINERARY_CACHE.find((it) => String(it.id) === String(slotId));
+    if (!slot) { toast('Itinerary slot not found'); return; }
+    const rows = await jget(`${API}/agenda?itinerary_item_id=${slotId}`);
+    const doc = pdfDoc();
+    let y = await pdfLetterhead(doc, `Agenda — ${slot.title}`, itinerarySlotLabel(slot));
+    y = pdfTable(doc, y, [
+      { label: 'Time', width: 55 },
+      { label: 'Event', width: 110 },
+      { label: 'Description', width: 145 },
+      { label: 'Organized By', width: 95 },
+      { label: 'Performed By', width: 95 },
+    ], rows.map((a) => [
+      a.time_label || '-',
+      a.title + (a.duration_minutes ? ` (${a.duration_minutes} min)` : ''),
+      a.description || '-',
+      [a.organizing_committee_name, a.organized_by].filter(Boolean).join(' · ') || '-',
+      [a.performer_group_name, a.performed_by].filter(Boolean).join(' · ') || '-',
+    ]));
+    pdfFinalize(doc);
+    doc.save(`agenda-${slot.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadPerformerGroupsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/performer-groups`);
+    await downloadListReportPdf('Performer / Vendor Groups', `${rows.length} group(s)`, [
+      { label: 'Name', width: 140, get: (r) => r.name },
+      { label: 'Category', width: 90, get: (r) => r.category },
+      { label: 'Contact', width: 100, get: (r) => r.contact_person },
+      { label: 'Phone', width: 80, get: (r) => r.phone },
+      { label: 'Fee (₹)', width: 70, get: (r) => Number(r.fee_amount || 0).toLocaleString('en-IN'), align: 'right' },
+      { label: 'Payment', width: 55, get: (r) => r.payment_status },
+    ], rows, 'performer-groups.pdf');
+  } catch (err) { toast(err.message); }
+};
+
 // --- Host Members ---
 async function refreshHostMembers(query) {
   const rows = await jget(`${API}/hostmembers`);
@@ -1157,9 +1379,10 @@ async function refreshHostMembers(query) {
       <td><span class="pill ${h.payment_status}">${h.payment_status}</span> <span class="hint">₹${h.payment_amount}</span></td>
       <td>${h.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createHostLogin(${h.id}, '${(h.name || '').replace(/'/g, '')}')">Create login</button>`}</td>
       <td class="sticky-actions">
-        <button class="btn small" onclick="editHm(${h.id})">Edit</button>
-        <button class="btn small" onclick="openChecklistModal('host_member', ${h.id})">Kit</button>
+        <button class="btn small" onclick="editHm(${h.id})">Update</button>
+        <button class="btn small" onclick="openGoodiesModal('host_member', ${h.id}, '${(h.name || '').replace(/'/g, "\\'")}')">Goodies</button>
         <button class="btn small" onclick="downloadHostMemberDetailPdf(${h.id})">PDF</button>
+        <button class="btn small" onclick="downloadHostMemberReceiptPdf(${h.id})">Receipt</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteHm(${h.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -1286,7 +1509,10 @@ async function refreshHostPayments() {
       <td><input id="hp-mode-${h.id}" type="text" value="${(h.payment_mode || '').replace(/"/g, '&quot;')}" style="width:120px;" placeholder="UPI / Bank / Others" /></td>
       <td><input id="hp-date-${h.id}" type="date" value="${h.payment_date ? new Date(h.payment_date).toISOString().slice(0, 10) : ''}" /></td>
       <td><input id="hp-notes-${h.id}" type="text" value="${(h.notes || '').replace(/"/g, '&quot;')}" style="width:150px;" /></td>
-      <td class="sticky-actions"><button class="btn small" onclick="saveHostPayment(${h.id})">Save</button></td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="saveHostPayment(${h.id})">Save</button>
+        <button class="btn small" onclick="downloadHostMemberReceiptPdf(${h.id})">Receipt</button>
+      </td>
     </tr>
   `).join('') || '<tr><td colspan="9" class="empty">No host members yet</td></tr>';
 }
@@ -1320,7 +1546,7 @@ async function moduleKeysCache() {
 // the checklist modal (see committeeSelectOptions()).
 function populateCommitteeSelects() {
   const opts = ALL_COMMITTEES_CACHE.map((c) => `<option value="${c.id}">${c.name}</option>`).join('');
-  ['checklistTemplateCommitteeSelect', 'bulkAssignCommitteeSelect'].forEach((id) => {
+  ['checklistTemplateCommitteeSelect', 'bulkAssignCommitteeSelect', 'agendaCommitteeSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
     const cur = el.value;
@@ -1353,7 +1579,7 @@ async function refreshCommittees() {
           <span class="pill ${m.is_lead ? 'lead' : 'single'}" style="display:inline-flex;align-items:center;gap:6px;" title="${m.is_lead ? 'Committee lead — delegates tasks and verifies completions' : 'Click the star to make this person the committee lead'}">
             ${m.is_lead ? '★' : `<a href="#" onclick="makeCommitteeLead(${c.id}, ${m.id});return false;" style="color:inherit;">☆</a>`}
             ${m.name}
-            <a href="#" onclick="editCommitteeMemberDetails(${m.id});return false;" style="color:inherit;" title="Edit this host member's details">✎</a>
+            <a href="#" onclick="editCommitteeMemberDetails(${m.id});return false;" style="color:inherit;" title="Update this host member's details">✎</a>
             ${canDelete() ? ` <a href="#" onclick="removeCommitteeMember(${c.id}, ${m.id});return false;" style="color:inherit;">✕</a>` : ''}
           </span>
         `).join('') || '<span class="hint">No members assigned yet</span>'}
@@ -3263,6 +3489,83 @@ window.downloadHostMemberDetailPdf = async (id) => {
   } catch (err) { toast(err.message); }
 };
 
+// Payment Receipt PDF (Host Member's own ₹5,000 host-club contribution) —
+// same letterhead/badge/watermark treatment as the delegate Payment Receipt
+// above, just for a single host member's own payment instead of a
+// registration covering 1-2 delegates. Host members don't have a natural
+// receipt number the way registrations have reg_number, so one is
+// synthesized as HC-<zero-padded id>.
+function hostMemberReceiptNo(h) {
+  return `HC-${String(h.id).padStart(6, '0')}`;
+}
+// Draws one full host-member receipt onto `doc`, starting a fresh page
+// first unless `firstPage` is true — shared by the single-receipt download
+// and the "download all" combined PDF, same pattern as pdfAddReceiptBody.
+async function pdfAddHostMemberReceiptBody(doc, h, firstPage) {
+  if (!firstPage) doc.addPage();
+  const receiptNo = hostMemberReceiptNo(h);
+  let y = await pdfLetterhead(doc, 'Payment Receipt', `Receipt No. ${receiptNo}  ·  Issued ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`);
+
+  if (h.payment_status === 'paid') {
+    doc.setFont(undefined, 'bold'); doc.setFontSize(70);
+    doc.setTextColor(236, 243, 233);
+    doc.text('PAID', 300, 430, { align: 'center', angle: 30 });
+    doc.setTextColor(0, 0, 0);
+  }
+
+  pdfBadge(doc, PDF_CONTENT_RIGHT - 110, y - 14, h.payment_status === 'paid' ? 'PAID' : 'PAYMENT PENDING', h.payment_status === 'paid' ? 'paid' : 'neutral');
+
+  y = pdfSectionLabel(doc, y, 'Billed To');
+  y = pdfKeyValues(doc, y, [
+    ['Name', h.name || '-'],
+    ['Designation', h.designation || '-'],
+    ['Company', h.company || '-'],
+  ]);
+
+  y = pdfSectionLabel(doc, y, 'Payment Details');
+  y = pdfTable(doc, y, [
+    { label: 'Description', width: 355 },
+    { label: 'Amount (₹)', width: 160, align: 'right' },
+  ], [[`Host Club Contribution — ${receiptNo}`, Number(h.payment_amount || 0).toLocaleString('en-IN')]]);
+
+  y = pdfSectionLabel(doc, y + 8, 'Payment Information');
+  y = pdfKeyValues(doc, y, [
+    ['Status', receiptStatusLabel(h.payment_status === 'paid' ? 'paid' : 'pending')],
+    ['Payment Mode', h.payment_mode || '-'],
+    ['Payment Date', h.payment_date ? new Date(h.payment_date).toLocaleDateString('en-IN') : '-'],
+  ]);
+
+  y = pdfMaybeNewPage(doc, y, 30);
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
+  doc.text('This receipt confirms the host club contribution payment recorded in the SINC2026 system. For queries, contact the Host Club team.', PDF_MARGIN, y, { maxWidth: 515 });
+  doc.setTextColor(0, 0, 0);
+  return y;
+}
+window.downloadHostMemberReceiptPdf = async (id) => {
+  try {
+    const rows = await jget(`${API}/hostmembers`);
+    const h = rows.find((r) => r.id === id);
+    if (!h) { toast('Host member not found'); return; }
+    const doc = pdfDoc();
+    await pdfAddHostMemberReceiptBody(doc, h, true);
+    pdfFinalize(doc);
+    doc.save(`receipt-${hostMemberReceiptNo(h)}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadAllHostMemberReceiptsPdf = async () => {
+  try {
+    const rows = await jget(`${API}/hostmembers`);
+    if (!rows.length) { toast('No host members to generate receipts for'); return; }
+    const doc = pdfDoc();
+    for (let i = 0; i < rows.length; i++) {
+      await pdfAddHostMemberReceiptBody(doc, rows[i], i === 0);
+    }
+    pdfFinalize(doc);
+    doc.save('all-host-member-receipts.pdf');
+  } catch (err) { toast(err.message); }
+};
+
 // Host Registration & Payments (own ₹5,000 contribution report)
 window.downloadHostPaymentsListPdf = async () => {
   try {
@@ -4280,12 +4583,20 @@ async function refreshInventoryItems() {
     <tr class="${i.low_stock ? 'row-overdue' : ''}">
       <td><strong>${i.name}</strong>${i.notes ? `<br><span class="hint">${i.notes}</span>` : ''}</td>
       <td>${i.category || '-'}</td>
+      <td>${i.vendor_name || '-'}</td>
       <td>${i.responsible_committee_name || 'Unassigned'}</td>
       <td>${i.quantity_procured} ${i.unit}</td>
       <td>${i.quantity_distributed} ${i.unit}</td>
       <td>${i.quantity_remaining} ${i.unit}${i.low_stock ? ' <span class="pill overdue">Low stock</span>' : ''}</td>
-      <td><span class="pill ${i.procurement_status === 'completed' ? 'done' : i.procurement_status === 'planned' ? 'not_started' : 'in_progress'}">${i.procurement_status}</span>
+      <td>
+        <select onchange="updateInventoryDelivery(${i.id}, 'procurement_status', this.value)">
+          ${['planned', 'ordered', 'received', 'distributing', 'completed', 'delayed'].map((s) => `<option value="${s}" ${i.procurement_status === s ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`).join('')}
+        </select>
         <br><span class="hint">${i.delivered_count}/${i.recipient_count} delivered</span></td>
+      <td>
+        ${i.expected_delivery_date ? `Exp: ${new Date(i.expected_delivery_date).toLocaleDateString()}` : '-'}
+        ${i.actual_delivery_date ? `<br>Actual: ${new Date(i.actual_delivery_date).toLocaleDateString()}` : ''}
+      </td>
       <td class="sticky-actions">
         <button class="btn small" onclick="editInventoryItem(${i.id})">Edit</button>
         <button class="btn small" onclick="openInventoryDistModal(${i.id}, '${(i.name || '').replace(/'/g, "\\'")}')">Deliveries</button>
@@ -4293,10 +4604,14 @@ async function refreshInventoryItems() {
         ${canDelete() ? `<button class="btn danger small" onclick="deleteInventoryItem(${i.id})">Delete</button>` : ''}
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="8" class="empty">No inventory items yet — add one above.</td></tr>';
+  `).join('') || '<tr><td colspan="10" class="empty">No inventory items yet — add one above.</td></tr>';
 }
+window.updateInventoryDelivery = async (id, field, value) => {
+  try { await jput(`${API}/inventory/${id}/delivery`, { [field]: value }); toast('Delivery updated'); refreshInventoryItems(); refreshInventoryMonitor(); }
+  catch (err) { toast(err.message); }
+};
 
-const INVENTORY_FORM_FIELDS = ['name', 'category', 'unit', 'quantity_procured', 'reorder_threshold', 'vendor_name', 'unit_cost', 'procurement_status', 'responsible_committee_id', 'notes'];
+const INVENTORY_FORM_FIELDS = ['name', 'category', 'unit', 'quantity_procured', 'reorder_threshold', 'vendor_id', 'vendor_name', 'unit_cost', 'procurement_status', 'responsible_committee_id', 'expected_delivery_date', 'actual_delivery_date', 'notes'];
 window.editInventoryItem = async (id) => {
   const rows = await jget(`${API}/inventory`);
   const item = rows.find((r) => r.id === id);
@@ -4464,6 +4779,91 @@ window.submitInventoryAddRecipient = async (e) => {
     refreshInventoryMonitor();
   } catch (err) { toast(err.message); }
   return false;
+};
+
+// --- Per-PERSON goodies view — the mirror image of openInventoryDistModal.
+// Opened from the "Goodies" button on Delegates/Host Members (replacing the
+// old generic "Kit" checklist button), this lists every inventory item
+// already assigned to that one recipient with an inline status dropdown so
+// the distribution team can mark things delivered without hunting through
+// the whole Goodies & Inventory stock list item-by-item. Reuses the same
+// GET /inventory/monitor endpoint as the committee-wide Delivery Monitor
+// table, just scoped to one recipient_type+recipient_id.
+let goodiesCtx = { recipientType: null, recipientId: null, recipientName: '' };
+
+window.openGoodiesModal = async (recipientType, recipientId, recipientName) => {
+  goodiesCtx = { recipientType, recipientId, recipientName };
+  document.getElementById('goodiesModalTitle').textContent = recipientName ? `Goodies — ${recipientName}` : 'Goodies';
+  document.getElementById('goodiesModal').style.display = '';
+  await renderGoodiesModalBody();
+};
+window.closeGoodiesModal = () => {
+  document.getElementById('goodiesModal').style.display = 'none';
+  goodiesCtx = { recipientType: null, recipientId: null, recipientName: '' };
+};
+
+async function renderGoodiesModalBody() {
+  const { recipientType, recipientId } = goodiesCtx;
+  if (!recipientType || !recipientId) return;
+  const rows = await jget(`${API}/inventory/monitor?recipient_type=${recipientType}&recipient_id=${recipientId}`);
+  const rowsHtml = rows.map((d) => `
+    <div class="checklist-row status-${d.status}">
+      <span class="checklist-label">
+        ${d.item_name}${d.quantity > 1 ? ` ×${d.quantity}` : ''}
+        ${d.item_category ? `<br><span class="hint">${d.item_category}</span>` : ''}
+      </span>
+      <select onchange="updateInventoryDistField(${d.id}, 'status', this.value)">
+        <option value="pending" ${d.status === 'pending' ? 'selected' : ''}>Pending</option>
+        <option value="delivered" ${d.status === 'delivered' ? 'selected' : ''}>Delivered</option>
+        <option value="cancelled" ${d.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+      </select>
+      ${d.status === 'delivered' && d.delivered_by_name ? `<span class="hint">✓ ${d.delivered_by_name}${d.delivered_at ? ' on ' + new Date(d.delivered_at).toLocaleDateString() : ''}</span>` : (d.assigned_host_member_name ? `<span class="hint">Assigned: ${d.assigned_host_member_name}</span>` : '')}
+      ${canDelete() ? `<button class="btn danger small" onclick="deleteGoodiesDist(${d.id})">Delete</button>` : ''}
+    </div>
+  `).join('') || '<p class="empty">Nothing assigned to this person yet — add an item below.</p>';
+
+  let items = [];
+  try { items = await jget(`${API}/inventory`); } catch (e) { items = []; }
+  const itemOptions = items.map((i) => `<option value="${i.id}">${i.name}${i.category ? ` (${i.category})` : ''} — ${i.quantity_remaining} ${i.unit} left</option>`).join('');
+
+  document.getElementById('goodiesModalBody').innerHTML = `
+    ${rowsHtml}
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+      <strong>Assign an item to this person</strong>
+      <form onsubmit="return submitGoodiesAssignItem(event)" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <select name="inventory_item_id" required style="min-width:200px;">
+          <option value="">-- select item --</option>
+          ${itemOptions}
+        </select>
+        <input name="quantity" type="number" min="1" value="1" style="max-width:80px;" title="Quantity" />
+        <button class="btn gold small" type="submit">Assign</button>
+      </form>
+      ${!items.length ? '<p class="hint">No inventory items exist yet — add one in the Goodies &amp; Inventory tab first.</p>' : ''}
+    </div>
+  `;
+}
+
+window.submitGoodiesAssignItem = async (e) => {
+  e.preventDefault();
+  const { recipientType, recipientId } = goodiesCtx;
+  const form = e.target;
+  const itemId = form.elements.inventory_item_id.value;
+  if (!itemId) { toast('Choose an item'); return false; }
+  const quantity = form.elements.quantity.value || 1;
+  try {
+    await jpost(`${API}/inventory/${itemId}/distributions`, { recipient_type: recipientType, recipient_id: recipientId, quantity });
+    toast('Item assigned');
+    await renderGoodiesModalBody();
+    refreshInventoryItems();
+    refreshInventoryMonitor();
+  } catch (err) { toast(err.message); }
+  return false;
+};
+window.deleteGoodiesDist = async (distId) => {
+  await jdel(`${API}/inventory/distributions/${distId}`);
+  await renderGoodiesModalBody();
+  refreshInventoryItems();
+  refreshInventoryMonitor();
 };
 
 // --- Delivery monitor — by committee (mirrors the checklist Delivery Monitor) ---
@@ -4701,7 +5101,7 @@ async function refreshUsersAdmin() {
     </tr>
   `).join('') || '<tr><td colspan="4" class="empty">No pending requests</td></tr>';
 
-  const linkedProfile = (u) => u.host_member_name || u.driver_name || u.partner_name || u.volunteer_name || '<span class="hint">-</span>';
+  const linkedProfile = (u) => u.host_member_name || u.driver_name || u.partner_name || u.volunteer_name || u.vendor_name || '<span class="hint">-</span>';
   document.getElementById('allUsersBody').innerHTML = users.map((u) => `
     <tr>
       <td>${u.username}</td><td>${u.email || '-'}</td><td>${u.role}</td>
@@ -4744,6 +5144,8 @@ const createUserPartnerField = document.getElementById('createUserPartnerField')
 const createUserPartnerSelect = document.getElementById('createUserPartnerSelect');
 const createUserVolunteerField = document.getElementById('createUserVolunteerField');
 const createUserVolunteerSelect = document.getElementById('createUserVolunteerSelect');
+const createUserVendorField = document.getElementById('createUserVendorField');
+const createUserVendorSelect = document.getElementById('createUserVendorSelect');
 if (createUserRoleSelect) {
   createUserRoleSelect.addEventListener('change', () => {
     const role = createUserRoleSelect.value;
@@ -4751,6 +5153,7 @@ if (createUserRoleSelect) {
     const isDriver = role === 'driver';
     const isTransporter = role === 'transporter';
     const isVolunteer = role === 'volunteer';
+    const isVendor = role === 'vendor';
     createUserHmField.style.display = isHostMember ? '' : 'none';
     if (createUserHmSelect) createUserHmSelect.required = isHostMember;
     createUserDriverField.style.display = isDriver ? '' : 'none';
@@ -4759,6 +5162,8 @@ if (createUserRoleSelect) {
     if (createUserPartnerSelect) createUserPartnerSelect.required = isTransporter;
     if (createUserVolunteerField) createUserVolunteerField.style.display = isVolunteer ? '' : 'none';
     if (createUserVolunteerSelect) createUserVolunteerSelect.required = isVolunteer;
+    if (createUserVendorField) createUserVendorField.style.display = isVendor ? '' : 'none';
+    if (createUserVendorSelect) createUserVendorSelect.required = isVendor;
   });
 }
 
@@ -4766,9 +5171,9 @@ document.getElementById('createUserForm').addEventListener('submit', async (e) =
   e.preventDefault();
   const fd = new FormData(e.target);
   const body = Object.fromEntries(fd.entries());
-  const LINKED_FIELD_BY_ROLE = { host_member: 'host_member_id', driver: 'driver_id', transporter: 'partner_id', volunteer: 'volunteer_id' };
-  const LINKED_LABEL_BY_ROLE = { host_member: 'host member', driver: 'driver', transporter: 'transport partner', volunteer: 'volunteer' };
-  for (const field of ['host_member_id', 'driver_id', 'partner_id', 'volunteer_id']) {
+  const LINKED_FIELD_BY_ROLE = { host_member: 'host_member_id', driver: 'driver_id', transporter: 'partner_id', volunteer: 'volunteer_id', vendor: 'vendor_id' };
+  const LINKED_LABEL_BY_ROLE = { host_member: 'host member', driver: 'driver', transporter: 'transport partner', volunteer: 'volunteer', vendor: 'vendor' };
+  for (const field of ['host_member_id', 'driver_id', 'partner_id', 'volunteer_id', 'vendor_id']) {
     if (LINKED_FIELD_BY_ROLE[body.role] !== field) delete body[field];
   }
   const requiredField = LINKED_FIELD_BY_ROLE[body.role];
@@ -4783,10 +5188,12 @@ document.getElementById('createUserForm').addEventListener('submit', async (e) =
     createUserDriverField.style.display = 'none';
     createUserPartnerField.style.display = 'none';
     if (createUserVolunteerField) createUserVolunteerField.style.display = 'none';
+    if (createUserVendorField) createUserVendorField.style.display = 'none';
     toast('Login created');
     refreshUsersAdmin();
     refreshHostMembers();
     refreshVolunteers();
+    if (typeof refreshVendors === 'function') refreshVendors();
   } catch (err) { toast(err.message); }
 });
 
@@ -4799,6 +5206,410 @@ document.getElementById('changePasswordForm').addEventListener('submit', async (
     toast('Password updated');
   } catch (err) { toast(err.message); }
 });
+
+// --- Stalls: enquiry -> billed -> allocated workflow -----------------------
+// Halls and stalls are simple admin-managed masters (the venue's final
+// hall/stall count isn't fixed yet); stall_bookings is the enquiry/company
+// side — always an external exhibitor, never a host member.
+const STALL_STATUS_LABEL = { enquiry: 'Enquiry', billed: 'Billed', allocated: 'Allocated', cancelled: 'Cancelled' };
+
+// --- Halls ---
+async function refreshStallHalls() {
+  const rows = await jget(`${API}/stall-halls`);
+  document.getElementById('stallHallTableBody').innerHTML = rows.map((h) => `
+    <tr>
+      <td><strong>${h.name}</strong>${h.notes ? '<div class="hint">' + h.notes + '</div>' : ''}</td>
+      <td>${h.capacity != null ? h.capacity : '-'}</td>
+      <td>${h.stall_count}</td>
+      <td>${h.available_count}</td>
+      <td>${h.allocated_count}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editStallHall(${h.id})">Update</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteStallHall(${h.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">No halls yet</td></tr>';
+
+  const opts = rows.map((h) => `<option value="${h.id}">${h.name}</option>`).join('');
+  ['stallGenerateHallSelect', 'stallHallSelect'].forEach((id) => {
+    const sel = document.getElementById(id);
+    if (sel) sel.innerHTML = '<option value="">-- select hall --</option>' + opts;
+  });
+  const filterSel = document.getElementById('stallFilterHall');
+  if (filterSel) filterSel.innerHTML = '<option value="">All halls</option>' + opts;
+}
+window.deleteStallHall = async (id) => {
+  try { await jdel(`${API}/stall-halls/${id}`); toast('Hall removed'); refreshStallHalls(); refreshStalls(); }
+  catch (err) { toast(err.message); }
+};
+const STALL_HALL_FORM_FIELDS = ['name', 'capacity', 'notes'];
+window.editStallHall = async (id) => {
+  const rows = await jget(`${API}/stall-halls`);
+  const h = rows.find((r) => r.id === id);
+  if (!h) return;
+  const form = document.getElementById('stallHallForm');
+  STALL_HALL_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = h[f] !== null && h[f] !== undefined ? h[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('stallHallFormTitle').textContent = 'Update hall';
+  document.getElementById('stallHallSubmitBtn').textContent = 'Update Hall';
+  document.getElementById('stallHallCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('stallHallCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('stallHallForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('stallHallFormTitle').textContent = 'Add hall';
+  document.getElementById('stallHallSubmitBtn').textContent = 'Save Hall';
+  document.getElementById('stallHallCancelEditBtn').style.display = 'none';
+});
+document.getElementById('stallHallForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/stall-halls/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('stallHallFormTitle').textContent = 'Add hall';
+      document.getElementById('stallHallSubmitBtn').textContent = 'Save Hall';
+      document.getElementById('stallHallCancelEditBtn').style.display = 'none';
+      toast('Hall updated');
+    } else {
+      await jpost(`${API}/stall-halls`, body);
+      form.reset();
+      toast('Hall saved');
+    }
+    refreshStallHalls();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Stalls (per hall) ---
+async function refreshStalls() {
+  const hallId = document.getElementById('stallFilterHall')?.value || '';
+  const status = document.getElementById('stallFilterStatus')?.value || '';
+  const params = new URLSearchParams();
+  if (hallId) params.set('hall_id', hallId);
+  if (status) params.set('status', status);
+  const qs = params.toString();
+  const rows = await jget(`${API}/stalls${qs ? '?' + qs : ''}`);
+  document.getElementById('stallTableBody').innerHTML = rows.map((s) => `
+    <tr>
+      <td>${s.hall_name}</td>
+      <td><strong>${s.stall_number}</strong></td>
+      <td>${s.size || '-'}</td>
+      <td>${Number(s.price || 0).toLocaleString('en-IN')}</td>
+      <td><span class="pill ${s.status}">${s.status === 'allocated' ? 'Allocated' : 'Available'}</span></td>
+      <td>${s.booked_company_name || '-'}</td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editStall(${s.id})">Update</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteStall(${s.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No stalls yet</td></tr>';
+
+  // Refresh the stall picker on the Enquiries & Bookings form too, so a
+  // newly generated/edited stall shows up there without a manual reload.
+  refreshStallBookingStallOptions();
+}
+window.deleteStall = async (id) => {
+  try { await jdel(`${API}/stalls/${id}`); toast('Stall removed'); refreshStalls(); refreshStallHalls(); }
+  catch (err) { toast(err.message); }
+};
+const STALL_FORM_FIELDS = ['hall_id', 'stall_number', 'size', 'price', 'notes'];
+window.editStall = async (id) => {
+  const rows = await jget(`${API}/stalls`);
+  const s = rows.find((r) => r.id === id);
+  if (!s) return;
+  const form = document.getElementById('stallForm');
+  STALL_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = s[f] !== null && s[f] !== undefined ? s[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('stallFormTitle').textContent = 'Update stall';
+  document.getElementById('stallSubmitBtn').textContent = 'Update Stall';
+  document.getElementById('stallCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('stallCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('stallForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('stallFormTitle').textContent = 'Add a single stall';
+  document.getElementById('stallSubmitBtn').textContent = 'Save Stall';
+  document.getElementById('stallCancelEditBtn').style.display = 'none';
+});
+document.getElementById('stallForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/stalls/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('stallFormTitle').textContent = 'Add a single stall';
+      document.getElementById('stallSubmitBtn').textContent = 'Save Stall';
+      document.getElementById('stallCancelEditBtn').style.display = 'none';
+      toast('Stall updated');
+    } else {
+      await jpost(`${API}/stalls`, body);
+      form.reset();
+      toast('Stall saved');
+    }
+    refreshStalls();
+    refreshStallHalls();
+  } catch (err) { toast(err.message); }
+});
+document.getElementById('stallGenerateForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    const res = await jpost(`${API}/stalls/generate`, body);
+    toast(`Generated ${res.created} stall(s)${res.skipped ? `, ${res.skipped} already existed` : ''}`);
+    form.reset();
+    refreshStalls();
+    refreshStallHalls();
+  } catch (err) { toast(err.message); }
+});
+document.getElementById('stallFilterHall').addEventListener('change', refreshStalls);
+document.getElementById('stallFilterStatus').addEventListener('change', refreshStalls);
+
+// --- Stall Bookings (enquiry -> billed -> allocated) ---
+// The stall picker only ever offers stalls that are available OR are the
+// booking currently being edited's own stall — so admins can't accidentally
+// pick a stall someone else already holds.
+async function refreshStallBookingStallOptions(selectedStallId) {
+  const sel = document.getElementById('stallBookingStallSelect');
+  if (!sel) return;
+  const rows = await jget(`${API}/stalls`);
+  const usable = rows.filter((s) => s.status === 'available' || String(s.id) === String(selectedStallId));
+  sel.innerHTML = '<option value="">-- none yet --</option>' + usable.map((s) =>
+    `<option value="${s.id}" ${String(selectedStallId) === String(s.id) ? 'selected' : ''}>${s.hall_name} — ${s.stall_number} (₹${Number(s.price || 0).toLocaleString('en-IN')})</option>`
+  ).join('');
+}
+// --- Exhibitors Directory (Halls & Stalls tab) — a read-only consolidated
+// view over the SAME stall_bookings rows shown in Enquiries & Bookings, just
+// filtered/searchable and framed as "who are all our exhibitors" rather than
+// the enquiry-workflow view. No new backend endpoint — reuses GET /stall-bookings.
+async function refreshExhibitorsDirectory() {
+  const rows = await jget(`${API}/stall-bookings`);
+  const status = document.getElementById('exhibitorFilterStatus')?.value || '';
+  const payment = document.getElementById('exhibitorFilterPayment')?.value || '';
+  const q = (document.getElementById('exhibitorSearchInput')?.value || '').toLowerCase();
+  const filtered = rows.filter((b) => {
+    if (status && b.status !== status) return false;
+    if (payment && b.payment_status !== payment) return false;
+    if (q && ![b.company_name, b.contact_person, b.phone].filter(Boolean).some((v) => String(v).toLowerCase().includes(q))) return false;
+    return true;
+  });
+  document.getElementById('exhibitorTableBody').innerHTML = filtered.map((b) => `
+    <tr>
+      <td><strong>${b.company_name}</strong>${b.gstin ? '<div class="hint">GSTIN: ' + b.gstin + '</div>' : ''}</td>
+      <td>${b.contact_person || '-'}${b.phone ? '<div class="hint">' + b.phone + (b.email ? ' · ' + b.email : '') + '</div>' : ''}</td>
+      <td>${b.stall_number ? b.hall_name + ' — ' + b.stall_number : '-'}</td>
+      <td><span class="pill ${b.status}">${STALL_STATUS_LABEL[b.status] || b.status}</span></td>
+      <td><span class="pill ${b.payment_status}">${b.payment_status === 'paid' ? 'Paid' : 'Pending'}</span></td>
+      <td>${Number(b.amount || 0).toLocaleString('en-IN')}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">No exhibitors match this filter.</td></tr>';
+}
+['exhibitorFilterStatus', 'exhibitorFilterPayment'].forEach((id) => {
+  document.getElementById(id)?.addEventListener('change', refreshExhibitorsDirectory);
+});
+document.getElementById('exhibitorSearchInput')?.addEventListener('input', refreshExhibitorsDirectory);
+window.downloadExhibitorsListPdf = async () => {
+  const rows = await jget(`${API}/stall-bookings`);
+  downloadListReportPdf('Exhibitors Directory', 'All companies who have enquired for a stall', [
+    { label: 'Company', width: 90, get: (r) => r.company_name },
+    { label: 'Contact', width: 70, get: (r) => r.contact_person || '-' },
+    { label: 'Phone', width: 60, get: (r) => r.phone || '-' },
+    { label: 'Hall / Stall', width: 60, get: (r) => (r.stall_number ? `${r.hall_name} — ${r.stall_number}` : '-') },
+    { label: 'Status', width: 50, get: (r) => STALL_STATUS_LABEL[r.status] || r.status },
+    { label: 'Payment', width: 40, get: (r) => (r.payment_status === 'paid' ? 'Paid' : 'Pending') },
+    { label: 'Amount (₹)', width: 50, get: (r) => Number(r.amount || 0).toLocaleString('en-IN') }
+  ], rows, 'exhibitors-directory.pdf');
+};
+
+async function refreshStallBookings() {
+  const rows = await jget(`${API}/stall-bookings`);
+  document.getElementById('stallBookingTableBody').innerHTML = rows.map((b) => `
+    <tr>
+      <td><strong>${b.company_name}</strong>${b.gstin ? '<div class="hint">GSTIN: ' + b.gstin + '</div>' : ''}</td>
+      <td>${b.contact_person || '-'}${b.phone ? '<div class="hint">' + b.phone + '</div>' : ''}</td>
+      <td><span class="pill ${b.status}">${STALL_STATUS_LABEL[b.status] || b.status}</span></td>
+      <td>${b.stall_number ? b.hall_name + ' — ' + b.stall_number : '-'}</td>
+      <td>${Number(b.amount || 0).toLocaleString('en-IN')}</td>
+      <td><span class="pill ${b.payment_status}">${b.payment_status === 'paid' ? 'Paid' : 'Pending'}</span></td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="editStallBooking(${b.id})">Update</button>
+        <button class="btn small" onclick="downloadStallBookingReceiptPdf(${b.id})">Receipt</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteStallBooking(${b.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No enquiries yet</td></tr>';
+}
+window.deleteStallBooking = async (id) => {
+  try { await jdel(`${API}/stall-bookings/${id}`); toast('Enquiry removed'); refreshStallBookings(); refreshStalls(); refreshExhibitorsDirectory(); }
+  catch (err) { toast(err.message); }
+};
+const STALL_BOOKING_FORM_FIELDS = [
+  'company_name', 'contact_person', 'phone', 'email', 'gstin', 'requirement_notes',
+  'status', 'amount', 'payment_status', 'payment_mode', 'payment_date', 'notes'
+];
+window.editStallBooking = async (id) => {
+  const rows = await jget(`${API}/stall-bookings`);
+  const b = rows.find((r) => r.id === id);
+  if (!b) return;
+  const form = document.getElementById('stallBookingForm');
+  STALL_BOOKING_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = b[f] !== null && b[f] !== undefined ? b[f] : ''; });
+  await refreshStallBookingStallOptions(b.stall_id);
+  form.dataset.editId = id;
+  document.getElementById('stallBookingFormTitle').textContent = `Update enquiry — ${b.company_name}`;
+  document.getElementById('stallBookingSubmitBtn').textContent = 'Update Enquiry';
+  document.getElementById('stallBookingCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('stallBookingCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('stallBookingForm');
+  form.reset(); delete form.dataset.editId;
+  refreshStallBookingStallOptions();
+  document.getElementById('stallBookingFormTitle').textContent = 'New stall enquiry';
+  document.getElementById('stallBookingSubmitBtn').textContent = 'Save Enquiry';
+  document.getElementById('stallBookingCancelEditBtn').style.display = 'none';
+});
+document.getElementById('stallBookingForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/stall-bookings/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      refreshStallBookingStallOptions();
+      document.getElementById('stallBookingFormTitle').textContent = 'New stall enquiry';
+      document.getElementById('stallBookingSubmitBtn').textContent = 'Save Enquiry';
+      document.getElementById('stallBookingCancelEditBtn').style.display = 'none';
+      toast('Enquiry updated');
+    } else {
+      await jpost(`${API}/stall-bookings`, body);
+      form.reset();
+      toast('Enquiry saved');
+    }
+    refreshStallBookings();
+    refreshStalls();
+    refreshStallHalls();
+    refreshExhibitorsDirectory();
+  } catch (err) { toast(err.message); }
+});
+
+// --- Stalls PDFs: list reports + receipt ---
+window.downloadStallsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/stalls`);
+    await downloadListReportPdf('Stalls', `${rows.length} stall(s)`, [
+      { label: 'Hall', width: 110, get: (r) => r.hall_name },
+      { label: 'Stall #', width: 70, get: (r) => r.stall_number },
+      { label: 'Size', width: 80, get: (r) => r.size },
+      { label: 'Price (₹)', width: 75, get: (r) => Number(r.price || 0).toLocaleString('en-IN'), align: 'right' },
+      { label: 'Status', width: 65, get: (r) => r.status },
+      { label: 'Booked by', width: 115, get: (r) => r.booked_company_name },
+    ], rows, 'stalls.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadStallBookingsListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/stall-bookings`);
+    await downloadListReportPdf('Stall Enquiries & Bookings', `${rows.length} enquir${rows.length === 1 ? 'y' : 'ies'}`, [
+      { label: 'Company', width: 130, get: (r) => r.company_name },
+      { label: 'Contact', width: 90, get: (r) => r.contact_person },
+      { label: 'Phone', width: 80, get: (r) => r.phone },
+      { label: 'Status', width: 60, get: (r) => STALL_STATUS_LABEL[r.status] || r.status },
+      { label: 'Stall', width: 80, get: (r) => r.stall_number ? `${r.hall_name} — ${r.stall_number}` : '-' },
+      { label: 'Amount (₹)', width: 60, get: (r) => Number(r.amount || 0).toLocaleString('en-IN'), align: 'right' },
+    ], rows, 'stall-bookings.pdf');
+  } catch (err) { toast(err.message); }
+};
+
+// Receipt for a stall booking's payment — same letterhead/badge/watermark
+// treatment as the delegate and host-member receipts. No natural receipt
+// number exists for a booking the way registrations have reg_number, so one
+// is synthesized as ST-<zero-padded id>, same convention as HC-<id> for host
+// members.
+function stallBookingReceiptNo(b) {
+  return `ST-${String(b.id).padStart(6, '0')}`;
+}
+async function pdfAddStallBookingReceiptBody(doc, b, firstPage) {
+  if (!firstPage) doc.addPage();
+  const receiptNo = stallBookingReceiptNo(b);
+  let y = await pdfLetterhead(doc, 'Stall Booking Receipt', `Receipt No. ${receiptNo}  ·  Issued ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`);
+
+  if (b.payment_status === 'paid') {
+    doc.setFont(undefined, 'bold'); doc.setFontSize(70);
+    doc.setTextColor(236, 243, 233);
+    doc.text('PAID', 300, 430, { align: 'center', angle: 30 });
+    doc.setTextColor(0, 0, 0);
+  }
+
+  pdfBadge(doc, PDF_CONTENT_RIGHT - 110, y - 14, b.payment_status === 'paid' ? 'PAID' : 'PAYMENT PENDING', b.payment_status === 'paid' ? 'paid' : 'neutral');
+
+  y = pdfSectionLabel(doc, y, 'Billed To');
+  y = pdfKeyValues(doc, y, [
+    ['Company', b.company_name || '-'],
+    ['Contact Person', b.contact_person || '-'],
+    ['Phone', b.phone || '-'],
+    ['GSTIN', b.gstin || '-'],
+  ]);
+
+  y = pdfSectionLabel(doc, y, 'Stall Details');
+  y = pdfKeyValues(doc, y, [
+    ['Hall', b.hall_name || '-'],
+    ['Stall Number', b.stall_number || '-'],
+    ['Status', STALL_STATUS_LABEL[b.status] || b.status],
+  ]);
+
+  y = pdfSectionLabel(doc, y, 'Payment Details');
+  y = pdfTable(doc, y, [
+    { label: 'Description', width: 355 },
+    { label: 'Amount (₹)', width: 160, align: 'right' },
+  ], [[`Exhibition Stall Booking — ${receiptNo}`, Number(b.amount || 0).toLocaleString('en-IN')]]);
+
+  y = pdfSectionLabel(doc, y + 8, 'Payment Information');
+  y = pdfKeyValues(doc, y, [
+    ['Status', b.payment_status === 'paid' ? 'PAID' : 'PAYMENT PENDING'],
+    ['Payment Mode', b.payment_mode || '-'],
+    ['Payment Date', b.payment_date ? new Date(b.payment_date).toLocaleDateString('en-IN') : '-'],
+  ]);
+
+  y = pdfMaybeNewPage(doc, y, 30);
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
+  doc.text('This receipt confirms the exhibition stall booking payment recorded in the SINC2026 system. For queries, contact the Stalls team.', PDF_MARGIN, y, { maxWidth: 515 });
+  doc.setTextColor(0, 0, 0);
+  return y;
+}
+window.downloadStallBookingReceiptPdf = async (id) => {
+  try {
+    const rows = await jget(`${API}/stall-bookings`);
+    const b = rows.find((r) => r.id === id);
+    if (!b) { toast('Booking not found'); return; }
+    const doc = pdfDoc();
+    await pdfAddStallBookingReceiptBody(doc, b, true);
+    pdfFinalize(doc);
+    doc.save(`receipt-${stallBookingReceiptNo(b)}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadAllStallBookingReceiptsPdf = async () => {
+  try {
+    const rows = await jget(`${API}/stall-bookings`);
+    if (!rows.length) { toast('No bookings to generate receipts for'); return; }
+    const doc = pdfDoc();
+    for (let i = 0; i < rows.length; i++) {
+      await pdfAddStallBookingReceiptBody(doc, rows[i], i === 0);
+    }
+    pdfFinalize(doc);
+    doc.save('all-stall-booking-receipts.pdf');
+  } catch (err) { toast(err.message); }
+};
 
 function refreshStatsDependents() { if (dashboardStarted) refreshDashboardStats(); }
 
@@ -4835,12 +5646,567 @@ function loadAllData() {
   refreshPreTours();
   refreshHotels();
   refreshRooms();
+  refreshVendors();
   refreshInventoryItems();
   refreshInventoryMonitor();
   refreshSponsors();
   refreshSpeakers();
   refreshGuestVisitors();
+  refreshStallHalls();
+  refreshStalls();
+  refreshStallBookings();
+  refreshExhibitorsDirectory();
+  refreshPerformerGroups();
+  refreshFinanceSummary();
+  refreshFinanceInward();
+  refreshFinanceOutward();
+  refreshFinancePurchases();
   if (CURRENT_USER && CURRENT_USER.role === 'super_admin') refreshUsersAdmin();
 }
+
+// ============================================================
+// --- Finance module: inward/outward tracking + approvals ---
+// ============================================================
+// Outward payments/purchases carry an `approvals` array (from the server's
+// JSON-aggregated subquery) — one entry per required role, each already
+// including who's currently assigned to that role (or null if nobody is
+// tagged with it yet, which would leave that slot stuck forever until an
+// admin fixes the Host Members leadership_role tagging).
+function financeApprovalChipsHtml(approvals) {
+  return (approvals || []).map((a) => {
+    if (a.status === 'approved') return `<span class="approval-chip approved">✓ ${a.required_role}${a.approved_by ? ' — ' + a.approved_by : ''}</span>`;
+    if (a.status === 'rejected') return `<span class="approval-chip rejected">✗ ${a.required_role}${a.approved_by ? ' — ' + a.approved_by : ''}</span>`;
+    if (!a.assigned_to) return `<span class="approval-chip unassigned">${a.required_role}: nobody assigned</span>`;
+    return `<span class="approval-chip pending">${a.required_role}: pending (${a.assigned_to})</span>`;
+  }).join(' ');
+}
+const FINANCE_STATUS_LABEL = {
+  recorded: 'Recorded', pending_approval: 'Pending Approval', approved: 'Approved', rejected: 'Rejected', paid: 'Paid'
+};
+
+async function refreshFinanceSummary() {
+  try {
+    const s = await jget(`${API}/finance/summary`);
+    document.getElementById('finTotalInward').textContent = '₹' + Number(s.total_inward).toLocaleString('en-IN');
+    document.getElementById('finTotalOutwardPaid').textContent = '₹' + Number(s.total_outward_paid).toLocaleString('en-IN');
+    document.getElementById('finNetBalance').textContent = '₹' + Number(s.net_balance).toLocaleString('en-IN');
+    document.getElementById('finPendingApprovalCount').textContent = s.pending_approval_count;
+    document.getElementById('finPendingApprovalAmount').textContent = '₹' + Number(s.pending_approval_amount).toLocaleString('en-IN');
+    document.getElementById('finApprovedAwaitingCount').textContent = s.approved_awaiting_payment_count;
+  } catch (err) { toast(err.message); }
+}
+
+// --- Inward ledger ---
+const FINANCE_SOURCE_LABEL = {
+  registration: 'Registration', host_member: 'Host Member', stall_booking: 'Stall Booking',
+  pre_tour: 'Pre-Tour', manual: 'Manual entry'
+};
+async function refreshFinanceInward() {
+  try {
+    const rows = await jget(`${API}/finance/inward`);
+    document.getElementById('finInwardTableBody').innerHTML = rows.map((r) => `
+      <tr>
+        <td>${r.transaction_date ? new Date(r.transaction_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</td>
+        <td>${FINANCE_SOURCE_LABEL[r.source] || r.source}</td>
+        <td>${r.category || '-'}</td>
+        <td>${r.reference || '-'}</td>
+        <td>${Number(r.amount || 0).toLocaleString('en-IN')}</td>
+        <td>${r.payment_mode || '-'}</td>
+        <td class="sticky-actions">
+          ${r.source === 'manual' ? `
+            <button class="btn small" onclick="editFinanceInward(${r.source_id})">Update</button>
+            ${canDelete() ? `<button class="btn danger small" onclick="deleteFinanceInward(${r.source_id})">Delete</button>` : ''}
+          ` : ''}
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="7" class="empty">No inward transactions yet</td></tr>';
+  } catch (err) { toast(err.message); }
+}
+window.deleteFinanceInward = async (id) => {
+  try { await jdel(`${API}/finance/inward/${id}`); toast('Entry removed'); refreshFinanceInward(); refreshFinanceSummary(); }
+  catch (err) { toast(err.message); }
+};
+const FINANCE_INWARD_FORM_FIELDS = ['category', 'payee_or_payer', 'amount', 'transaction_date', 'payment_mode', 'description', 'notes'];
+window.editFinanceInward = async (id) => {
+  const rows = await jget(`${API}/finance/inward`);
+  const r = rows.find((x) => x.source === 'manual' && x.source_id === id);
+  if (!r) return;
+  const form = document.getElementById('finInwardForm');
+  form.elements.category.value = r.category || '';
+  form.elements.payee_or_payer.value = r.reference || '';
+  form.elements.amount.value = r.amount || '';
+  form.elements.transaction_date.value = r.transaction_date ? String(r.transaction_date).slice(0, 10) : '';
+  form.elements.payment_mode.value = r.payment_mode || '';
+  form.elements.notes.value = r.notes || '';
+  form.dataset.editId = id;
+  document.getElementById('finInwardFormTitle').textContent = 'Update manual inward entry';
+  document.getElementById('finInwardSubmitBtn').textContent = 'Update Entry';
+  document.getElementById('finInwardCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('finInwardCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('finInwardForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('finInwardFormTitle').textContent = 'Add manual inward entry';
+  document.getElementById('finInwardSubmitBtn').textContent = 'Save Entry';
+  document.getElementById('finInwardCancelEditBtn').style.display = 'none';
+});
+document.getElementById('finInwardForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/finance/inward/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('finInwardFormTitle').textContent = 'Add manual inward entry';
+      document.getElementById('finInwardSubmitBtn').textContent = 'Save Entry';
+      document.getElementById('finInwardCancelEditBtn').style.display = 'none';
+      toast('Entry updated');
+    } else {
+      await jpost(`${API}/finance/inward`, body);
+      form.reset();
+      toast('Entry saved');
+    }
+    refreshFinanceInward();
+    refreshFinanceSummary();
+  } catch (err) { toast(err.message); }
+});
+window.downloadFinanceInwardListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/finance/inward`);
+    await downloadListReportPdf('Inward Ledger', `${rows.length} transaction(s)`, [
+      { label: 'Date', width: 65, get: (r) => r.transaction_date ? String(r.transaction_date).slice(0, 10) : '-' },
+      { label: 'Source', width: 80, get: (r) => FINANCE_SOURCE_LABEL[r.source] || r.source },
+      { label: 'Category', width: 90, get: (r) => r.category },
+      { label: 'From', width: 130, get: (r) => r.reference },
+      { label: 'Amount (₹)', width: 70, get: (r) => Number(r.amount || 0).toLocaleString('en-IN'), align: 'right' },
+      { label: 'Mode', width: 70, get: (r) => r.payment_mode },
+    ], rows, 'finance-inward.pdf');
+  } catch (err) { toast(err.message); }
+};
+
+// --- Outward: plain payments ---
+async function refreshFinanceOutward() {
+  try {
+    const rows = await jget(`${API}/finance/outward?subtype=payment`);
+    document.getElementById('finOutwardTableBody').innerHTML = rows.map((r) => `
+      <tr>
+        <td><strong>${r.payee_or_payer}</strong>${r.description ? '<div class="hint">' + r.description + '</div>' : ''}</td>
+        <td>${r.category || '-'}</td>
+        <td>${Number(r.amount || 0).toLocaleString('en-IN')}</td>
+        <td><span class="pill ${r.status}">${FINANCE_STATUS_LABEL[r.status] || r.status}</span></td>
+        <td>${financeApprovalChipsHtml(r.approvals)}</td>
+        <td class="sticky-actions">
+          ${r.status === 'pending_approval' ? `<button class="btn small" onclick="editFinanceOutward(${r.id})">Update</button>` : ''}
+          ${r.status === 'approved' ? `<button class="btn small" onclick="markFinanceOutwardPaid(${r.id})">Mark Paid</button>` : ''}
+          <button class="btn small" onclick="downloadFinanceOutwardVoucherPdf(${r.id})">Voucher</button>
+          ${canDelete() ? `<button class="btn danger small" onclick="deleteFinanceOutward(${r.id}, '${r.status}')">Delete</button>` : ''}
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="6" class="empty">No payment requests yet</td></tr>';
+  } catch (err) { toast(err.message); }
+}
+// Deleting a request that's already fully paid is a permanent removal from
+// the financial record (super_admin only, per the global DELETE gate) — so
+// it gets its own, much stronger confirmation before we ever send
+// ?confirm=true to the backend. Non-paid requests keep the lighter prompt.
+window.deleteFinanceOutward = async (id, status) => {
+  const isPaid = status === 'paid';
+  const warning = isPaid
+    ? 'This request is already marked PAID and is part of your financial record.\n\nDeleting it is PERMANENT, cannot be undone, and will remove it from all totals/reports.\n\nType-check with yourself: are you sure you want to permanently delete this paid transaction?'
+    : 'Delete this payment request?';
+  if (!confirm(warning)) return;
+  try {
+    await jdel(`${API}/finance/outward/${id}${isPaid ? '?confirm=true' : ''}`);
+    toast('Request removed');
+    refreshFinanceOutward();
+    refreshFinancePurchases();
+    refreshFinanceSummary();
+  } catch (err) { toast(err.message); }
+};
+window.markFinanceOutwardPaid = async (id) => {
+  const payment_mode = prompt('Payment mode (UPI / Bank transfer / Cash / Others):', '');
+  if (payment_mode === null) return;
+  try {
+    await jpost(`${API}/finance/outward/${id}/mark-paid`, { payment_mode });
+    toast('Marked as paid');
+    refreshFinanceOutward();
+    refreshFinancePurchases();
+    refreshFinanceSummary();
+  } catch (err) { toast(err.message); }
+};
+const FINANCE_OUTWARD_FORM_FIELDS = ['category', 'payee_or_payer', 'amount', 'transaction_date', 'payment_mode', 'description', 'notes'];
+window.editFinanceOutward = async (id) => {
+  const rows = await jget(`${API}/finance/outward?subtype=payment`);
+  const r = rows.find((x) => x.id === id);
+  if (!r) return;
+  const form = document.getElementById('finOutwardForm');
+  FINANCE_OUTWARD_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = r[f] !== null && r[f] !== undefined ? String(r[f]).slice(0, f === 'transaction_date' ? 10 : undefined) : ''; });
+  form.dataset.editId = id;
+  document.getElementById('finOutwardFormTitle').textContent = `Update payment request — ${r.payee_or_payer}`;
+  document.getElementById('finOutwardSubmitBtn').textContent = 'Update Request';
+  document.getElementById('finOutwardCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('finOutwardCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('finOutwardForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('finOutwardFormTitle').textContent = 'New payment request';
+  document.getElementById('finOutwardSubmitBtn').textContent = 'Save Payment Request';
+  document.getElementById('finOutwardCancelEditBtn').style.display = 'none';
+});
+document.getElementById('finOutwardForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/finance/outward/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('finOutwardFormTitle').textContent = 'New payment request';
+      document.getElementById('finOutwardSubmitBtn').textContent = 'Save Payment Request';
+      document.getElementById('finOutwardCancelEditBtn').style.display = 'none';
+      toast('Request updated');
+    } else {
+      await jpost(`${API}/finance/outward`, body);
+      form.reset();
+      toast('Payment request submitted for approval');
+    }
+    refreshFinanceOutward();
+    refreshFinanceSummary();
+  } catch (err) { toast(err.message); }
+});
+window.downloadFinanceOutwardListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/finance/outward?subtype=payment`);
+    await downloadListReportPdf('Outward Payments', `${rows.length} request(s)`, [
+      { label: 'Payee', width: 120, get: (r) => r.payee_or_payer },
+      { label: 'Category', width: 90, get: (r) => r.category },
+      { label: 'Amount (₹)', width: 70, get: (r) => Number(r.amount || 0).toLocaleString('en-IN'), align: 'right' },
+      { label: 'Status', width: 90, get: (r) => FINANCE_STATUS_LABEL[r.status] || r.status },
+      { label: 'Date', width: 65, get: (r) => r.transaction_date ? String(r.transaction_date).slice(0, 10) : '-' },
+    ], rows, 'finance-outward-payments.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadFinanceOutwardVoucherPdf = async (id) => {
+  try {
+    const r = await jget(`${API}/finance/outward/${id}`);
+    const receiptNo = `PV-${String(r.id).padStart(6, '0')}`;
+    await downloadDetailPdf(
+      r.subtype === 'purchase' ? 'Purchase Voucher' : 'Payment Voucher',
+      `Voucher No. ${receiptNo}  ·  Issued ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`,
+      [
+        {
+          label: 'Details', pairs: r.subtype === 'purchase' ? [
+            ['Item', r.purchase_item_name], ['Category', r.purchase_category],
+            ['Quantity', `${r.purchase_quantity} ${r.purchase_unit || ''}`],
+            ['Unit Cost (₹)', Number(r.purchase_unit_cost || 0).toLocaleString('en-IN')],
+            ['Vendor', r.payee_or_payer], ['Amount (₹)', Number(r.amount || 0).toLocaleString('en-IN')],
+            ['Status', FINANCE_STATUS_LABEL[r.status] || r.status],
+            ['Date', r.transaction_date ? String(r.transaction_date).slice(0, 10) : '-']
+          ] : [
+            ['Payee', r.payee_or_payer], ['Category', r.category],
+            ['Amount (₹)', Number(r.amount || 0).toLocaleString('en-IN')],
+            ['Status', FINANCE_STATUS_LABEL[r.status] || r.status],
+            ['Payment Mode', r.payment_mode], ['Date', r.transaction_date ? String(r.transaction_date).slice(0, 10) : '-'],
+            ['Description', r.description]
+          ]
+        },
+        { label: 'Approvals', table: { columns: [
+          { label: 'Role', width: 150 }, { label: 'Status', width: 90 }, { label: 'By', width: 130 }, { label: 'Remarks', width: 130 }
+        ], rows: (r.approvals || []).map((a) => [a.required_role, a.status, a.approved_by || '-', a.remarks || '-']) } }
+      ],
+      `${r.subtype || 'payment'}-${receiptNo}.pdf`
+    );
+  } catch (err) { toast(err.message); }
+};
+
+// --- Outward: purchase requests (goodies/inventory procurement) ---
+async function refreshFinancePurchases() {
+  try {
+    const rows = await jget(`${API}/finance/outward?subtype=purchase`);
+    document.getElementById('finPurchaseTableBody').innerHTML = rows.map((r) => `
+      <tr>
+        <td><strong>${r.purchase_item_name}</strong>${r.purchase_category ? '<div class="hint">' + r.purchase_category + '</div>' : ''}${r.payee_or_payer ? `<div class="hint">Vendor: ${r.payee_or_payer}</div>` : ''}</td>
+        <td>${r.purchase_quantity} ${r.purchase_unit || ''} × ₹${Number(r.purchase_unit_cost || 0).toLocaleString('en-IN')}</td>
+        <td>${Number(r.amount || 0).toLocaleString('en-IN')}</td>
+        <td><span class="pill ${r.status}">${FINANCE_STATUS_LABEL[r.status] || r.status}</span></td>
+        <td>${financeApprovalChipsHtml(r.approvals)}</td>
+        <td>
+          <select onchange="updateFinancePurchaseDelivery(${r.id}, this.value)">
+            ${['ordered', 'in_transit', 'delivered', 'delayed', 'cancelled'].map((s) => `<option value="${s}" ${r.delivery_status === s ? 'selected' : ''}>${s.replace('_', ' ').replace(/^./, (c) => c.toUpperCase())}</option>`).join('')}
+          </select>
+          ${r.expected_delivery_date ? `<div class="hint">Exp: ${new Date(r.expected_delivery_date).toLocaleDateString()}</div>` : ''}
+          ${r.actual_delivery_date ? `<div class="hint">Actual: ${new Date(r.actual_delivery_date).toLocaleDateString()}</div>` : ''}
+        </td>
+        <td>${r.inventory_item_id ? `Linked (item #${r.inventory_item_id})` : '-'}</td>
+        <td class="sticky-actions">
+          ${r.status === 'pending_approval' ? `<button class="btn small" onclick="editFinancePurchase(${r.id})">Update</button>` : ''}
+          ${r.status === 'approved' ? `<button class="btn small" onclick="markFinanceOutwardPaid(${r.id})">Mark Paid</button>` : ''}
+          <button class="btn small" onclick="downloadFinanceOutwardVoucherPdf(${r.id})">Voucher</button>
+          ${canDelete() ? `<button class="btn danger small" onclick="deleteFinanceOutward(${r.id}, '${r.status}')">Delete</button>` : ''}
+        </td>
+      </tr>
+    `).join('') || '<tr><td colspan="8" class="empty">No purchase requests yet</td></tr>';
+  } catch (err) { toast(err.message); }
+}
+window.updateFinancePurchaseDelivery = async (id, delivery_status) => {
+  try { await jput(`${API}/finance/outward/${id}/delivery`, { delivery_status }); toast('Delivery status updated'); refreshFinancePurchases(); }
+  catch (err) { toast(err.message); }
+};
+const FINANCE_PURCHASE_FORM_FIELDS = ['purchase_item_name', 'purchase_category', 'purchase_unit', 'purchase_quantity', 'purchase_unit_cost', 'vendor_id', 'payee_or_payer', 'transaction_date', 'expected_delivery_date', 'description', 'notes'];
+window.editFinancePurchase = async (id) => {
+  const rows = await jget(`${API}/finance/outward?subtype=purchase`);
+  const r = rows.find((x) => x.id === id);
+  if (!r) return;
+  const form = document.getElementById('finPurchaseForm');
+  FINANCE_PURCHASE_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = r[f] !== null && r[f] !== undefined ? String(r[f]).slice(0, f === 'transaction_date' ? 10 : undefined) : ''; });
+  form.dataset.editId = id;
+  document.getElementById('finPurchaseFormTitle').textContent = `Update purchase request — ${r.purchase_item_name}`;
+  document.getElementById('finPurchaseSubmitBtn').textContent = 'Update Request';
+  document.getElementById('finPurchaseCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('finPurchaseCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('finPurchaseForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('finPurchaseFormTitle').textContent = 'New purchase request';
+  document.getElementById('finPurchaseSubmitBtn').textContent = 'Save Purchase Request';
+  document.getElementById('finPurchaseCancelEditBtn').style.display = 'none';
+});
+document.getElementById('finPurchaseForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/finance/outward/${form.dataset.editId}`, body);
+      delete form.dataset.editId;
+      form.reset();
+      document.getElementById('finPurchaseFormTitle').textContent = 'New purchase request';
+      document.getElementById('finPurchaseSubmitBtn').textContent = 'Save Purchase Request';
+      document.getElementById('finPurchaseCancelEditBtn').style.display = 'none';
+      toast('Request updated');
+    } else {
+      await jpost(`${API}/finance/purchases`, body);
+      form.reset();
+      toast('Purchase request submitted for approval');
+    }
+    refreshFinancePurchases();
+    refreshFinanceSummary();
+  } catch (err) { toast(err.message); }
+});
+window.downloadFinancePurchasesListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/finance/outward?subtype=purchase`);
+    await downloadListReportPdf('Purchase Requests', `${rows.length} request(s)`, [
+      { label: 'Item', width: 120, get: (r) => r.purchase_item_name },
+      { label: 'Category', width: 80, get: (r) => r.purchase_category },
+      { label: 'Qty', width: 40, get: (r) => r.purchase_quantity, align: 'right' },
+      { label: 'Amount (₹)', width: 70, get: (r) => Number(r.amount || 0).toLocaleString('en-IN'), align: 'right' },
+      { label: 'Status', width: 90, get: (r) => FINANCE_STATUS_LABEL[r.status] || r.status },
+    ], rows, 'finance-purchase-requests.pdf');
+  } catch (err) { toast(err.message); }
+};
+
+// --- Vendor Management: the master list of outside suppliers, connected to
+// Purchase Requests (Finance) and Inventory Items (Goodies & Inventory).
+// A vendor with their own login sees this exact same catalog + order list —
+// scoped to themselves — inside their own portal (vendorPortal.js).
+async function refreshVendors() {
+  const rows = await jget(`${API}/vendors`);
+  document.getElementById('vendorTableBody').innerHTML = rows.map((v) => `
+    <tr>
+      <td><strong>${v.name}</strong>${v.contact_person ? `<div class="hint">${v.contact_person}</div>` : ''}</td>
+      <td>${v.category || '-'}</td>
+      <td>${v.phone || v.email || '-'}</td>
+      <td>${v.product_count}</td>
+      <td>${v.purchase_count}</td>
+      <td>${v.inventory_item_count}</td>
+      <td>${v.user_id ? '<span class="pill paid">Has login</span>' : '<span class="hint">None yet</span>'}</td>
+      <td><span class="pill ${v.status === 'active' ? 'paid' : 'pending'}">${v.status}</span></td>
+      <td class="sticky-actions">
+        <button class="btn small" onclick="openVendorModal(${v.id})">Details</button>
+        <button class="btn small" onclick="editVendor(${v.id})">Edit</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteVendor(${v.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="9" class="empty">No vendors yet — add one above.</td></tr>';
+
+  const opts = rows.map((v) => `<option value="${v.id}">${v.name}${v.category ? ' (' + v.category + ')' : ''}</option>`).join('');
+  ['finPurchaseVendorSelect', 'inventoryVendorSelect'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) { const cur = el.value; el.innerHTML = '<option value="">-- none / one-off --</option>' + opts; if (cur) el.value = cur; }
+  });
+  const createUserVendorSelect = document.getElementById('createUserVendorSelect');
+  if (createUserVendorSelect) createUserVendorSelect.innerHTML = '<option value="">-- select --</option>' + rows.filter((v) => !v.user_id).map((v) => `<option value="${v.id}">${v.name}</option>`).join('');
+}
+
+const VENDOR_FORM_FIELDS = ['name', 'category', 'status', 'contact_person', 'phone', 'email', 'address', 'gst_number', 'notes'];
+window.editVendor = async (id) => {
+  const rows = await jget(`${API}/vendors`);
+  const v = rows.find((r) => r.id === id);
+  if (!v) return;
+  const form = document.getElementById('vendorForm');
+  VENDOR_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = v[f] !== null && v[f] !== undefined ? v[f] : ''; });
+  form.dataset.editId = id;
+  document.getElementById('vendorFormTitle').textContent = `Edit vendor — ${v.name}`;
+  document.getElementById('vendorSubmitBtn').textContent = 'Update vendor';
+  document.getElementById('vendorCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+document.getElementById('vendorCancelEditBtn').addEventListener('click', () => {
+  const form = document.getElementById('vendorForm');
+  form.reset(); delete form.dataset.editId;
+  document.getElementById('vendorFormTitle').textContent = 'Add vendor';
+  document.getElementById('vendorSubmitBtn').textContent = 'Save vendor';
+  document.getElementById('vendorCancelEditBtn').style.display = 'none';
+});
+document.getElementById('vendorForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    if (form.dataset.editId) {
+      await jput(`${API}/vendors/${form.dataset.editId}`, body);
+      toast('Vendor updated');
+    } else {
+      await jpost(`${API}/vendors`, body);
+      toast('Vendor saved');
+    }
+    delete form.dataset.editId;
+    form.reset();
+    document.getElementById('vendorFormTitle').textContent = 'Add vendor';
+    document.getElementById('vendorSubmitBtn').textContent = 'Save vendor';
+    document.getElementById('vendorCancelEditBtn').style.display = 'none';
+    refreshVendors();
+  } catch (err) { toast(err.message); }
+});
+window.deleteVendor = async (id) => {
+  try { await jdel(`${API}/vendors/${id}`); toast('Vendor removed'); refreshVendors(); refreshFinancePurchases(); refreshInventoryItems(); }
+  catch (err) { toast(err.message); }
+};
+
+// Vendor detail modal — product catalog (with photos, add/edit/delete) plus
+// everything ordered from this vendor across Purchase Requests and Inventory
+// Items, each with the same inline delivery-status control used in the
+// main tables. This is the "what is this vendor supplying, and what's the
+// order/delivery status of each" view the module exists to answer.
+let vendorModalCtx = { vendorId: null };
+const VENDOR_DELIVERY_OPTS_PURCHASE = ['ordered', 'in_transit', 'delivered', 'delayed', 'cancelled'];
+const VENDOR_DELIVERY_OPTS_INVENTORY = ['planned', 'ordered', 'received', 'distributing', 'completed', 'delayed'];
+function capitalizeWords(s) { return (s || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()); }
+
+window.openVendorModal = async (vendorId) => {
+  vendorModalCtx = { vendorId };
+  document.getElementById('vendorModal').style.display = '';
+  await renderVendorModalBody();
+};
+window.closeVendorModal = () => {
+  document.getElementById('vendorModal').style.display = 'none';
+  vendorModalCtx = { vendorId: null };
+};
+
+async function renderVendorModalBody() {
+  const { vendorId } = vendorModalCtx;
+  if (!vendorId) return;
+  const data = await jget(`${API}/vendors/${vendorId}`);
+  const { vendor, products, purchases, inventoryItems, loginUser } = data;
+  document.getElementById('vendorModalTitle').textContent = vendor.name;
+
+  const productsHtml = products.map((p) => `
+    <div class="checklist-row">
+      <span class="checklist-label" style="display:flex;align-items:center;gap:8px;">
+        ${p.photo_url
+          ? `<img src="${mediaUrl(p.photo_url)}" alt="${p.name}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border,#ddd);" />`
+          : `<div style="width:36px;height:36px;border-radius:6px;background:var(--bg2,#f2f2f2);"></div>`}
+        <span>
+          <strong>${p.name}</strong>${p.category ? ` <span class="hint">(${p.category})</span>` : ''}
+          ${p.unit_price ? `<br><span class="hint">₹${Number(p.unit_price).toLocaleString('en-IN')} / ${p.unit}</span>` : ''}
+        </span>
+      </span>
+      <button type="button" class="btn small" onclick="triggerVendorProductPhotoUpload(${p.id})">${p.photo_url ? 'Replace photo' : 'Upload photo'}</button>
+      <button type="button" class="btn small" onclick="editVendorProduct(${p.id}, ${vendorId})">Edit</button>
+      ${canDelete() ? `<button type="button" class="btn danger small" onclick="deleteVendorProduct(${p.id})">Delete</button>` : ''}
+    </div>
+  `).join('') || '<p class="empty">No products in this vendor\'s catalog yet.</p>';
+
+  const purchasesHtml = purchases.map((r) => `
+    <div class="checklist-row">
+      <span class="checklist-label">
+        <strong>${r.purchase_item_name}</strong> — ${r.purchase_quantity} ${r.purchase_unit || ''} × ₹${Number(r.purchase_unit_cost || 0).toLocaleString('en-IN')}
+        <br><span class="hint">Payment: ${FINANCE_STATUS_LABEL[r.approval_status] || r.approval_status}${r.expected_delivery_date ? ` · Exp: ${new Date(r.expected_delivery_date).toLocaleDateString()}` : ''}</span>
+      </span>
+      <select onchange="updateFinancePurchaseDelivery(${r.id}, this.value); setTimeout(renderVendorModalBody, 300)">
+        ${VENDOR_DELIVERY_OPTS_PURCHASE.map((s) => `<option value="${s}" ${r.delivery_status === s ? 'selected' : ''}>${capitalizeWords(s)}</option>`).join('')}
+      </select>
+    </div>
+  `).join('') || '<p class="empty">No purchase requests linked to this vendor yet.</p>';
+
+  const inventoryHtml = inventoryItems.map((i) => `
+    <div class="checklist-row">
+      <span class="checklist-label">
+        <strong>${i.name}</strong> — ${i.quantity_procured} ${i.unit}
+        <br><span class="hint">${i.expected_delivery_date ? `Exp: ${new Date(i.expected_delivery_date).toLocaleDateString()}` : ''}</span>
+      </span>
+      <select onchange="updateInventoryDelivery(${i.id}, 'procurement_status', this.value); setTimeout(renderVendorModalBody, 300)">
+        ${VENDOR_DELIVERY_OPTS_INVENTORY.map((s) => `<option value="${s}" ${i.procurement_status === s ? 'selected' : ''}>${capitalizeWords(s)}</option>`).join('')}
+      </select>
+    </div>
+  `).join('') || '<p class="empty">No inventory items linked to this vendor yet.</p>';
+
+  document.getElementById('vendorModalBody').innerHTML = `
+    <div class="hint" style="margin-bottom:10px;">
+      ${vendor.category ? vendor.category + ' · ' : ''}${vendor.contact_person || ''} ${vendor.phone ? '· ' + vendor.phone : ''} ${vendor.email ? '· ' + vendor.email : ''}
+      <br>Login: ${loginUser ? `${loginUser.username} (${loginUser.status})` : 'No login created yet — use Settings → Create Login → role Vendor.'}
+    </div>
+    <div class="section-title" style="margin-top:0;">Product catalog</div>
+    ${productsHtml}
+    <form onsubmit="return submitVendorAddProduct(event, ${vendorId})" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--line);">
+      <input name="name" placeholder="Product name" required style="min-width:160px;" />
+      <input name="category" placeholder="Category" style="max-width:140px;" />
+      <input name="unit" placeholder="Unit" value="pcs" style="max-width:80px;" />
+      <input name="unit_price" type="number" min="0" step="0.01" placeholder="Unit price ₹" style="max-width:120px;" />
+      <button class="btn gold small" type="submit">Add product</button>
+    </form>
+
+    <div class="section-title">Purchase requests from this vendor</div>
+    ${purchasesHtml}
+
+    <div class="section-title">Inventory items from this vendor</div>
+    ${inventoryHtml}
+  `;
+}
+
+window.submitVendorAddProduct = async (e, vendorId) => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  try {
+    await jpost(`${API}/vendors/${vendorId}/products`, body);
+    toast('Product added');
+    await renderVendorModalBody();
+  } catch (err) { toast(err.message); }
+  return false;
+};
+window.editVendorProduct = async (productId, vendorId) => {
+  const data = await jget(`${API}/vendors/${vendorId}`);
+  const p = data.products.find((x) => x.id === productId);
+  if (!p) return;
+  const name = prompt('Product name:', p.name);
+  if (name === null) return;
+  const unit_price = prompt('Unit price (₹, blank for none):', p.unit_price || '');
+  if (unit_price === null) return;
+  try {
+    await jput(`${API}/vendors/products/${productId}`, { name, unit_price });
+    await renderVendorModalBody();
+  } catch (err) { toast(err.message); }
+};
+window.deleteVendorProduct = async (productId) => {
+  try { await jdel(`${API}/vendors/products/${productId}`); toast('Product removed'); await renderVendorModalBody(); }
+  catch (err) { toast(err.message); }
+};
 
 tryResumeSession();
