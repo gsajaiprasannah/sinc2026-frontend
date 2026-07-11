@@ -1582,6 +1582,7 @@ function renderVendorProducts(products) {
         <div style="flex:1;min-width:160px;">
           <strong>${escapeHtml(p.name)}</strong>${p.category ? ` <span class="hint">(${escapeHtml(p.category)})</span>` : ''}
           ${p.unit_price ? `<div class="hint">₹${Number(p.unit_price).toLocaleString('en-IN')} / ${escapeHtml(p.unit)}</div>` : ''}
+          ${p.processing_time_days ? `<div class="hint">Processing time: ${p.processing_time_days} day${Number(p.processing_time_days) === 1 ? '' : 's'}</div>` : ''}
           <div><span class="pill ${p.status === 'active' ? 'paid' : 'pending'}">${escapeHtml(p.status)}</span></div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;">
@@ -1594,7 +1595,7 @@ function renderVendorProducts(products) {
   `).join('') || '<div class="card"><div class="empty">No products yet — add your first one above.</div></div>';
 }
 
-const VENDOR_PRODUCT_FORM_FIELDS = ['name', 'category', 'unit', 'unit_price', 'status', 'description'];
+const VENDOR_PRODUCT_FORM_FIELDS = ['name', 'category', 'unit', 'unit_price', 'processing_time_days', 'status', 'description'];
 window.editVendorProductPortal = (id) => {
   const p = LAST_VENDOR_PRODUCTS.find((x) => x.id === id);
   if (!p) return;

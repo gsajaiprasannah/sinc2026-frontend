@@ -5974,7 +5974,7 @@ async function refreshVendorProductPicker() {
     const cur = sel.value;
     sel.innerHTML = '<option value="">-- Select an item from a vendor\'s catalog --</option>'
       + '<option value="__new__">+ Add new item…</option>'
-      + ALL_VENDOR_PRODUCTS.map((p) => `<option value="${p.id}">${p.name} — ${p.vendor_name}</option>`).join('');
+      + ALL_VENDOR_PRODUCTS.map((p) => `<option value="${p.id}">${p.name} — ${p.vendor_name}${p.processing_time_days ? ` (${p.processing_time_days}d)` : ''}</option>`).join('');
     if (cur && sel.querySelector(`option[value="${cur}"]`)) sel.value = cur;
   } catch (err) { /* quiet — this is a convenience picker, not core data */ }
 }
@@ -5999,6 +5999,14 @@ window.onFinPurchaseItemPickerChange = () => {
   if (form.elements['purchase_unit_cost'] && product.unit_price) form.elements['purchase_unit_cost'].value = product.unit_price;
   const vendorSelect = document.getElementById('finPurchaseVendorSelect');
   if (vendorSelect) vendorSelect.value = product.vendor_id;
+  // If this vendor has told us their processing time for this item, use it to
+  // suggest an expected delivery date (today + processing days) — only when
+  // the field is still empty, so it never overwrites a date already chosen.
+  if (product.processing_time_days && form.elements['expected_delivery_date'] && !form.elements['expected_delivery_date'].value) {
+    const d = new Date();
+    d.setDate(d.getDate() + Number(product.processing_time_days));
+    form.elements['expected_delivery_date'].value = d.toISOString().slice(0, 10);
+  }
 };
 window.cancelFinPurchaseNewItem = () => {
   const sel = document.getElementById('finPurchaseItemPicker');
@@ -6213,6 +6221,7 @@ async function renderVendorModalBody() {
         <span>
           <strong>${p.name}</strong>${p.category ? ` <span class="hint">(${p.category})</span>` : ''}
           ${p.unit_price ? `<br><span class="hint">₹${Number(p.unit_price).toLocaleString('en-IN')} / ${p.unit}</span>` : ''}
+          ${p.processing_time_days ? `<br><span class="hint">Processing time: ${p.processing_time_days} day${Number(p.processing_time_days) === 1 ? '' : 's'}</span>` : ''}
         </span>
       </span>
       <button type="button" class="btn small" onclick="triggerVendorProductPhotoUpload(${p.id})">${p.photo_url ? 'Replace photo' : 'Upload photo'}</button>
@@ -6324,8 +6333,10 @@ window.editVendorProduct = async (productId, vendorId) => {
   if (name === null) return;
   const unit_price = prompt('Unit price (₹, blank for none):', p.unit_price || '');
   if (unit_price === null) return;
+  const processing_time_days = prompt('Processing time (days, blank for none):', p.processing_time_days || '');
+  if (processing_time_days === null) return;
   try {
-    await jput(`${API}/vendors/products/${productId}`, { name, unit_price });
+    await jput(`${API}/vendors/products/${productId}`, { name, unit_price, processing_time_days });
     await renderVendorModalBody();
   } catch (err) { toast(err.message); }
 };
