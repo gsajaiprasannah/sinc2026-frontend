@@ -2148,6 +2148,16 @@
   </div>
 </div>
 
+<!-- Image lightbox — click-to-enlarge for product photos (and any other -->
+<!-- thumbnail wired to openImageLightbox). Click the backdrop or the close -->
+<!-- button to dismiss; clicking the enlarged image itself does nothing. -->
+<div class="modal-overlay" id="imageLightbox" style="display:none;z-index:400;" onclick="if(event.target===this) closeImageLightbox()">
+  <div style="position:relative;max-width:92vw;max-height:92vh;">
+    <button type="button" class="modal-close" onclick="closeImageLightbox()" style="position:absolute;top:-8px;right:-8px;background:var(--card,#fff);border-radius:50%;box-shadow:0 4px 14px rgba(15,26,51,0.28);">&times;</button>
+    <img id="imageLightboxImg" src="" alt="" style="max-width:92vw;max-height:92vh;border-radius:10px;display:block;box-shadow:0 24px 64px rgba(15,26,51,0.4);" />
+  </div>
+</div>
+
 <script src="js/config.js"></script>
 <!-- Client-side PDF generation for Transport/Pre Tour manifests (no backend involved) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.0.0/jspdf.umd.min.js"></script>
