@@ -6278,6 +6278,7 @@ async function renderVendorModalBody() {
         </select>
         <span id="vendorProductNewWrap" style="display:none;gap:8px;flex-wrap:wrap;">
           <input type="text" id="vendorProductNewName" placeholder="New product name" style="min-width:160px;" onkeydown="if(event.key==='Enter'){event.preventDefault();submitVendorQuickAddProduct(${vendorId});}" />
+          <input type="text" id="vendorProductNewCategory" placeholder="Category (optional)" style="min-width:140px;" onkeydown="if(event.key==='Enter'){event.preventDefault();submitVendorQuickAddProduct(${vendorId});}" />
           <button type="button" class="btn gold small" onclick="submitVendorQuickAddProduct(${vendorId})">Add</button>
           <button type="button" class="btn small" onclick="cancelVendorProductQuickAdd()">Cancel</button>
         </span>
@@ -6311,15 +6312,19 @@ window.onVendorProductQuickSelectChange = (vendorId) => {
 window.cancelVendorProductQuickAdd = () => {
   const sel = document.getElementById('vendorProductQuickSelect');
   const wrap = document.getElementById('vendorProductNewWrap');
+  const categoryInput = document.getElementById('vendorProductNewCategory');
   if (wrap) wrap.style.display = 'none';
   if (sel) sel.value = '';
+  if (categoryInput) categoryInput.value = '';
 };
 window.submitVendorQuickAddProduct = async (vendorId) => {
   const input = document.getElementById('vendorProductNewName');
+  const categoryInput = document.getElementById('vendorProductNewCategory');
   const name = ((input && input.value) || '').trim();
+  const category = ((categoryInput && categoryInput.value) || '').trim();
   if (!name) { toast('Enter a product name'); return; }
   try {
-    await jpost(`${API}/vendors/${vendorId}/products`, { name });
+    await jpost(`${API}/vendors/${vendorId}/products`, { name, category });
     toast('Product added');
     await renderVendorModalBody();
     // Keep the "add new" input open right after re-render so the next
@@ -6338,12 +6343,14 @@ window.editVendorProduct = async (productId, vendorId) => {
   if (!p) return;
   const name = prompt('Product name:', p.name);
   if (name === null) return;
+  const category = prompt('Category (blank for none):', p.category || '');
+  if (category === null) return;
   const unit_price = prompt('Unit price (₹, blank for none):', p.unit_price || '');
   if (unit_price === null) return;
   const processing_time_days = prompt('Processing time (days, blank for none):', p.processing_time_days || '');
   if (processing_time_days === null) return;
   try {
-    await jput(`${API}/vendors/products/${productId}`, { name, unit_price, processing_time_days });
+    await jput(`${API}/vendors/products/${productId}`, { name, category, unit_price, processing_time_days });
     await renderVendorModalBody();
   } catch (err) { toast(err.message); }
 };
