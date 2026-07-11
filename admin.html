@@ -1884,6 +1884,21 @@
     <div class="card">
       <div class="section-title" style="margin-top:0" id="finPurchaseFormTitle">New purchase request</div>
       <form id="finPurchaseForm">
+        <div class="field">
+          <label>Quick-pick item from a vendor's catalog (optional)</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <select id="finPurchaseItemPicker" onchange="onFinPurchaseItemPickerChange()" style="min-width:240px;">
+              <option value="">-- Select an item from a vendor's catalog --</option>
+              <option value="__new__">+ Add new item…</option>
+            </select>
+            <span id="finPurchaseNewItemWrap" style="display:none;gap:8px;flex-wrap:wrap;">
+              <input type="text" id="finPurchaseNewItemName" placeholder="New item name" style="min-width:160px;" onkeydown="if(event.key==='Enter'){event.preventDefault();submitFinPurchaseNewItem();}" />
+              <button type="button" class="btn gold small" onclick="submitFinPurchaseNewItem()">Add item</button>
+              <button type="button" class="btn small" onclick="cancelFinPurchaseNewItem()">Cancel</button>
+            </span>
+          </div>
+          <p class="hint" style="margin:4px 0 0;">Picking an item auto-fills its name, category, unit, price, and vendor below. "Add new item" saves it to the selected vendor's catalog below (pick a vendor first) — or just fills the name in if this is a one-off.</p>
+        </div>
         <div class="form-grid cols-3">
           <div class="field"><label>Item name *</label><input name="purchase_item_name" required /></div>
           <div class="field"><label>Category</label><input name="purchase_category" placeholder="e.g. Goodies, Stationery" /></div>
