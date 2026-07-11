@@ -1552,6 +1552,24 @@ function renderVendorProfile(p) {
   `;
 }
 
+// Image lightbox — click any wired thumbnail (product photos, etc.) to see
+// it enlarged. Reusable: any <img onclick="openImageLightbox(this.src)">
+// works with this without further wiring.
+window.openImageLightbox = (src, alt) => {
+  const overlay = document.getElementById('imageLightbox');
+  const img = document.getElementById('imageLightboxImg');
+  if (!overlay || !img || !src) return;
+  img.src = src;
+  img.alt = alt || '';
+  overlay.style.display = '';
+};
+window.closeImageLightbox = () => {
+  const overlay = document.getElementById('imageLightbox');
+  const img = document.getElementById('imageLightboxImg');
+  if (overlay) overlay.style.display = 'none';
+  if (img) img.src = '';
+};
+
 let LAST_VENDOR_PRODUCTS = [];
 function renderVendorProducts(products) {
   LAST_VENDOR_PRODUCTS = products;
@@ -1559,7 +1577,7 @@ function renderVendorProducts(products) {
     <div class="card" style="margin-bottom:10px;">
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
         ${p.photo_url
-          ? `<img src="${mediaUrl(p.photo_url)}" alt="${escapeHtml(p.name)}" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--border,#ddd);" />`
+          ? `<img src="${mediaUrl(p.photo_url)}" alt="${escapeHtml(p.name)}" style="width:56px;height:56px;object-fit:cover;border-radius:8px;border:1px solid var(--border,#ddd);cursor:zoom-in;" onclick="openImageLightbox(this.src)" />`
           : `<div style="width:56px;height:56px;border-radius:8px;background:var(--bg2,#f2f2f2);"></div>`}
         <div style="flex:1;min-width:160px;">
           <strong>${escapeHtml(p.name)}</strong>${p.category ? ` <span class="hint">(${escapeHtml(p.category)})</span>` : ''}

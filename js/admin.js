@@ -6110,6 +6110,24 @@ window.closeVendorModal = () => {
   vendorModalCtx = { vendorId: null };
 };
 
+// Image lightbox — click any wired thumbnail (product photos, etc.) to see
+// it enlarged. Reusable: any <img onclick="openImageLightbox(this.src)">
+// works with this without further wiring.
+window.openImageLightbox = (src, alt) => {
+  const overlay = document.getElementById('imageLightbox');
+  const img = document.getElementById('imageLightboxImg');
+  if (!overlay || !img || !src) return;
+  img.src = src;
+  img.alt = alt || '';
+  overlay.style.display = '';
+};
+window.closeImageLightbox = () => {
+  const overlay = document.getElementById('imageLightbox');
+  const img = document.getElementById('imageLightboxImg');
+  if (overlay) overlay.style.display = 'none';
+  if (img) img.src = '';
+};
+
 async function renderVendorModalBody() {
   const { vendorId } = vendorModalCtx;
   if (!vendorId) return;
@@ -6121,7 +6139,7 @@ async function renderVendorModalBody() {
     <div class="checklist-row">
       <span class="checklist-label" style="display:flex;align-items:center;gap:8px;">
         ${p.photo_url
-          ? `<img src="${mediaUrl(p.photo_url)}" alt="${p.name}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border,#ddd);" />`
+          ? `<img src="${mediaUrl(p.photo_url)}" alt="${p.name}" style="width:36px;height:36px;object-fit:cover;border-radius:6px;border:1px solid var(--border,#ddd);cursor:zoom-in;" onclick="openImageLightbox(this.src)" />`
           : `<div style="width:36px;height:36px;border-radius:6px;background:var(--bg2,#f2f2f2);"></div>`}
         <span>
           <strong>${p.name}</strong>${p.category ? ` <span class="hint">(${p.category})</span>` : ''}
