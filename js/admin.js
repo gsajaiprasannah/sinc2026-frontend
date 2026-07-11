@@ -5996,7 +5996,14 @@ window.onFinPurchaseItemPickerChange = () => {
   if (form.elements['purchase_item_name']) form.elements['purchase_item_name'].value = product.name;
   if (form.elements['purchase_category']) form.elements['purchase_category'].value = product.category || '';
   if (form.elements['purchase_unit']) form.elements['purchase_unit'].value = product.unit || 'pcs';
-  if (form.elements['purchase_unit_cost'] && product.unit_price) form.elements['purchase_unit_cost'].value = product.unit_price;
+  // Always set unit cost (blank it out if this item has no catalog price) so
+  // switching between items never leaves a stale price from a previous pick.
+  if (form.elements['purchase_unit_cost']) form.elements['purchase_unit_cost'].value = product.unit_price || '';
+  // Description is left alone if the admin has already typed one — only
+  // filled in from the catalog when the field is still empty.
+  if (form.elements['description'] && product.description && !form.elements['description'].value) {
+    form.elements['description'].value = product.description;
+  }
   const vendorSelect = document.getElementById('finPurchaseVendorSelect');
   if (vendorSelect) vendorSelect.value = product.vendor_id;
   // If this vendor has told us their processing time for this item, use it to
