@@ -20,6 +20,14 @@
   <option value="Coimbatore Bus Stand"></option>
 </datalist>
 
+<!-- Shared hidden file inputs for a vendor's product photo — one for taking a
+     new picture with the device camera (capture="environment"), one for
+     picking an existing image from the gallery/files. Both re-targeted per
+     click via vendorPhotoTargetId in login.js, same pattern as admin.js's
+     shared imgUploadInput. -->
+<input type="file" id="vendorProductCameraInput" accept="image/*" capture="environment" style="display:none;" />
+<input type="file" id="vendorProductFileInput" accept="image/*" style="display:none;" />
+
 <header class="topbar">
   <div class="topbar-inner">
     <div class="topbar-left">
@@ -28,7 +36,7 @@
         <img src="img/skal-logo.png" alt="Skål International" class="logo-mark" />
         <div>
           <h1 id="portalTitle">Login</h1>
-          <span id="portalSubtitle">Host member, media, transporter, driver &amp; volunteer logins</span>
+          <span id="portalSubtitle">Host member, media, transporter, driver, volunteer &amp; vendor logins</span>
         </div>
       </div>
     </div>
@@ -116,6 +124,17 @@
           <div class="admin-nav">
             <button data-tab="host-modules" class="active">My Modules</button>
             <button data-tab="announcements" id="navBtnAnnouncements-volunteer">Announcements <span id="unreadBadge-volunteer" class="pill" style="display:none;"></span></button>
+          </div>
+        </div>
+
+        <!-- ===== VENDOR nav (outside supplier — own products + orders) ===== -->
+        <div class="role-nav" id="navGroup-vendor" style="display:none;">
+          <div class="nav-group-label" style="cursor:default;">My Portal</div>
+          <div class="admin-nav">
+            <button data-tab="vendor-profile" class="active">Profile</button>
+            <button data-tab="vendor-products">My Products</button>
+            <button data-tab="vendor-orders">My Orders</button>
+            <button data-tab="announcements" id="navBtnAnnouncements-vendor">Announcements <span id="unreadBadge-vendor" class="pill" style="display:none;"></span></button>
           </div>
         </div>
 
@@ -324,6 +343,49 @@
       <div class="section-title" style="margin-top:0">Trip requirements</div>
       <p class="hint" style="margin-top:-6px;">Trips assigned to your vehicles or drivers. Assign one of your own drivers and follow up on status here.</p>
       <div id="transporterTripsBody"></div>
+    </section>
+
+    <!-- ===== VENDOR panels ===== -->
+    <section class="tab-panel" id="tab-vendor-profile">
+      <div class="card">
+        <div class="portal-profile-header">
+          <div class="portal-avatar" id="vendorAvatar"></div>
+          <div id="vendorProfileBody"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" id="tab-vendor-products">
+      <p class="hint" style="margin-top:0;">Your product catalog — what you supply. Take a photo with your camera or upload an image for each product; the congress team sees this catalog when placing purchase requests with you. To retire a product, edit it and set Status to Inactive.</p>
+      <div class="card">
+        <div class="section-title" style="margin-top:0" id="vendorProductFormTitle">Add product</div>
+        <form id="vendorProductForm">
+          <div class="form-grid cols-3">
+            <div class="field"><label>Name *</label><input name="name" required /></div>
+            <div class="field"><label>Category</label><input name="category" /></div>
+            <div class="field"><label>Unit</label><input name="unit" value="pcs" /></div>
+          </div>
+          <div class="form-grid cols-2">
+            <div class="field"><label>Unit price (₹)</label><input name="unit_price" type="number" min="0" step="0.01" /></div>
+            <div class="field"><label>Status</label>
+              <select name="status"><option value="active">Active</option><option value="inactive">Inactive</option></select>
+            </div>
+          </div>
+          <div class="field"><label>Description</label><textarea name="description"></textarea></div>
+          <button class="btn gold" type="submit" id="vendorProductSubmitBtn">Save product</button>
+          <button type="button" class="btn outline" id="vendorProductCancelEditBtn" style="display:none;">Cancel edit</button>
+        </form>
+      </div>
+      <div class="section-title">My products</div>
+      <div id="vendorProductsBody"></div>
+    </section>
+
+    <section class="tab-panel" id="tab-vendor-orders">
+      <p class="hint" style="margin-top:0;">Everything ordered from you — Purchase Requests from Finance and Inventory Items from Goodies &amp; Inventory — with the payment side untouched. Update the delivery status as you dispatch each order.</p>
+      <div class="section-title" style="margin-top:0">Purchase requests</div>
+      <div id="vendorOrdersPurchasesBody"></div>
+      <div class="section-title">Inventory items</div>
+      <div id="vendorOrdersInventoryBody"></div>
     </section>
 
     <!-- ===== SHARED: Announcements inbox (any logged-in role) ===== -->

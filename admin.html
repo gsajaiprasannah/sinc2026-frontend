@@ -138,6 +138,12 @@
           </div>
         </details>
         <details class="nav-group" open>
+          <summary class="nav-group-label">Vendor Management <span class="chevron">›</span></summary>
+          <div class="admin-nav">
+            <button data-tab="vendors">Vendors</button>
+          </div>
+        </details>
+        <details class="nav-group" open>
           <summary class="nav-group-label">Finance <span class="chevron">›</span></summary>
           <div class="admin-nav">
             <button data-tab="financeoverview">Overview</button>
@@ -1339,16 +1345,22 @@
               <option value="received">Received</option>
               <option value="distributing">Distributing</option>
               <option value="completed">Completed</option>
+              <option value="delayed">Delayed</option>
             </select>
           </div>
         </div>
         <div class="form-grid cols-3">
-          <div class="field"><label>Vendor</label><input name="vendor_name" placeholder="optional" /></div>
+          <div class="field"><label>Vendor (from master)</label><select name="vendor_id" id="inventoryVendorSelect"><option value="">-- none / one-off --</option></select></div>
+          <div class="field"><label>Vendor (one-off name, optional)</label><input name="vendor_name" placeholder="Only if not in the vendor master" /></div>
           <div class="field"><label>Unit cost (₹)</label><input name="unit_cost" type="number" min="0" step="0.01" placeholder="optional" /></div>
+        </div>
+        <div class="form-grid cols-3">
           <div class="field"><label>Responsible committee</label>
             <select name="responsible_committee_id" id="inventoryCommitteeSelect"><option value="">Unassigned</option></select>
             <span class="hint">Which committee is accountable for getting this delivered.</span>
           </div>
+          <div class="field"><label>Expected delivery date</label><input name="expected_delivery_date" type="date" /></div>
+          <div class="field"><label>Actual delivery date</label><input name="actual_delivery_date" type="date" /></div>
         </div>
         <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
         <button class="btn gold" type="submit" id="inventorySubmitBtn">Save item</button>
@@ -1362,7 +1374,7 @@
     </div>
     <div class="card table-scroll">
       <table>
-        <thead><tr><th>Item</th><th>Category</th><th>Committee</th><th>Procured</th><th>Distributed</th><th>Remaining</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Item</th><th>Category</th><th>Vendor</th><th>Committee</th><th>Procured</th><th>Distributed</th><th>Remaining</th><th>Status</th><th>Delivery</th><th></th></tr></thead>
         <tbody id="inventoryTableBody"></tbody>
       </table>
     </div>
@@ -1404,6 +1416,43 @@
       <table>
         <thead><tr><th>Item</th><th>Recipient</th><th>Committee</th><th>Assigned to</th><th>Status</th><th>Delivered by</th></tr></thead>
         <tbody id="inventoryMonitorDetailBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- VENDOR MANAGEMENT TAB -->
+  <section class="tab-panel" id="tab-vendors">
+    <p class="hint" style="margin-top:0;">The master list of outside suppliers behind Purchase Requests (Finance) and Inventory Items (Goodies &amp; Inventory) — what each vendor supplies, and the order/delivery status of everything ordered from them. Give a vendor their own login (Settings &rarr; Create Login &rarr; role Vendor) so they can maintain their own product catalog — with photos — and update delivery status themselves.</p>
+    <div class="card">
+      <div class="section-title" style="margin-top:0" id="vendorFormTitle">Add vendor</div>
+      <form id="vendorForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Name *</label><input name="name" required /></div>
+          <div class="field"><label>Category</label><input name="category" placeholder="e.g. Printing, Catering, Kits" /></div>
+          <div class="field"><label>Status</label>
+            <select name="status"><option value="active">Active</option><option value="inactive">Inactive</option></select>
+          </div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Contact person</label><input name="contact_person" /></div>
+          <div class="field"><label>Phone</label><input name="phone" /></div>
+          <div class="field"><label>Email</label><input name="email" type="email" /></div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Address</label><input name="address" /></div>
+          <div class="field"><label>GST number</label><input name="gst_number" /></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold" type="submit" id="vendorSubmitBtn">Save vendor</button>
+        <button type="button" class="btn outline" id="vendorCancelEditBtn" style="display:none;">Cancel edit</button>
+      </form>
+    </div>
+
+    <div class="section-title">All vendors</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Category</th><th>Contact</th><th>Products</th><th>Purchase Orders</th><th>Inventory Items</th><th>Login</th><th>Status</th><th></th></tr></thead>
+        <tbody id="vendorTableBody"></tbody>
       </table>
     </div>
   </section>
@@ -1843,10 +1892,12 @@
         <div class="form-grid cols-3">
           <div class="field"><label>Quantity *</label><input name="purchase_quantity" type="number" min="0" step="1" required /></div>
           <div class="field"><label>Unit cost (₹)</label><input name="purchase_unit_cost" type="number" min="0" step="0.01" /></div>
-          <div class="field"><label>Vendor</label><input name="payee_or_payer" /></div>
+          <div class="field"><label>Vendor (from master)</label><select name="vendor_id" id="finPurchaseVendorSelect"><option value="">-- none / one-off --</option></select></div>
         </div>
-        <div class="form-grid cols-2">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Vendor (one-off name, optional)</label><input name="payee_or_payer" placeholder="Only if not in the vendor master" /></div>
           <div class="field"><label>Date</label><input name="transaction_date" type="date" /></div>
+          <div class="field"><label>Expected delivery date</label><input name="expected_delivery_date" type="date" /></div>
         </div>
         <div class="field"><label>Description</label><input name="description" /></div>
         <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
@@ -1861,7 +1912,7 @@
     </div>
     <div class="card table-scroll">
       <table>
-        <thead><tr><th>Item</th><th>Qty x Cost</th><th>Amount (₹)</th><th>Status</th><th>Approvals</th><th>Inventory link</th><th></th></tr></thead>
+        <thead><tr><th>Item</th><th>Qty x Cost</th><th>Amount (₹)</th><th>Status</th><th>Approvals</th><th>Delivery</th><th>Inventory link</th><th></th></tr></thead>
         <tbody id="finPurchaseTableBody"></tbody>
       </table>
     </div>
@@ -1946,6 +1997,7 @@
                 <option value="transporter">Transporter (transport vendor coordinator)</option>
                 <option value="driver">Driver</option>
                 <option value="volunteer">Volunteer (external/non-member data-entry helper)</option>
+                <option value="vendor">Vendor (goods supplier — manages own products/orders)</option>
               </select>
             </div>
             <div class="field" id="createUserHmField" style="display:none;">
@@ -1966,6 +2018,11 @@
               <label>Volunteer *</label>
               <select name="volunteer_id" id="createUserVolunteerSelect"><option value="">-- select --</option></select>
               <span class="hint">This login will only see the modules granted to this volunteer.</span>
+            </div>
+            <div class="field" id="createUserVendorField" style="display:none;">
+              <label>Vendor *</label>
+              <select name="vendor_id" id="createUserVendorSelect"><option value="">-- select --</option></select>
+              <span class="hint">This login will only see this vendor's own products and orders.</span>
             </div>
           </div>
           <button class="btn gold" type="submit">Create login</button>
@@ -2073,6 +2130,21 @@
       <button type="button" class="modal-close" onclick="closeGoodiesModal()">&times;</button>
     </div>
     <div id="goodiesModalBody"></div>
+  </div>
+</div>
+
+<!-- Vendor detail: product catalog (with photos) + everything ordered from -->
+<!-- this vendor across Purchase Requests and Inventory Items, each with an -->
+<!-- inline delivery-status control. Opened from the "Details" button on the -->
+<!-- vendor list; a vendor with their own login sees the same catalog/orders -->
+<!-- (scoped to themselves) in their own portal. -->
+<div class="modal-overlay" id="vendorModal" style="display:none;" onclick="if(event.target===this) closeVendorModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="section-title" style="margin:0;" id="vendorModalTitle">Vendor</div>
+      <button type="button" class="modal-close" onclick="closeVendorModal()">&times;</button>
+    </div>
+    <div id="vendorModalBody"></div>
   </div>
 </div>
 
