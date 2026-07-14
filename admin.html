@@ -1273,14 +1273,17 @@
         <div class="form-grid cols-3">
           <div class="field"><label>Date</label><input name="trip_date" type="date" /></div>
           <div class="field"><label>Depart time</label><input name="depart_time" type="time" /></div>
-          <div class="field"><label>Vehicle *</label><select name="vehicle_id" id="tourTripVehicleSelect" required></select></div>
+          <div class="field"><label>Transporter</label><select name="partner_id" id="tourTripPartnerSelect"><option value="">-- none --</option></select></div>
         </div>
-        <div class="field"><label>Driver</label><select name="driver_id" id="tourTripDriverSelect"><option value="">-- none --</option></select></div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Vehicle *</label><select name="vehicle_id" id="tourTripVehicleSelect" required></select></div>
+          <div class="field"><label>Driver</label><select name="driver_id" id="tourTripDriverSelect"><option value="">-- none --</option></select></div>
+        </div>
         <button class="btn gold" type="submit">Add trip</button>
       </form>
       <div class="table-scroll" style="margin-top:8px;">
         <table>
-          <thead><tr><th>Date</th><th>Route</th><th>Vehicle</th><th>Driver</th><th>Passengers</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>Route</th><th>Transporter</th><th>Vehicle</th><th>Driver</th><th>Passengers</th><th></th></tr></thead>
           <tbody id="tourTripTableBody"></tbody>
         </table>
       </div>
