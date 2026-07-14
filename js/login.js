@@ -322,6 +322,10 @@ document.getElementById('tabNav').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-tab]');
   if (!btn) return;
   activateTab(btn.dataset.tab);
+  // Sidebar module buttons (see renderHostModules) all share
+  // data-tab="host-modules" but carry a unique data-module-key — switch to
+  // that specific module's content now that its shared panel is showing.
+  if (btn.dataset.moduleKey) selectHostModule(btn.dataset.moduleKey);
   // On phone/tablet widths the sidebar overlays the content, so tuck it away
   // again once a section has been picked (matches the admin panel's pattern).
   if (window.innerWidth < 860 && portalShell) {
@@ -976,21 +980,40 @@ let currentModuleKey = null, currentModuleSectionPath = null;
 // already-fetched list rather than adding a per-row GET).
 let currentModuleRows = [];
 
+// Renders one sidebar button per granted module — directly in the actual
+// left sidebar (under a "My Modules" group label), the same way the admin
+// panel lists each module as its own item under its sidebar groups (e.g.
+// "Operations ›" -> Vehicles, Transport Planning, ...). Every module button
+// shares data-tab="host-modules" (they all open the same content panel;
+// see tab-host-modules in login.html) plus a unique data-module-key so the
+// #tabNav click handler below knows which module to actually render.
+// host_member and volunteer are two separate (mutually exclusive) sidebar
+// groups, so both containers are populated identically — only the one
+// matching the logged-in role is ever visible.
 function renderHostModules(moduleAccess) {
   const card = document.getElementById('hostModulesCard');
-  const navBtn = document.getElementById('navBtnModules');
-  if (!moduleAccess || !moduleAccess.length) {
-    card.style.display = 'none';
-    if (navBtn) navBtn.style.display = 'none';
+  const validKeys = (moduleAccess || []).filter((k) => MODULE_CONFIG[k]);
+  const groupLabelHost = document.getElementById('myModulesGroupLabel-host_member');
+  const navHost = document.getElementById('myModulesSidebarNav-host_member');
+  const groupLabelVol = document.getElementById('myModulesGroupLabel-volunteer');
+  const navVol = document.getElementById('myModulesSidebarNav-volunteer');
+  if (!validKeys.length) {
+    if (card) card.style.display = 'none';
+    if (groupLabelHost) groupLabelHost.style.display = 'none';
+    if (navHost) { navHost.style.display = 'none'; navHost.innerHTML = ''; }
+    if (groupLabelVol) groupLabelVol.style.display = 'none';
+    if (navVol) { navVol.style.display = 'none'; navVol.innerHTML = ''; }
     return;
   }
-  card.style.display = '';
-  if (navBtn) navBtn.style.display = '';
-  const nav = document.getElementById('hostModuleNav');
-  nav.innerHTML = moduleAccess.filter((k) => MODULE_CONFIG[k]).map((k) => `
-    <button type="button" class="btn small ${k === currentModuleKey ? 'gold' : ''}" onclick="selectHostModule('${k}')">${MODULE_CONFIG[k].label}</button>
+  if (card) card.style.display = '';
+  const btnsHtml = validKeys.map((k) => `
+    <button type="button" data-tab="host-modules" data-module-key="${k}">${MODULE_CONFIG[k].label}</button>
   `).join('');
-  if (!currentModuleKey && moduleAccess.length) currentModuleKey = moduleAccess.find((k) => MODULE_CONFIG[k]) || null;
+  if (groupLabelHost) groupLabelHost.style.display = '';
+  if (navHost) { navHost.style.display = ''; navHost.innerHTML = btnsHtml; }
+  if (groupLabelVol) groupLabelVol.style.display = '';
+  if (navVol) { navVol.style.display = ''; navVol.innerHTML = btnsHtml; }
+  if (!currentModuleKey && validKeys.length) currentModuleKey = validKeys[0];
   if (currentModuleKey) selectHostModule(currentModuleKey, currentModuleSectionPath);
 }
 window.selectHostModule = async (key, sectionPath) => {
@@ -999,9 +1022,9 @@ window.selectHostModule = async (key, sectionPath) => {
   if (!cfg) return;
   const section = cfg.sections ? (cfg.sections.find((s) => s.path === sectionPath) || cfg.sections[0]) : cfg;
   currentModuleSectionPath = section.path;
-  document.querySelectorAll('#hostModuleNav .btn').forEach((b) => b.classList.remove('gold'));
-  const btns = document.querySelectorAll('#hostModuleNav .btn');
-  for (const b of btns) { if (b.textContent.trim() === cfg.label) b.classList.add('gold'); }
+  document.querySelectorAll('[data-module-key]').forEach((b) => b.classList.toggle('active', b.dataset.moduleKey === key));
+  const titleEl = document.getElementById('hostModuleSectionTitle');
+  if (titleEl) titleEl.textContent = cfg.sections ? `${cfg.label} — ${section.label}` : cfg.label;
   await renderHostModuleSection(cfg, section);
 };
 // Every input whose name is one of these gets the shared pickup/drop-point
