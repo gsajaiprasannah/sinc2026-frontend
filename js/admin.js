@@ -2353,7 +2353,7 @@ async function refreshPartners() {
   `).join('') || '<tr><td colspan="5" class="empty">No partners yet</td></tr>';
 
   const opts = rows.map((p) => `<option value="${p.id}">${p.name}${p.category ? ' (' + p.category + ')' : ''}</option>`).join('');
-  ['driverPartnerSelect', 'vehiclePartnerSelect'].forEach((id) => {
+  ['driverPartnerSelect', 'vehiclePartnerSelect', 'tourTripPartnerSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<option value="">-- none --</option>' + opts;
   });
@@ -2968,6 +2968,7 @@ async function refreshTourTrips() {
     <tr>
       <td>${t.trip_date || '-'}</td>
       <td>${t.from_location} → ${t.to_location}</td>
+      <td>${t.partner_name || '-'}</td>
       <td>${t.vehicle_code || '-'}</td>
       <td>${t.driver_name || '-'}</td>
       <td>${capacityBadge(Number(t.passenger_count), t.seating_capacity)}</td>
@@ -2976,7 +2977,7 @@ async function refreshTourTrips() {
         ${canDelete() ? `<button class="btn danger small" onclick="deleteTourTrip(${t.id})">Delete</button>` : ''}
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="6" class="empty">No transport planned yet</td></tr>';
+  `).join('') || '<tr><td colspan="7" class="empty">No transport planned yet</td></tr>';
 }
 window.deleteTourTrip = async (id) => { await jdel(`${API}/transport/${id}`); toast('Trip removed'); refreshTourTrips(); refreshPreTours(); };
 document.getElementById('tourTripForm').addEventListener('submit', async (e) => {
@@ -2984,6 +2985,7 @@ document.getElementById('tourTripForm').addEventListener('submit', async (e) => 
   if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
   const body = Object.fromEntries(new FormData(e.target).entries());
   if (!body.driver_id) delete body.driver_id;
+  if (!body.partner_id) delete body.partner_id;
   body.pre_tour_id = currentTourId;
   try {
     await jpost(`${API}/transport`, body);

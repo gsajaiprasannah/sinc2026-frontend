@@ -1493,14 +1493,17 @@ function tourManageCardHtml() {
         <div class="form-grid cols-3">
           <div class="field"><label>Date</label><input name="trip_date" type="date" /></div>
           <div class="field"><label>Depart time</label><input name="depart_time" type="time" /></div>
-          <div class="field"><label>Vehicle *</label><select name="vehicle_id" id="tourTripVehicleSelect" required></select></div>
+          <div class="field"><label>Transporter</label><select name="partner_id" id="tourTripPartnerSelect"><option value="">-- any --</option></select></div>
         </div>
-        <div class="field"><label>Driver</label><select name="driver_id" id="tourTripDriverSelect"><option value="">-- none --</option></select></div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Vehicle *</label><select name="vehicle_id" id="tourTripVehicleSelect" required></select></div>
+          <div class="field"><label>Driver</label><select name="driver_id" id="tourTripDriverSelect"><option value="">-- none --</option></select></div>
+        </div>
         <button class="btn gold small" type="submit">Add trip</button>
       </form>
       <div class="table-scroll" style="margin-top:8px;">
         <table>
-          <thead><tr><th>Date</th><th>Route</th><th>Vehicle</th><th>Driver</th><th>Passengers</th></tr></thead>
+          <thead><tr><th>Date</th><th>Route</th><th>Transporter</th><th>Vehicle</th><th>Driver</th><th>Passengers</th></tr></thead>
           <tbody id="tourTripTableBody"></tbody>
         </table>
       </div>
@@ -1597,17 +1600,41 @@ window.updateTourParticipantPayment = async (rowId, payment_status) => {
   try { await jput(`${API}/portal-modules/pretours/participants/${rowId}`, { payment_status }); toast('Payment status updated'); }
   catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
 };
+let tourTripVehicles = [];
+let tourTripDrivers = [];
 async function refreshTourTripOptions() {
   try {
-    const [vehicles, drivers] = await Promise.all([
+    const [vehicles, drivers, partners] = await Promise.all([
       jget(`${API}/portal-modules/pretours/vehicles-lite`),
       jget(`${API}/portal-modules/pretours/drivers-lite`),
+      jget(`${API}/portal-modules/pretours/partners-lite`),
     ]);
-    const vSelect = document.getElementById('tourTripVehicleSelect');
-    const dSelect = document.getElementById('tourTripDriverSelect');
-    if (vSelect) vSelect.innerHTML = '<option value="">-- select vehicle --</option>' + vehicles.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join('');
-    if (dSelect) dSelect.innerHTML = '<option value="">-- none --</option>' + drivers.map((d) => `<option value="${d.id}">${escapeHtml(d.name)}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}</option>`).join('');
+    tourTripVehicles = vehicles;
+    tourTripDrivers = drivers;
+    const pSelect = document.getElementById('tourTripPartnerSelect');
+    if (pSelect) pSelect.innerHTML = '<option value="">-- any --</option>' + partners.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}${p.category ? ' (' + escapeHtml(p.category) + ')' : ''}</option>`).join('');
+    applyTourTripPartnerFilter();
   } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+}
+// Narrows the Vehicle/Driver selects to only the fleet belonging to
+// whichever Transporter was picked, re-run whenever that select changes —
+// mirrors MODULE_CONFIG.transport_planning's filterBy behavior, hand-rolled
+// here since this is a custom form rather than the generic field renderer.
+// Falls back to the full fleet when no Transporter is picked (or a
+// vehicle/driver predates the partner_id field), so nothing is ever hidden.
+function applyTourTripPartnerFilter() {
+  const pSelect = document.getElementById('tourTripPartnerSelect');
+  const vSelect = document.getElementById('tourTripVehicleSelect');
+  const dSelect = document.getElementById('tourTripDriverSelect');
+  if (!vSelect || !dSelect) return;
+  const partnerVal = pSelect ? pSelect.value : '';
+  const keepV = vSelect.value, keepD = dSelect.value;
+  const vRows = partnerVal ? tourTripVehicles.filter((v) => String(v.partner_id ?? '') === String(partnerVal)) : tourTripVehicles;
+  const dRows = partnerVal ? tourTripDrivers.filter((d) => String(d.partner_id ?? '') === String(partnerVal)) : tourTripDrivers;
+  vSelect.innerHTML = '<option value="">-- select vehicle --</option>' + vRows.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join('');
+  dSelect.innerHTML = '<option value="">-- none --</option>' + dRows.map((d) => `<option value="${d.id}">${escapeHtml(d.name)}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}</option>`).join('');
+  if (vRows.some((v) => String(v.id) === String(keepV))) vSelect.value = keepV;
+  if (dRows.some((d) => String(d.id) === String(keepD))) dSelect.value = keepD;
 }
 async function refreshTourTrips() {
   if (!currentTourId) return;
@@ -1618,11 +1645,12 @@ async function refreshTourTrips() {
     <tr>
       <td>${t.trip_date || '-'}</td>
       <td>${escapeHtml(t.from_location)} → ${escapeHtml(t.to_location)}</td>
+      <td>${escapeHtml(t.partner_name || '-')}</td>
       <td>${t.vehicle_code || '-'}</td>
       <td>${escapeHtml(t.driver_name || '-')}</td>
       <td>${t.passenger_count || 0}</td>
     </tr>
-  `).join('') || '<tr><td colspan="5" class="empty">No transport planned yet</td></tr>';
+  `).join('') || '<tr><td colspan="6" class="empty">No transport planned yet</td></tr>';
 }
 // Re-renders the whole Pre Tours section (so the "Signed up"/"Trips" count
 // badges on the main table stay in sync) and then re-opens this same
@@ -1698,11 +1726,14 @@ function wireTourManageForms() {
   const tripForm = document.getElementById('tourTripForm');
   if (tripForm && !tripForm.dataset.wired) {
     tripForm.dataset.wired = '1';
+    const partnerSelect = document.getElementById('tourTripPartnerSelect');
+    if (partnerSelect) partnerSelect.addEventListener('change', applyTourTripPartnerFilter);
     tripForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
       const body = Object.fromEntries(new FormData(e.target).entries());
       if (!body.driver_id) delete body.driver_id;
+      if (!body.partner_id) delete body.partner_id;
       try {
         await jpost(`${API}/portal-modules/pretours/${currentTourId}/trips`, body);
         e.target.reset();
