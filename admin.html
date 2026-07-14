@@ -2121,6 +2121,19 @@
   </div>
 </div>
 
+<!-- Change a login's role + linked profile record, opened from the "Change
+     role" button in Settings > ALL LOGINS. Mirrors the role -> linked-profile
+     picker pattern from "Generate a Login" above, but for an existing login. -->
+<div class="modal-overlay" id="changeRoleModal" style="display:none;" onclick="if(event.target===this) closeChangeRoleModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="section-title" style="margin:0;" id="changeRoleModalTitle">Change role</div>
+      <button type="button" class="modal-close" onclick="closeChangeRoleModal()">&times;</button>
+    </div>
+    <div id="changeRoleModalBody"></div>
+  </div>
+</div>
+
 <!-- Manage deliveries for one inventory item — recipients, bulk-assign, -->
 <!-- individual add, per-recipient assigned/delivered/status tracking. -->
 <div class="modal-overlay" id="inventoryDistModal" style="display:none;" onclick="if(event.target===this) closeInventoryDistModal()">
