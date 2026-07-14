@@ -2846,8 +2846,10 @@ window.manageTour = async (id, name) => {
   document.getElementById('tourManageCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
-// Day-by-day Hotel Plan: which hotel a group sleeps at vs. takes meals at,
-// per day of a Full Board pre tour. Mirrors refreshTourItinerary's shape.
+// Day-by-day Hotel Plan: which hotel a group sleeps at, plus a hotel for
+// each of the day's 5 sittings (breakfast/hi-tea/lunch/hi-tea/dinner), per
+// day of a Full Board pre tour. Mirrors refreshTourItinerary's shape.
+const HOTEL_DAY_MEAL_FIELDS = ['breakfast_hotel_id', 'hitea1_hotel_id', 'lunch_hotel_id', 'hitea2_hotel_id', 'dinner_hotel_id'];
 async function refreshTourHotelDays() {
   if (!currentTourId) return;
   const rows = await jget(`${API}/pretours/${currentTourId}/hotel-days`);
@@ -2856,11 +2858,15 @@ async function refreshTourHotelDays() {
       <td>${d.day_label}</td>
       <td>${d.day_date || '-'}</td>
       <td>${d.stay_hotel_name || '-'}</td>
-      <td>${d.meal_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-')}</td>
+      <td>${d.breakfast_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-')}</td>
+      <td>${d.hitea1_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-')}</td>
+      <td>${d.lunch_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-')}</td>
+      <td>${d.hitea2_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-')}</td>
+      <td>${d.dinner_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-')}</td>
       <td>${d.notes || '-'}</td>
       <td>${canDelete() ? `<button class="btn danger small" onclick="deleteTourHotelDay(${d.id})">Delete</button>` : ''}</td>
     </tr>
-  `).join('') || '<tr><td colspan="6" class="empty">No hotel plan added yet</td></tr>';
+  `).join('') || '<tr><td colspan="10" class="empty">No hotel plan added yet</td></tr>';
 }
 window.deleteTourHotelDay = async (dayId) => {
   await jdel(`${API}/pretours/hotel-days/${dayId}`);
@@ -2872,7 +2878,7 @@ document.getElementById('tourHotelDayForm').addEventListener('submit', async (e)
   if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
   const body = Object.fromEntries(new FormData(e.target).entries());
   if (!body.stay_hotel_id) delete body.stay_hotel_id;
-  if (!body.meal_hotel_id) delete body.meal_hotel_id;
+  HOTEL_DAY_MEAL_FIELDS.forEach((f) => { if (!body[f]) delete body[f]; });
   try {
     await jpost(`${API}/pretours/${currentTourId}/hotel-days`, body);
     e.target.reset();
@@ -4516,8 +4522,10 @@ async function refreshHotels() {
 
   const stayEl = document.getElementById('tourHotelDayStaySelect');
   if (stayEl) stayEl.innerHTML = '<option value="">-- none --</option>' + opts;
-  const mealEl = document.getElementById('tourHotelDayMealSelect');
-  if (mealEl) mealEl.innerHTML = '<option value="">-- same as stay hotel --</option>' + opts;
+  ['tourHotelDayBreakfastSelect', 'tourHotelDayHitea1Select', 'tourHotelDayLunchSelect', 'tourHotelDayHitea2Select', 'tourHotelDayDinnerSelect'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '<option value="">-- same as stay --</option>' + opts;
+  });
 }
 window.deleteHotel = async (id) => { await jdel(`${API}/hotels/${id}`); toast('Hotel removed'); refreshHotels(); refreshRooms(); };
 

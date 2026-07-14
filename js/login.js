@@ -1431,24 +1431,30 @@ function tourManageCardHtml() {
         </table>
       </div>
 
-      <div class="section-title" style="font-size:12px;margin-top:20px;">Hotel Plan (day-by-day) — stay vs. meal hotel</div>
-      <p class="hint" style="margin-top:-4px;">For Full Board tours where meals are taken at a different hotel than where the group sleeps that night. Leave a hotel blank if it's the same as the previous day or not yet decided.</p>
+      <div class="section-title" style="font-size:12px;margin-top:20px;">Hotel Plan (day-by-day) — stay + each meal sitting</div>
+      <p class="hint" style="margin-top:-4px;">Full Board tours: define the stay hotel plus a hotel for each of the day's 5 sittings (breakfast, hi-tea, lunch, hi-tea, dinner) — any of them can be a different hotel than where the group sleeps. Leave a hotel blank if it's not yet decided.</p>
       <form id="tourHotelDayForm">
         <div class="form-grid cols-3">
           <div class="field"><label>Day label *</label><input name="day_label" required placeholder="Day 1 · 10 Aug" /></div>
           <div class="field"><label>Date</label><input name="day_date" type="date" /></div>
           <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="0" /></div>
         </div>
+        <div class="field"><label>Stay hotel</label><select name="stay_hotel_id" id="tourHotelDayStaySelect"><option value="">-- none --</option></select></div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Breakfast hotel</label><select name="breakfast_hotel_id" id="tourHotelDayBreakfastSelect"><option value="">-- same as stay --</option></select></div>
+          <div class="field"><label>Hi-Tea 1 hotel</label><select name="hitea1_hotel_id" id="tourHotelDayHitea1Select"><option value="">-- same as stay --</option></select></div>
+          <div class="field"><label>Lunch hotel</label><select name="lunch_hotel_id" id="tourHotelDayLunchSelect"><option value="">-- same as stay --</option></select></div>
+        </div>
         <div class="form-grid cols-2">
-          <div class="field"><label>Stay hotel</label><select name="stay_hotel_id" id="tourHotelDayStaySelect"><option value="">-- none --</option></select></div>
-          <div class="field"><label>Meal hotel</label><select name="meal_hotel_id" id="tourHotelDayMealSelect"><option value="">-- same as stay hotel --</option></select></div>
+          <div class="field"><label>Hi-Tea 2 hotel</label><select name="hitea2_hotel_id" id="tourHotelDayHitea2Select"><option value="">-- same as stay --</option></select></div>
+          <div class="field"><label>Dinner hotel</label><select name="dinner_hotel_id" id="tourHotelDayDinnerSelect"><option value="">-- same as stay --</option></select></div>
         </div>
         <div class="field"><label>Notes</label><input name="notes" /></div>
         <button class="btn gold small" type="submit">Add day</button>
       </form>
       <div class="table-scroll" style="margin-top:8px;">
         <table>
-          <thead><tr><th>Day</th><th>Date</th><th>Stay hotel</th><th>Meal hotel</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Day</th><th>Date</th><th>Stay</th><th>Breakfast</th><th>Hi-Tea 1</th><th>Lunch</th><th>Hi-Tea 2</th><th>Dinner</th><th>Notes</th></tr></thead>
           <tbody id="tourHotelDayTableBody"></tbody>
         </table>
       </div>
@@ -1512,16 +1518,20 @@ window.manageTour = async (id, name) => {
   await Promise.all([refreshTourItinerary(), refreshTourParticipants(), refreshTourTrips(), refreshTourHotelDays()]);
   card.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
-// Day-by-day Hotel Plan: which hotel a group sleeps at vs. takes meals at,
+// Day-by-day Hotel Plan: which hotel a group sleeps at, plus a hotel for
+// each of the day's 5 sittings (breakfast/hi-tea/lunch/hi-tea/dinner),
 // per day of a Full Board pre tour — see pre_tour_days on the backend.
+const HOTEL_DAY_MEAL_FIELDS = ['breakfast_hotel_id', 'hitea1_hotel_id', 'lunch_hotel_id', 'hitea2_hotel_id', 'dinner_hotel_id'];
 async function refreshTourHotelDayOptions() {
   try {
     const hotels = await jget(`${API}/portal-modules/pretours/hotels-lite`);
     const opts = hotels.map((h) => `<option value="${h.id}">${escapeHtml(h.name)}</option>`).join('');
     const stayEl = document.getElementById('tourHotelDayStaySelect');
-    const mealEl = document.getElementById('tourHotelDayMealSelect');
     if (stayEl) stayEl.innerHTML = '<option value="">-- none --</option>' + opts;
-    if (mealEl) mealEl.innerHTML = '<option value="">-- same as stay hotel --</option>' + opts;
+    ['tourHotelDayBreakfastSelect', 'tourHotelDayHitea1Select', 'tourHotelDayLunchSelect', 'tourHotelDayHitea2Select', 'tourHotelDayDinnerSelect'].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '<option value="">-- same as stay --</option>' + opts;
+    });
   } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
 }
 async function refreshTourHotelDays() {
@@ -1534,10 +1544,14 @@ async function refreshTourHotelDays() {
       <td>${escapeHtml(d.day_label)}</td>
       <td>${d.day_date || '-'}</td>
       <td>${escapeHtml(d.stay_hotel_name || '-')}</td>
-      <td>${escapeHtml(d.meal_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-'))}</td>
+      <td>${escapeHtml(d.breakfast_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-'))}</td>
+      <td>${escapeHtml(d.hitea1_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-'))}</td>
+      <td>${escapeHtml(d.lunch_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-'))}</td>
+      <td>${escapeHtml(d.hitea2_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-'))}</td>
+      <td>${escapeHtml(d.dinner_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-'))}</td>
       <td>${escapeHtml(d.notes || '-')}</td>
     </tr>
-  `).join('') || '<tr><td colspan="5" class="empty">No hotel plan added yet</td></tr>';
+  `).join('') || '<tr><td colspan="9" class="empty">No hotel plan added yet</td></tr>';
 }
 async function refreshTourItinerary() {
   if (!currentTourId) return;
@@ -1643,7 +1657,7 @@ function wireTourManageForms() {
       if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
       const body = Object.fromEntries(new FormData(e.target).entries());
       if (!body.stay_hotel_id) delete body.stay_hotel_id;
-      if (!body.meal_hotel_id) delete body.meal_hotel_id;
+      HOTEL_DAY_MEAL_FIELDS.forEach((f) => { if (!body[f]) delete body[f]; });
       try {
         await jpost(`${API}/portal-modules/pretours/${currentTourId}/hotel-days`, body);
         e.target.reset();
