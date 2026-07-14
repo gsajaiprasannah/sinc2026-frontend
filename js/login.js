@@ -773,10 +773,18 @@ const MODULE_CONFIG = {
       { name: 'purpose', label: 'Purpose' },
       { name: 'partner_id', label: 'Transport partner', type: 'select', optionsFrom: 'transport/partners-lite',
         optionLabel: (p) => `${p.name}${p.category ? ' (' + p.category + ')' : ''}` },
+      // filterBy narrows this select's own option list to only rows whose
+      // partner_id matches whatever's currently chosen in the 'partner_id'
+      // field above — see wireSelectFiltering() in renderHostModuleSection.
+      // Picking no partner (or a vehicle/driver with no partner_id set)
+      // falls back to showing the full fleet, so this never blocks entry
+      // for data that predates the Transport partner field.
       { name: 'vehicle_id', label: 'Vehicle', type: 'select', required: true, optionsFrom: 'transport/vehicles-lite',
-        optionLabel: (v) => `${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}` },
+        optionLabel: (v) => `${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}`,
+        filterBy: { field: 'partner_id', match: 'partner_id' } },
       { name: 'driver_id', label: 'Driver', type: 'select', optionsFrom: 'transport/drivers-lite',
-        optionLabel: (d) => `${d.name}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}` },
+        optionLabel: (d) => `${d.name}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}`,
+        filterBy: { field: 'partner_id', match: 'partner_id' } },
       { name: 'status', label: 'Status', type: 'select',
         options: [['planned', 'Planned'], ['in_progress', 'In progress'], ['completed', 'Completed'], ['cancelled', 'Cancelled']] },
       { name: 'notes', label: 'Notes', type: 'textarea' },
@@ -1135,6 +1143,7 @@ async function renderHostModuleSection(cfg, section) {
   `;
   wireLocationDropdowns(body);
   wireOccupantToggle(body);
+  wireSelectFiltering(body, section, optionRows);
   if (section.extraPanelWire) section.extraPanelWire(body);
   if (cfg.hasArrivalsQueue) { refreshTransportPoints(); renderTransportQueue(); }
   if (cfg.hasDeliveryMonitor) { wireInventoryMonitorFilters(); refreshInventoryMonitor(); }
@@ -1156,6 +1165,34 @@ function wireOccupantToggle(root) {
       if (hWrap) hWrap.style.display = sel.value === 'host_member' ? '' : 'none';
     };
     sel.addEventListener('change', apply);
+    apply();
+  });
+}
+
+// Wires up 'select' fields that declare `filterBy: { field, match }` (e.g.
+// Transport Planning's Vehicle/Driver selects, filtered by whichever
+// Transport partner is picked): narrows the target select's own option list
+// down to only the fetched rows whose [match] property equals the current
+// value of the [field] select, re-running whenever that trigger select
+// changes. Falls back to the full unfiltered list whenever no trigger value
+// is set (or the trigger field isn't present in this section at all), so
+// older vehicles/drivers saved without a partner_id are never hidden.
+function wireSelectFiltering(root, section, optionRows) {
+  section.fields.forEach((f) => {
+    if (f.type !== 'select' || !f.filterBy || !f.optionsFrom) return;
+    const target = (root || document).querySelector(`select[name="${f.name}"]`);
+    const trigger = (root || document).querySelector(`select[name="${f.filterBy.field}"]`);
+    if (!target || !trigger) return;
+    const allRows = optionRows[f.optionsFrom] || [];
+    const apply = () => {
+      const triggerVal = trigger.value;
+      const keepVal = target.value;
+      const rows = triggerVal ? allRows.filter((r) => String(r[f.filterBy.match] ?? '') === String(triggerVal)) : allRows;
+      target.innerHTML = '<option value="">-- choose --</option>' +
+        rows.map((r) => `<option value="${r.id}">${escapeHtml(f.optionLabel(r))}</option>`).join('');
+      if (rows.some((r) => String(r.id) === String(keepVal))) target.value = keepVal;
+    };
+    trigger.addEventListener('change', apply);
     apply();
   });
 }
