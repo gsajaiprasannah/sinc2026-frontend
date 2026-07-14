@@ -890,8 +890,20 @@ const MODULE_CONFIG = {
       { name: 'status', label: 'Status', type: 'select', options: [['invited', 'Invited'], ['confirmed', 'Confirmed'], ['cancelled', 'Cancelled']] },
       { name: 'notes', label: 'Notes', type: 'textarea' },
     ] },
-  media: { label: 'Media (Video/Poster)', path: 'media', readOnly: true,
-    columns: [['title', 'Title'], ['type', 'Type'], ['active', 'Active']], fields: [] },
+  // Was previously readOnly with no way to view/upload/hide anything from
+  // the host portal — extraRowAction adds a per-row View link + Hide/Show
+  // toggle (mirrors admin.js's toggleMedia), and extraPanelHtml adds the
+  // real upload form below the table (needs multipart handling, which the
+  // generic JSON submitHostModuleForm doesn't support, so this is bespoke —
+  // see mediaUploadCardHtml()/wireMediaUploadForm() further down this file).
+  media: { label: 'Media (Video/Poster/Print materials)', path: 'media',
+    columns: [['title', 'Title'], ['type', 'Type'], ['active', 'Active']],
+    extraRowAction: (r) => `
+      <a class="btn small" href="${API}/media/${r.id}/download" target="_blank" rel="noopener">View</a>
+      <button type="button" class="btn small ${r.active ? 'outline' : 'gold'}" onclick="toggleHostMedia(${r.id}, ${r.active ? 0 : 1})">${r.active ? 'Hide' : 'Show'}</button>
+    `,
+    extraPanelHtml: mediaUploadCardHtml, extraPanelWire: wireMediaUploadForm,
+    fields: [] },
   happenings: { label: 'Live Happenings', path: 'happenings',
     columns: [['title', 'Title'], ['category', 'Category'], ['posted_by', 'Posted by']],
     fields: [
@@ -1419,6 +1431,28 @@ function tourManageCardHtml() {
         </table>
       </div>
 
+      <div class="section-title" style="font-size:12px;margin-top:20px;">Hotel Plan (day-by-day) — stay vs. meal hotel</div>
+      <p class="hint" style="margin-top:-4px;">For Full Board tours where meals are taken at a different hotel than where the group sleeps that night. Leave a hotel blank if it's the same as the previous day or not yet decided.</p>
+      <form id="tourHotelDayForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Day label *</label><input name="day_label" required placeholder="Day 1 · 10 Aug" /></div>
+          <div class="field"><label>Date</label><input name="day_date" type="date" /></div>
+          <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="0" /></div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Stay hotel</label><select name="stay_hotel_id" id="tourHotelDayStaySelect"><option value="">-- none --</option></select></div>
+          <div class="field"><label>Meal hotel</label><select name="meal_hotel_id" id="tourHotelDayMealSelect"><option value="">-- same as stay hotel --</option></select></div>
+        </div>
+        <div class="field"><label>Notes</label><input name="notes" /></div>
+        <button class="btn gold small" type="submit">Add day</button>
+      </form>
+      <div class="table-scroll" style="margin-top:8px;">
+        <table>
+          <thead><tr><th>Day</th><th>Date</th><th>Stay hotel</th><th>Meal hotel</th><th>Notes</th></tr></thead>
+          <tbody id="tourHotelDayTableBody"></tbody>
+        </table>
+      </div>
+
       <div class="section-title" style="font-size:12px;margin-top:20px;">Delegates / host members signed up</div>
       <form id="tourPartForm">
         <div class="form-grid cols-3">
@@ -1474,10 +1508,37 @@ window.manageTour = async (id, name) => {
   if (!card) return;
   document.getElementById('tourManageLabel').textContent = name;
   card.style.display = '';
-  await Promise.all([refreshTourPartOptions(), refreshTourTripOptions()]);
-  await Promise.all([refreshTourItinerary(), refreshTourParticipants(), refreshTourTrips()]);
+  await Promise.all([refreshTourPartOptions(), refreshTourTripOptions(), refreshTourHotelDayOptions()]);
+  await Promise.all([refreshTourItinerary(), refreshTourParticipants(), refreshTourTrips(), refreshTourHotelDays()]);
   card.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
+// Day-by-day Hotel Plan: which hotel a group sleeps at vs. takes meals at,
+// per day of a Full Board pre tour — see pre_tour_days on the backend.
+async function refreshTourHotelDayOptions() {
+  try {
+    const hotels = await jget(`${API}/portal-modules/pretours/hotels-lite`);
+    const opts = hotels.map((h) => `<option value="${h.id}">${escapeHtml(h.name)}</option>`).join('');
+    const stayEl = document.getElementById('tourHotelDayStaySelect');
+    const mealEl = document.getElementById('tourHotelDayMealSelect');
+    if (stayEl) stayEl.innerHTML = '<option value="">-- none --</option>' + opts;
+    if (mealEl) mealEl.innerHTML = '<option value="">-- same as stay hotel --</option>' + opts;
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+}
+async function refreshTourHotelDays() {
+  if (!currentTourId) return;
+  let rows = [];
+  try { rows = await jget(`${API}/portal-modules/pretours/${currentTourId}/hotel-days`); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); return; }
+  document.getElementById('tourHotelDayTableBody').innerHTML = rows.map((d) => `
+    <tr>
+      <td>${escapeHtml(d.day_label)}</td>
+      <td>${d.day_date || '-'}</td>
+      <td>${escapeHtml(d.stay_hotel_name || '-')}</td>
+      <td>${escapeHtml(d.meal_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-'))}</td>
+      <td>${escapeHtml(d.notes || '-')}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No hotel plan added yet</td></tr>';
+}
 async function refreshTourItinerary() {
   if (!currentTourId) return;
   let rows = [];
@@ -1574,6 +1635,23 @@ function wireTourManageForms() {
       } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
     });
   }
+  const hotelDayForm = document.getElementById('tourHotelDayForm');
+  if (hotelDayForm && !hotelDayForm.dataset.wired) {
+    hotelDayForm.dataset.wired = '1';
+    hotelDayForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
+      const body = Object.fromEntries(new FormData(e.target).entries());
+      if (!body.stay_hotel_id) delete body.stay_hotel_id;
+      if (!body.meal_hotel_id) delete body.meal_hotel_id;
+      try {
+        await jpost(`${API}/portal-modules/pretours/${currentTourId}/hotel-days`, body);
+        e.target.reset();
+        toast('Hotel plan day added');
+        refreshTourHotelDays();
+      } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+    });
+  }
   const typeSel = document.getElementById('tourPartTypeSelect');
   if (typeSel && !typeSel.dataset.wired) {
     typeSel.dataset.wired = '1';
@@ -1619,6 +1697,79 @@ function wireTourManageForms() {
         if (body.to_location) ensureTransportPoint(body.to_location);
         await refreshPreTourCountsAndReopen();
       } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+    });
+  }
+}
+
+// --- Media (Video/Poster/Print materials): upload + hide/show from the ---
+// --- host portal. Previously this section was entirely read-only — the ---
+// --- table above (with its View link + Hide/Show button via extraRowAction) ---
+// --- plus this upload form below is what makes it usable. Mirrors admin.js's ---
+// --- refreshMediaAdmin()/mediaForm, but posts multipart form data directly ---
+// --- (jpost only sends JSON) and re-renders via renderHostModuleSection ---
+// --- afterward so the table picks up the new/changed row. ---
+function mediaUploadCardHtml() {
+  return `
+    <div class="card" style="margin-top:14px;">
+      <div class="section-title" style="margin-top:0">Upload video, poster, or print material</div>
+      <form id="hostMediaUploadForm">
+        <div class="form-grid cols-2">
+          <div class="field"><label>Type</label>
+            <select name="type" id="hostMediaTypeSelect">
+              <option value="video">Video (loop reel)</option>
+              <option value="poster">Poster / material</option>
+              <option value="document">Print materials &amp; more (PDF)</option>
+            </select>
+          </div>
+          <div class="field"><label>Title / caption</label><input name="title" /></div>
+        </div>
+        <div class="field"><label>File *</label><input name="file" id="hostMediaFileInput" type="file" accept="video/*,image/*" required /></div>
+        <button class="btn gold small" type="submit">Upload</button>
+      </form>
+      <p class="hint">Uploads appear on the public dashboard loop automatically (up to 500MB). Use Hide/Show on a row above to include/exclude it without deleting.</p>
+    </div>
+  `;
+}
+window.toggleHostMedia = async (id, active) => {
+  try {
+    await jput(`${API}/portal-modules/media/${id}`, { active });
+    toast(active ? 'Now visible' : 'Hidden');
+    await renderHostModuleSection(MODULE_CONFIG.media, MODULE_CONFIG.media);
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
+function wireMediaUploadForm() {
+  const typeSel = document.getElementById('hostMediaTypeSelect');
+  if (typeSel && !typeSel.dataset.wired) {
+    typeSel.dataset.wired = '1';
+    typeSel.addEventListener('change', (e) => {
+      document.getElementById('hostMediaFileInput').setAttribute('accept', e.target.value === 'document' ? 'application/pdf' : 'video/*,image/*');
+    });
+  }
+  const form = document.getElementById('hostMediaUploadForm');
+  if (form && !form.dataset.wired) {
+    form.dataset.wired = '1';
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector('button[type="submit"]');
+      const fileInput = document.getElementById('hostMediaFileInput');
+      if (!fileInput.files.length) { toast('Choose a file first'); return; }
+      const originalLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Uploading… do not close this tab';
+      toast(`Uploading ${fileInput.files[0].name} — this can take a while for large videos`, 6000);
+      try {
+        const r = await fetch(`${API}/portal-modules/media/upload`, { method: 'POST', headers: authHeaders(), body: new FormData(form) });
+        if (r.status === 401) { handleUnauthorized(); throw new UnauthorizedError('Please log in again.'); }
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(data.error || `Upload failed (HTTP ${r.status})`);
+        toast('Upload complete', 3000);
+        await renderHostModuleSection(MODULE_CONFIG.media, MODULE_CONFIG.media);
+      } catch (err) {
+        if (!(err instanceof UnauthorizedError)) toast(err.message, 8000);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalLabel;
+      }
     });
   }
 }

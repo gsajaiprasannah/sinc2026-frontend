@@ -1017,6 +1017,7 @@ document.getElementById('partSearch').addEventListener('input', (e) => {
 async function refreshMediaAdmin() {
   const videos = await jget(`${API}/media?type=video`);
   const posters = await jget(`${API}/media?type=poster`);
+  const documents = await jget(`${API}/media?type=document`);
   const render = (items, kind) => items.map((m) => `
     <div class="thumb">
       ${kind === 'video' ? `<video src="${mediaUrl(m.filename)}" muted></video>` : `<img src="${mediaUrl(m.filename)}" />`}
@@ -1031,9 +1032,28 @@ async function refreshMediaAdmin() {
   `).join('') || '<div class="empty">None uploaded yet</div>';
   document.getElementById('videoThumbs').innerHTML = render(videos, 'video');
   document.getElementById('posterThumbs').innerHTML = render(posters, 'poster');
+  document.getElementById('documentList').innerHTML = documents.map((m) => `
+    <tr>
+      <td>${m.title || '-'}</td>
+      <td><a href="${API}/media/${m.id}/download" target="_blank" rel="noopener">${m.original_name || 'View / download'}</a></td>
+      <td>${m.active ? 'Yes' : 'No'}</td>
+      <td>
+        <button class="btn ${m.active ? 'outline' : 'gold'} small" onclick="toggleMedia(${m.id}, ${m.active ? 0 : 1})">${m.active ? 'Hide' : 'Show'}</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="deleteMedia(${m.id})">Del</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" class="empty">None uploaded yet</td></tr>';
 }
 window.toggleMedia = async (id, active) => { await jput(`${API}/media/${id}`, { active }); refreshMediaAdmin(); };
 window.deleteMedia = async (id) => { await jdel(`${API}/media/${id}`); toast('Media removed'); refreshMediaAdmin(); };
+
+// PDFs/documents aren't video/image, so the file picker's accept filter has
+// to switch when Type changes — otherwise the browser hides .pdf files from
+// the picker when it's still set to "video/*,image/*".
+document.getElementById('mediaTypeSelect').addEventListener('change', (e) => {
+  const fileInput = document.getElementById('mediaFileInput');
+  fileInput.setAttribute('accept', e.target.value === 'document' ? 'application/pdf' : 'video/*,image/*');
+});
 
 document.getElementById('mediaForm').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -2822,9 +2842,44 @@ window.manageTour = async (id, name) => {
   currentTourId = id;
   document.getElementById('tourManageLabel').textContent = name;
   document.getElementById('tourManageCard').style.display = '';
-  await Promise.all([refreshTourItinerary(), refreshTourParticipants(), refreshTourTrips()]);
+  await Promise.all([refreshTourItinerary(), refreshTourHotelDays(), refreshTourParticipants(), refreshTourTrips()]);
   document.getElementById('tourManageCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
+
+// Day-by-day Hotel Plan: which hotel a group sleeps at vs. takes meals at,
+// per day of a Full Board pre tour. Mirrors refreshTourItinerary's shape.
+async function refreshTourHotelDays() {
+  if (!currentTourId) return;
+  const rows = await jget(`${API}/pretours/${currentTourId}/hotel-days`);
+  document.getElementById('tourHotelDayTableBody').innerHTML = rows.map((d) => `
+    <tr>
+      <td>${d.day_label}</td>
+      <td>${d.day_date || '-'}</td>
+      <td>${d.stay_hotel_name || '-'}</td>
+      <td>${d.meal_hotel_name || (d.stay_hotel_name ? 'same as stay' : '-')}</td>
+      <td>${d.notes || '-'}</td>
+      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteTourHotelDay(${d.id})">Delete</button>` : ''}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">No hotel plan added yet</td></tr>';
+}
+window.deleteTourHotelDay = async (dayId) => {
+  await jdel(`${API}/pretours/hotel-days/${dayId}`);
+  toast('Hotel plan day removed');
+  refreshTourHotelDays();
+};
+document.getElementById('tourHotelDayForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  if (!body.stay_hotel_id) delete body.stay_hotel_id;
+  if (!body.meal_hotel_id) delete body.meal_hotel_id;
+  try {
+    await jpost(`${API}/pretours/${currentTourId}/hotel-days`, body);
+    e.target.reset();
+    toast('Hotel plan day added');
+    refreshTourHotelDays();
+  } catch (err) { toast(err.message); }
+});
 
 async function refreshTourItinerary() {
   if (!currentTourId) return;
@@ -4458,6 +4513,11 @@ async function refreshHotels() {
   const opts = rows.map((h) => `<option value="${h.id}">${h.name}</option>`).join('');
   const sel = document.getElementById('roomHotelSelect');
   if (sel) sel.innerHTML = '<option value="">-- select hotel --</option>' + opts;
+
+  const stayEl = document.getElementById('tourHotelDayStaySelect');
+  if (stayEl) stayEl.innerHTML = '<option value="">-- none --</option>' + opts;
+  const mealEl = document.getElementById('tourHotelDayMealSelect');
+  if (mealEl) mealEl.innerHTML = '<option value="">-- same as stay hotel --</option>' + opts;
 }
 window.deleteHotel = async (id) => { await jdel(`${API}/hotels/${id}`); toast('Hotel removed'); refreshHotels(); refreshRooms(); };
 
