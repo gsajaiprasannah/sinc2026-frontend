@@ -708,12 +708,29 @@ window.unverifyCompletion = async (completionId) => {
 // member can contribute directly without needing every admin-only field.
 // No delete UI anywhere here — deletes stay super_admin-only server-side
 // regardless (server/index.js's global DELETE-block covers these routes too).
+//
+// A section (or a flat, non-sectioned module) opts into row-level Edit by
+// setting `editable: true` — this adds an Actions column with an Edit
+// button per row (see renderHostModuleSection/editHostModuleRow below),
+// re-using the same PUT :id routes admin.js's per-tab edit forms call.
+// Left off for Partners/Drivers, Rooms, Happenings, Clubs, and
+// Registrations — admin.js itself has no per-row edit for any of these
+// either, so there's no gap to close there.
+//
+// `optionsFrom` on a 'select' field can point either at another section of
+// the SAME module (e.g. 'clubs') or at a narrow "-lite" sub-route living
+// inside another module's own router (e.g. 'transport/vehicles-lite') —
+// either way it's fetched as `${API}/portal-modules/${optionsFrom}`, which
+// only ever succeeds if the committee's module grant already covers that
+// mount (see server/routes/committeeModuleAccess.js + server/index.js).
 const MODULE_CONFIG = {
   transport_partners: { label: 'Partners & Drivers', sections: [
     { path: 'partners', label: 'Transport Partners',
       columns: [['name', 'Name'], ['category', 'Category'], ['contact_person', 'Contact'], ['phone', 'Phone']],
       fields: [
-        { name: 'name', label: 'Name', required: true }, { name: 'category', label: 'Category' },
+        { name: 'name', label: 'Name', required: true },
+        { name: 'category', label: 'Category', type: 'select',
+          options: [['transport', 'Transport'], ['hotel', 'Hotel / Accommodation'], ['catering', 'Catering'], ['other', 'Other']] },
         { name: 'contact_person', label: 'Contact person' }, { name: 'phone', label: 'Phone' },
         { name: 'email', label: 'Email' }, { name: 'notes', label: 'Notes', type: 'textarea' },
       ] },
@@ -721,37 +738,62 @@ const MODULE_CONFIG = {
       columns: [['name', 'Name'], ['phone', 'Phone'], ['partner_id', 'Partner ID'], ['vehicle_id', 'Vehicle ID']],
       fields: [
         { name: 'name', label: 'Name', required: true }, { name: 'phone', label: 'Phone' },
-        { name: 'partner_id', label: 'Partner ID (number)', type: 'number' }, { name: 'vehicle_id', label: 'Vehicle ID (number)', type: 'number' },
+        { name: 'partner_id', label: 'Transport partner', type: 'select', optionsFrom: 'partners',
+          optionLabel: (p) => `${p.name}${p.category ? ' (' + p.category + ')' : ''}` },
+        { name: 'vehicle_id', label: 'Assigned vehicle', type: 'select', optionsFrom: 'drivers/vehicles-lite',
+          optionLabel: (v) => `${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}` },
         { name: 'notes', label: 'Notes', type: 'textarea' },
       ] },
   ] },
-  vehicles: { label: 'Vehicles', path: 'vehicles',
+  vehicles: { label: 'Vehicles', path: 'vehicles', editable: true,
     columns: [['vehicle_code', 'Code'], ['vehicle_type', 'Type'], ['model', 'Model'], ['seating_capacity', 'Seats']],
     fields: [
       { name: 'vehicle_type', label: 'Type (van/car/bus)', required: true }, { name: 'model', label: 'Model' },
       { name: 'seating_capacity', label: 'Seating capacity', type: 'number' }, { name: 'registration_number', label: 'Registration number' },
-      { name: 'partner_id', label: 'Partner ID (number)', type: 'number' }, { name: 'notes', label: 'Notes', type: 'textarea' },
+      { name: 'partner_id', label: 'Transport partner', type: 'select', optionsFrom: 'vehicles/partners-lite',
+        optionLabel: (p) => `${p.name}${p.category ? ' (' + p.category + ')' : ''}` },
+      { name: '_vehicle_code_note', type: 'note', label: 'Vehicle code is auto-assigned when saved — S=van, C=car, A=bus, plus a sequence number.' },
+      { name: 'notes', label: 'Notes', type: 'textarea' },
     ] },
-  transport_planning: { label: 'Transport Planning', path: 'transport', hasArrivalsQueue: true,
-    columns: [['trip_date', 'Date'], ['from_location', 'From'], ['to_location', 'To'], ['status', 'Status']],
+  transport_planning: { label: 'Transport Planning', path: 'transport', hasArrivalsQueue: true, editable: true,
+    columns: [['trip_date', 'Date'], ['from_location', 'From'], ['to_location', 'To'], ['passenger_count', 'Passengers'], ['status', 'Status']],
+    // Per-row "Passengers" button (mirrors admin.js's manageTripPassengers)
+    // opening the manifest panel below the table — see #tripPassengerCard
+    // markup in tripPassengerCardHtml()/manageTripPassengers/
+    // refreshTripPassengers further down this file.
+    extraRowAction: (r) => `<button type="button" class="btn small" onclick="manageTripPassengers(${r.id}, '${(r.from_location + ' → ' + r.to_location).replace(/'/g, '')}')">Passengers</button>`,
+    extraPanelHtml: tripPassengerCardHtml, extraPanelWire: wireTripPassengerForm,
     fields: [
       { name: 'from_location', label: 'From', required: true }, { name: 'to_location', label: 'To', required: true },
       { name: 'trip_date', label: 'Trip date', type: 'date' }, { name: 'depart_time', label: 'Depart time' },
-      { name: 'purpose', label: 'Purpose' }, { name: 'vehicle_id', label: 'Vehicle ID (number)', type: 'number' },
-      { name: 'driver_id', label: 'Driver ID (number)', type: 'number' }, { name: 'status', label: 'Status (planned/in_progress/completed)' },
+      { name: 'purpose', label: 'Purpose' },
+      { name: 'vehicle_id', label: 'Vehicle', type: 'select', required: true, optionsFrom: 'transport/vehicles-lite',
+        optionLabel: (v) => `${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}` },
+      { name: 'driver_id', label: 'Driver', type: 'select', optionsFrom: 'transport/drivers-lite',
+        optionLabel: (d) => `${d.name}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}` },
+      { name: 'status', label: 'Status', type: 'select',
+        options: [['planned', 'Planned'], ['in_progress', 'In progress'], ['completed', 'Completed'], ['cancelled', 'Cancelled']] },
       { name: 'notes', label: 'Notes', type: 'textarea' },
     ] },
-  pretours: { label: 'Pre Tours', path: 'pretours',
-    columns: [['name', 'Name'], ['start_date', 'Start'], ['end_date', 'End'], ['status', 'Status']],
+  pretours: { label: 'Pre Tours', path: 'pretours', editable: true,
+    columns: [['name', 'Name'], ['start_date', 'Start'], ['end_date', 'End'], ['participant_count', 'Signed up'], ['trip_count', 'Trips'], ['status', 'Status']],
+    // Per-row "Manage" button (mirrors admin.js's manageTour) opening the
+    // day-wise itinerary / signups / transport sub-panels below the table —
+    // see tourManageCardHtml()/manageTour/refreshTourItinerary/
+    // refreshTourParticipants/refreshTourTrips further down this file.
+    extraRowAction: (r) => `<button type="button" class="btn small" onclick="manageTour(${r.id}, '${(r.name || '').replace(/'/g, '')}')">Manage</button>`,
+    extraPanelHtml: tourManageCardHtml, extraPanelWire: wireTourManageForms,
     fields: [
       { name: 'name', label: 'Name', required: true }, { name: 'start_date', label: 'Start date', type: 'date' },
       { name: 'end_date', label: 'End date', type: 'date' }, { name: 'hotel', label: 'Hotel' },
       { name: 'attractions', label: 'Attractions' }, { name: 'description', label: 'Description', type: 'textarea' },
       { name: 'capacity', label: 'Capacity', type: 'number' }, { name: 'price', label: 'Price', type: 'number' },
-      { name: 'status', label: 'Status (planned/confirmed/cancelled)' }, { name: 'notes', label: 'Notes', type: 'textarea' },
+      { name: 'status', label: 'Status', type: 'select',
+        options: [['planned', 'Planned'], ['confirmed', 'Confirmed'], ['completed', 'Completed'], ['cancelled', 'Cancelled']] },
+      { name: 'notes', label: 'Notes', type: 'textarea' },
     ] },
   accommodation: { label: 'Accommodation & Rooms', sections: [
-    { path: 'hotels', label: 'Hotels',
+    { path: 'hotels', label: 'Hotels', editable: true,
       columns: [['name', 'Name'], ['address', 'Address'], ['contact_person', 'Contact'], ['phone', 'Phone']],
       fields: [
         { name: 'name', label: 'Name', required: true }, { name: 'address', label: 'Address' },
@@ -761,44 +803,78 @@ const MODULE_CONFIG = {
     { path: 'rooms', label: 'Room Assignments',
       columns: [['room_number', 'Room #'], ['room_type', 'Type'], ['hotel_id', 'Hotel ID'], ['check_in', 'Check-in']],
       fields: [
-        { name: 'hotel_id', label: 'Hotel ID (number)', required: true, type: 'number' }, { name: 'room_number', label: 'Room number' },
-        { name: 'room_type', label: 'Room type' }, { name: 'participant_id', label: 'Delegate ID (number)', type: 'number' },
-        { name: 'host_member_id', label: 'Host member ID (number)', type: 'number' },
+        { name: 'hotel_id', label: 'Hotel', required: true, type: 'select', optionsFrom: 'hotels', optionLabel: (h) => h.name },
+        { name: 'room_number', label: 'Room number' },
+        { name: 'room_type', label: 'Room type', type: 'select',
+          options: [['single', 'Single'], ['double', 'Double'], ['twin', 'Twin'], ['suite', 'Suite'], ['other', 'Other']] },
+        // Occupant type toggle — same idea as admin.html's roomOccupantTypeSelect
+        // / roomParticipantSelect / roomHmSelect: swap between a Delegate and a
+        // Host member select (with real names) instead of two raw id inputs.
+        { name: 'occupant', type: 'occupant_toggle', label: 'Occupant',
+          participantField: 'participant_id', hostMemberField: 'host_member_id',
+          participantOptionsFrom: 'rooms/participants-lite', hostMemberOptionsFrom: 'rooms/host-members-lite',
+          participantOptionLabel: (p) => `${p.name} — ${p.participant_code || ''} (${p.club_name || 'no club'})`,
+          hostMemberOptionLabel: (h) => `${h.name}${h.company ? ' (' + h.company + ')' : ''}` },
         { name: 'check_in', label: 'Check-in', type: 'date' }, { name: 'check_out', label: 'Check-out', type: 'date' },
         { name: 'notes', label: 'Notes', type: 'textarea' },
       ] },
   ] },
-  inventory: { label: 'Goodies & Inventory', path: 'inventory',
-    columns: [['name', 'Item'], ['category', 'Category'], ['quantity_procured', 'Procured'], ['procurement_status', 'Status']],
+  inventory: { label: 'Goodies & Inventory', path: 'inventory', editable: true, hasDeliveryMonitor: true,
+    columns: [['name', 'Item'], ['category', 'Category'], ['quantity_procured', 'Procured'], ['procurement_status', 'Status'], ['delivered_count', 'Delivered']],
+    // Per-row "Deliveries" button (mirrors admin.js's openInventoryDistModal)
+    // opening the recipient list/add/bulk-assign panel below the table —
+    // see inventoryDistCardHtml()/openInventoryDist/refreshInventoryDist
+    // further down this file.
+    extraRowAction: (r) => `<button type="button" class="btn small" onclick="openInventoryDist(${r.id}, '${(r.name || '').replace(/'/g, '')}')">Deliveries</button>`,
+    extraPanelHtml: inventoryDistCardHtml, extraPanelWire: wireInventoryDistForms,
     fields: [
       { name: 'name', label: 'Item name', required: true }, { name: 'category', label: 'Category' },
       { name: 'unit', label: 'Unit' }, { name: 'quantity_procured', label: 'Quantity procured', type: 'number' },
       { name: 'unit_cost', label: 'Unit cost', type: 'number' }, { name: 'reorder_threshold', label: 'Reorder threshold', type: 'number' },
-      { name: 'vendor_name', label: 'Vendor name' }, { name: 'procurement_status', label: 'Procurement status' },
+      { name: 'vendor_id', label: 'Vendor (from master)', type: 'select', optionsFrom: 'inventory/vendors-lite',
+        optionLabel: (v) => `${v.name}${v.category ? ' (' + v.category + ')' : ''}` },
+      { name: 'vendor_name', label: 'Vendor (one-off name, optional)' },
+      { name: 'procurement_status', label: 'Procurement status', type: 'select',
+        options: [['planned', 'Planned'], ['ordered', 'Ordered'], ['received', 'Received'], ['distributing', 'Distributing'], ['completed', 'Completed'], ['delayed', 'Delayed']] },
+      { name: 'responsible_committee_id', label: 'Responsible committee', type: 'select', optionsFrom: 'inventory/committees-lite', optionLabel: (c) => c.name },
+      { name: 'expected_delivery_date', label: 'Expected delivery date', type: 'date' },
+      { name: 'actual_delivery_date', label: 'Actual delivery date', type: 'date' },
       { name: 'notes', label: 'Notes', type: 'textarea' },
     ] },
-  sponsors: { label: 'Sponsors', path: 'sponsors',
+  sponsors: { label: 'Sponsors', path: 'sponsors', editable: true,
     columns: [['name', 'Name'], ['tier', 'Tier'], ['contact_person', 'Contact'], ['status', 'Status']],
     fields: [
       { name: 'name', label: 'Name', required: true }, { name: 'tier', label: 'Tier' },
       { name: 'contact_person', label: 'Contact person' }, { name: 'phone', label: 'Phone' },
-      { name: 'email', label: 'Email' }, { name: 'status', label: 'Status' }, { name: 'notes', label: 'Notes', type: 'textarea' },
+      { name: 'email', label: 'Email' },
+      { name: 'status', label: 'Status', type: 'select', options: [['lead', 'Lead'], ['confirmed', 'Confirmed'], ['cancelled', 'Cancelled']] },
+      { name: 'guest_relation_host_member_id', label: 'Guest Relation member (host member liaison)', type: 'select',
+        optionsFrom: 'sponsors/host-members-lite', optionLabel: (h) => `${h.name}${h.company ? ' (' + h.company + ')' : ''}` },
+      { name: 'notes', label: 'Notes', type: 'textarea' },
     ] },
-  speakers: { label: 'Guest Speakers', path: 'speakers',
+  speakers: { label: 'Guest Speakers', path: 'speakers', editable: true,
     columns: [['name', 'Name'], ['topic', 'Topic'], ['session_type', 'Session type'], ['status', 'Status']],
     fields: [
       { name: 'name', label: 'Name', required: true }, { name: 'designation', label: 'Designation' },
-      { name: 'organization', label: 'Organization' }, { name: 'topic', label: 'Topic' }, { name: 'session_type', label: 'Session type' },
-      { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email' }, { name: 'status', label: 'Status' },
+      { name: 'organization', label: 'Organization' }, { name: 'topic', label: 'Topic' },
+      { name: 'session_type', label: 'Role', type: 'select',
+        options: [['Speaker', 'Speaker'], ['Moderator', 'Moderator'], ['Panelist', 'Panelist'], ['Other', 'Other']] },
+      { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email' },
+      { name: 'guest_relation_host_member_id', label: 'Guest Relation member (host member liaison)', type: 'select',
+        optionsFrom: 'speakers/host-members-lite', optionLabel: (h) => `${h.name}${h.company ? ' (' + h.company + ')' : ''}` },
+      { name: 'status', label: 'Status', type: 'select', options: [['invited', 'Invited'], ['confirmed', 'Confirmed'], ['cancelled', 'Cancelled']] },
       { name: 'notes', label: 'Notes', type: 'textarea' },
     ] },
-  guestvisitors: { label: 'Guest Visitors', path: 'guestvisitors',
+  guestvisitors: { label: 'Guest Visitors', path: 'guestvisitors', editable: true,
     columns: [['name', 'Name'], ['category', 'Category'], ['visit_date', 'Visit date'], ['status', 'Status']],
     fields: [
       { name: 'name', label: 'Name', required: true }, { name: 'designation', label: 'Designation' },
       { name: 'organization', label: 'Organization' }, { name: 'category', label: 'Category' },
       { name: 'visit_date', label: 'Visit date', type: 'date' }, { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email' },
-      { name: 'status', label: 'Status' }, { name: 'notes', label: 'Notes', type: 'textarea' },
+      { name: 'guest_relation_host_member_id', label: 'Guest Relation member (host member liaison)', type: 'select',
+        optionsFrom: 'guestvisitors/host-members-lite', optionLabel: (h) => `${h.name}${h.company ? ' (' + h.company + ')' : ''}` },
+      { name: 'status', label: 'Status', type: 'select', options: [['invited', 'Invited'], ['confirmed', 'Confirmed'], ['cancelled', 'Cancelled']] },
+      { name: 'notes', label: 'Notes', type: 'textarea' },
     ] },
   media: { label: 'Media (Video/Poster)', path: 'media', readOnly: true,
     columns: [['title', 'Title'], ['type', 'Type'], ['active', 'Active']], fields: [] },
@@ -806,15 +882,39 @@ const MODULE_CONFIG = {
     columns: [['title', 'Title'], ['category', 'Category'], ['posted_by', 'Posted by']],
     fields: [
       { name: 'title', label: 'Title', required: true }, { name: 'description', label: 'Description', type: 'textarea' },
-      { name: 'category', label: 'Category' }, { name: 'posted_by', label: 'Posted by' },
+      { name: 'category', label: 'Category', type: 'select',
+        options: [['general', 'General'], ['logistics', 'Logistics'], ['session', 'Session'], ['social', 'Social event'], ['alert', 'Alert']] },
+      { name: 'posted_by', label: 'Posted by' },
     ] },
-  itinerary: { label: 'Itinerary', path: 'itinerary',
-    columns: [['day_label', 'Day'], ['time_label', 'Time'], ['title', 'Title']],
-    fields: [
-      { name: 'day_label', label: 'Day label', required: true }, { name: 'time_label', label: 'Time label' },
-      { name: 'title', label: 'Title', required: true }, { name: 'description', label: 'Description', type: 'textarea' },
-      { name: 'sort_order', label: 'Sort order', type: 'number' },
-    ] },
+  // Two sections: the public-facing Itinerary Slots list (day/time/title —
+  // what the congress dashboard shows), and the admin-only Performer/Vendor
+  // Groups master used by the slot-level Agenda Builder's "Performing group"
+  // dropdown. Each Itinerary Slot row also gets an "Agenda" button (mirrors
+  // admin.js's manageAgenda) opening the detailed per-slot event flow below
+  // the table — see agendaCardHtml()/openAgenda/refreshAgenda further down
+  // this file.
+  itinerary: { label: 'Itinerary', sections: [
+    { path: 'itinerary', label: 'Itinerary Slots', editable: true,
+      columns: [['day_label', 'Day'], ['time_label', 'Time'], ['title', 'Title']],
+      extraRowAction: (r) => `<button type="button" class="btn small" onclick="openAgenda(${r.id}, '${(itinerarySlotLabelHost(r)).replace(/'/g, '')}')">Agenda</button>`,
+      extraPanelHtml: agendaCardHtml, extraPanelWire: wireAgendaForm,
+      fields: [
+        { name: 'day_label', label: 'Day label', required: true }, { name: 'time_label', label: 'Time label' },
+        { name: 'title', label: 'Title', required: true }, { name: 'description', label: 'Description', type: 'textarea' },
+        { name: 'sort_order', label: 'Sort order', type: 'number' },
+      ] },
+    { path: 'performer-groups', label: 'Performer / Vendor Groups', editable: true,
+      columns: [['name', 'Name'], ['category', 'Category'], ['contact_person', 'Contact'], ['fee_amount', 'Fee'], ['payment_status', 'Payment']],
+      fields: [
+        { name: 'name', label: 'Name', required: true }, { name: 'category', label: 'Category' },
+        { name: 'contact_person', label: 'Contact person' }, { name: 'phone', label: 'Phone' }, { name: 'email', label: 'Email' },
+        { name: 'fee_amount', label: 'Fee amount', type: 'number' },
+        { name: 'payment_status', label: 'Payment status', type: 'select', options: [['pending', 'Pending'], ['paid', 'Paid']] },
+        { name: 'payment_mode', label: 'Payment mode' },
+        { name: 'payment_date', label: 'Payment date', type: 'date' },
+        { name: 'notes', label: 'Notes', type: 'textarea' },
+      ] },
+  ] },
   // Delegate registration data entry — for volunteers helping process
   // registrations/delegates. Three sections: Clubs (so there's always
   // somewhere to pick/add a club from), Registrations (one per booking —
@@ -828,6 +928,7 @@ const MODULE_CONFIG = {
       fields: [
         { name: 'name', label: 'Club name', required: true }, { name: 'city', label: 'City' },
         { name: 'state', label: 'State' }, { name: 'zone', label: 'Zone' },
+        { name: 'members_count', label: 'Members count', type: 'number', required: true },
       ] },
     { path: 'registrations', label: 'Registrations',
       columns: [['reg_number', 'Reg #'], ['reg_type', 'Type'], ['club_name', 'Club']],
@@ -836,21 +937,44 @@ const MODULE_CONFIG = {
           options: [['single', 'Single'], ['double', 'Double'], ['congress_only', 'Congress Only (no room)']] },
         { name: 'club_id', label: 'Club', type: 'select', optionsFrom: 'clubs', optionLabel: (c) => c.name },
       ] },
-    { path: 'participants', label: 'Delegates',
+    { path: 'participants', label: 'Delegates', editable: true,
+      // Core identity/registration fields are frozen once a delegate exists —
+      // only a super admin can change them (server-enforced too, see
+      // PUT /api/participants/:id's FROZEN_FIELDS check). Mirrors admin.js's
+      // PART_FROZEN_FIELDS/editPart.
+      frozenFields: ['name', 'phone', 'club_id', 'registration_id'],
       columns: [['name', 'Name'], ['phone', 'Phone'], ['club_name', 'Club'], ['reg_number', 'Reg #']],
       fields: [
         { name: 'registration_id', label: 'Registration', type: 'select', required: true,
           optionsFrom: 'registrations', optionLabel: (r) => `${r.reg_number}${r.reg_type ? ' — ' + r.reg_type : ''}${r.club_name ? ' (' + r.club_name + ')' : ''}` },
         { name: 'name', label: 'Name', required: true }, { name: 'phone', label: 'Phone' },
         { name: 'whatsapp', label: 'WhatsApp' }, { name: 'email', label: 'Email' },
+        { name: 'address', label: 'Address', type: 'textarea' },
         { name: 'club_id', label: 'Club', type: 'select', optionsFrom: 'clubs', optionLabel: (c) => c.name },
         { name: 'designation', label: 'Designation' }, { name: 'dietary_preference', label: 'Dietary preference' },
-        { name: 'travel_mode', label: 'Travel mode' }, { name: 'travel_number', label: 'Travel number' },
+        { name: 'is_primary', label: 'Primary registrant', type: 'select', options: [['1', 'Yes'], ['0', 'No (co-registrant)']] },
+        { name: 'travel_mode', label: 'Travel mode', type: 'select', options: [['flight', 'Flight'], ['train', 'Train'], ['road', 'Road'], ['other', 'Other']] },
+        { name: 'travel_number', label: 'Travel number' },
         { name: 'travel_datetime', label: 'Travel date/time' }, { name: 'arrival_point', label: 'Arrival point' },
+        // Travel — departure
+        { name: 'departure_mode', label: 'Departure mode', type: 'select', options: [['flight', 'Flight'], ['train', 'Train'], ['road', 'Road'], ['other', 'Other']] },
+        { name: 'departure_number', label: 'Departure number' },
+        { name: 'departure_datetime', label: 'Departure date/time' }, { name: 'departure_point', label: 'Departure point' },
+        // Pickup & SPOC
+        { name: 'pickup_by', label: 'Pickup by' }, { name: 'pickup_vehicle', label: 'Pickup vehicle' }, { name: 'pickup_phone', label: 'Pickup phone' },
+        { name: 'spoc_host_member_id', label: 'SPOC (host member)', type: 'select',
+          optionsFrom: 'participants/host-members-lite', optionLabel: (h) => `${h.name}${h.company ? ' (' + h.company + ')' : ''}` },
+        { name: 'spoc_name', label: 'SPOC name (if not a host member)' }, { name: 'spoc_phone', label: 'SPOC phone' },
+        { name: 'notes', label: 'Notes', type: 'textarea' },
       ] },
   ] },
 };
 let currentModuleKey = null, currentModuleSectionPath = null;
+// The most recently fetched row list for the current section — reused by
+// editHostModuleRow() so entering edit mode doesn't need a second fetch,
+// same idea as admin.js's editVehicle/editTrip (which re-use their tab's
+// already-fetched list rather than adding a per-row GET).
+let currentModuleRows = [];
 
 function renderHostModules(moduleAccess) {
   const card = document.getElementById('hostModulesCard');
@@ -880,6 +1004,11 @@ window.selectHostModule = async (key, sectionPath) => {
   for (const b of btns) { if (b.textContent.trim() === cfg.label) b.classList.add('gold'); }
   await renderHostModuleSection(cfg, section);
 };
+// Every input whose name is one of these gets the shared pickup/drop-point
+// dropdown button (see wireLocationDropdowns near the top of this file) —
+// same fields admin.js treats as location pickers.
+const LOCATION_SUGGEST_FIELDS = ['from_location', 'to_location', 'arrival_point', 'departure_point'];
+
 async function renderHostModuleSection(cfg, section) {
   const body = document.getElementById('hostModuleBody');
   body.innerHTML = '<p class="hint">Loading…</p>';
@@ -891,35 +1020,73 @@ async function renderHostModuleSection(cfg, section) {
     body.innerHTML = `<p class="hint" style="color:var(--red);">${err.message}</p>`;
     return;
   }
+  currentModuleRows = rows;
   // Fields of type 'select' with optionsFrom (e.g. a Delegate form's
   // "Registration" dropdown) pull their option list from ANOTHER section's
-  // own endpoint in the same module — fetched fresh on every render so a
-  // club/registration added a moment ago shows up immediately.
-  const selectFields = section.fields.filter((f) => f.type === 'select' && f.optionsFrom);
+  // own endpoint in the same module, or from a narrow "-lite" sub-route
+  // living inside another already-gated module's router (e.g.
+  // 'transport/vehicles-lite') — fetched fresh on every render so a
+  // club/registration/vehicle added a moment ago shows up immediately.
+  // 'occupant_toggle' fields (Accommodation & Rooms) need two option lists
+  // (participant + host member) instead of one.
+  const optionPaths = new Set();
+  section.fields.forEach((f) => {
+    if (f.type === 'select' && f.optionsFrom) optionPaths.add(f.optionsFrom);
+    if (f.type === 'occupant_toggle') { optionPaths.add(f.participantOptionsFrom); optionPaths.add(f.hostMemberOptionsFrom); }
+  });
   const optionRows = {};
-  for (const f of selectFields) {
-    try { optionRows[f.optionsFrom] = await jget(`${API}/portal-modules/${f.optionsFrom}`); }
-    catch (err) { optionRows[f.optionsFrom] = []; }
+  for (const path of optionPaths) {
+    try { optionRows[path] = await jget(`${API}/portal-modules/${path}`); }
+    catch (err) { optionRows[path] = []; }
   }
   const sectionTabs = cfg.sections ? `
     <div style="display:flex;gap:6px;margin-bottom:10px;">
       ${cfg.sections.map((s) => `<button type="button" class="btn small ${s.path === section.path ? 'gold' : ''}" onclick="selectHostModule('${Object.keys(MODULE_CONFIG).find((k) => MODULE_CONFIG[k] === cfg)}', '${s.path}')">${s.label}</button>`).join('')}
     </div>` : '';
+  // extraRowAction (e.g. transport_planning's "Passengers" button) shares the
+  // same trailing actions column as the generic per-row Edit button — both
+  // render into the same <td> when present, same pattern as admin.js's
+  // sticky-actions cell holding several buttons side by side.
+  const hasActionsCol = section.editable || section.extraRowAction;
+  const actionsCol = hasActionsCol ? 1 : 0;
   body.innerHTML = `
     ${sectionTabs}
     <div class="table-scroll">
       <table>
-        <thead><tr>${section.columns.map((c) => `<th>${c[1]}</th>`).join('')}</tr></thead>
+        <thead><tr>${section.columns.map((c) => `<th>${c[1]}</th>`).join('')}${hasActionsCol ? '<th></th>' : ''}</tr></thead>
         <tbody>
-          ${rows.map((r) => `<tr>${section.columns.map((c) => `<td>${escapeHtml(r[c[0]] == null ? '-' : r[c[0]])}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${section.columns.length}" class="empty">Nothing here yet</td></tr>`}
+          ${rows.map((r) => `<tr>${section.columns.map((c) => `<td>${escapeHtml(r[c[0]] == null ? '-' : r[c[0]])}</td>`).join('')}${hasActionsCol ? `<td>${section.editable ? `<button type="button" class="btn small" onclick="editHostModuleRow(${r.id})">Edit</button> ` : ''}${section.extraRowAction ? section.extraRowAction(r) : ''}</td>` : ''}</tr>`).join('') || `<tr><td colspan="${section.columns.length + actionsCol}" class="empty">Nothing here yet</td></tr>`}
         </tbody>
       </table>
     </div>
     ${section.fields.length ? `
-      <div class="section-title" style="font-size:14px;">Add new</div>
-      <form onsubmit="return submitHostModuleForm(event)">
+      <div class="section-title" style="font-size:14px;" id="hostModuleFormTitle">Add new</div>
+      ${section.frozenFields ? '<p class="hint" id="hostModuleFrozenHint" style="display:none;color:var(--red);">Name, phone, club, and registration are locked once a delegate exists — only a super admin can change them.</p>' : ''}
+      <form id="hostModuleForm" onsubmit="return submitHostModuleForm(event)">
         <div class="form-grid cols-2">
-          ${section.fields.map((f) => `
+          ${section.fields.map((f) => {
+            if (f.type === 'note') return `<div class="field" style="grid-column:1/-1;"><p class="hint" style="margin:0;">${f.label}</p></div>`;
+            if (f.type === 'occupant_toggle') return `
+              <div class="field"><label>Occupant type</label>
+                <select data-occupant-type-select="${f.name}">
+                  <option value="participant">Delegate</option>
+                  <option value="host_member">Host member</option>
+                </select>
+              </div>
+              <div class="field" data-occupant-wrap="participant:${f.name}"><label>Delegate</label>
+                <select name="${f.participantField}">
+                  <option value="">-- choose --</option>
+                  ${(optionRows[f.participantOptionsFrom] || []).map((r) => `<option value="${r.id}">${escapeHtml(f.participantOptionLabel(r))}</option>`).join('')}
+                </select>
+              </div>
+              <div class="field" data-occupant-wrap="host_member:${f.name}" style="display:none;"><label>Host member</label>
+                <select name="${f.hostMemberField}">
+                  <option value="">-- choose --</option>
+                  ${(optionRows[f.hostMemberOptionsFrom] || []).map((r) => `<option value="${r.id}">${escapeHtml(f.hostMemberOptionLabel(r))}</option>`).join('')}
+                </select>
+              </div>
+            `;
+            return `
             <div class="field"><label>${f.label}${f.required ? ' *' : ''}</label>
               ${f.type === 'select' ? `
                 <select name="${f.name}"${f.required ? ' required' : ''}>
@@ -928,17 +1095,827 @@ async function renderHostModuleSection(cfg, section) {
                     ? (optionRows[f.optionsFrom] || []).map((r) => `<option value="${r.id}">${escapeHtml(f.optionLabel(r))}</option>`).join('')
                     : (f.options || []).map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
                 </select>
-              ` : (f.type === 'textarea' ? `<textarea name="${f.name}"${f.required ? ' required' : ''}></textarea>` : `<input name="${f.name}" type="${f.type || 'text'}"${['from_location', 'to_location', 'arrival_point'].includes(f.name) ? ' data-location-suggest="1"' : ''}${f.required ? ' required' : ''} />`)}
+              ` : (f.type === 'textarea' ? `<textarea name="${f.name}"${f.required ? ' required' : ''}></textarea>` : `<input name="${f.name}" type="${f.type || 'text'}"${LOCATION_SUGGEST_FIELDS.includes(f.name) ? ' data-location-suggest="1"' : ''}${f.required ? ' required' : ''} />`)}
             </div>
-          `).join('')}
+          `;
+          }).join('')}
         </div>
-        <button class="btn gold small" type="submit">Add</button>
+        <button class="btn gold small" type="submit" id="hostModuleSubmitBtn">Add</button>
+        ${section.editable ? '<button type="button" class="btn small outline" id="hostModuleCancelEditBtn" style="display:none;" onclick="cancelEditHostModuleForm()">Cancel edit</button>' : ''}
       </form>
     ` : (cfg.readOnly ? '<p class="hint">This module is view-only from the host portal.</p>' : '')}
+    ${section.extraPanelHtml ? section.extraPanelHtml() : ''}
     ${cfg.hasArrivalsQueue ? '<div id="transportQueueBody" style="margin-top:16px;"><p class="hint">Loading arrivals/departures…</p></div>' : ''}
+    ${cfg.hasDeliveryMonitor ? inventoryMonitorCardHtml() : ''}
   `;
   wireLocationDropdowns(body);
+  wireOccupantToggle(body);
+  if (section.extraPanelWire) section.extraPanelWire(body);
   if (cfg.hasArrivalsQueue) { refreshTransportPoints(); renderTransportQueue(); }
+  if (cfg.hasDeliveryMonitor) { wireInventoryMonitorFilters(); refreshInventoryMonitor(); }
+}
+
+// Wires the "Occupant type" toggle select (Accommodation & Rooms' room-
+// assignment form) to show/hide the matching Delegate/Host member select —
+// mirrors admin.html/admin.js's roomOccupantTypeSelect behavior.
+function wireOccupantToggle(root) {
+  (root || document).querySelectorAll('[data-occupant-type-select]').forEach((sel) => {
+    if (sel.dataset.wired) return;
+    sel.dataset.wired = '1';
+    const key = sel.dataset.occupantTypeSelect;
+    const form = sel.closest('form');
+    const apply = () => {
+      const pWrap = form.querySelector(`[data-occupant-wrap="participant:${key}"]`);
+      const hWrap = form.querySelector(`[data-occupant-wrap="host_member:${key}"]`);
+      if (pWrap) pWrap.style.display = sel.value === 'participant' ? '' : 'none';
+      if (hWrap) hWrap.style.display = sel.value === 'host_member' ? '' : 'none';
+    };
+    sel.addEventListener('change', apply);
+    apply();
+  });
+}
+
+// --- Generic row Edit (mirrors admin.js's editVehicle/cancelEditVehicle and
+// editTrip/cancelEditTrip): populates the same "Add new" form with the
+// row's current values and switches it into "update" mode via
+// form.dataset.editId, tracked back to a real PUT :id call in
+// submitHostModuleForm below. Only ever wired up for sections with
+// `editable: true` in MODULE_CONFIG. ---
+window.editHostModuleRow = (id) => {
+  const cfg = MODULE_CONFIG[currentModuleKey];
+  if (!cfg) return;
+  const section = cfg.sections ? cfg.sections.find((s) => s.path === currentModuleSectionPath) : cfg;
+  if (!section || !section.editable) return;
+  const row = currentModuleRows.find((r) => String(r.id) === String(id));
+  if (!row) return;
+  const form = document.getElementById('hostModuleForm');
+  if (!form) return;
+  section.fields.forEach((f) => {
+    if (f.type === 'note' || f.type === 'occupant_toggle') return;
+    const el = form.elements[f.name];
+    if (!el) return;
+    el.value = row[f.name] !== null && row[f.name] !== undefined ? row[f.name] : '';
+  });
+  const isSuperAdmin = !!(CURRENT_USER && CURRENT_USER.role === 'super_admin');
+  if (section.frozenFields) {
+    section.frozenFields.forEach((f) => {
+      const el = form.elements[f];
+      if (el) el.disabled = !isSuperAdmin;
+    });
+    const hint = document.getElementById('hostModuleFrozenHint');
+    if (hint) hint.style.display = isSuperAdmin ? 'none' : '';
+  }
+  form.dataset.editId = id;
+  const label = row.name || row.title || row.vehicle_code || (row.from_location && row.to_location ? `${row.from_location} → ${row.to_location}` : `#${id}`);
+  const titleEl = document.getElementById('hostModuleFormTitle');
+  if (titleEl) titleEl.textContent = `Edit — ${label}`;
+  const submitBtn = document.getElementById('hostModuleSubmitBtn');
+  if (submitBtn) submitBtn.textContent = 'Update';
+  const cancelBtn = document.getElementById('hostModuleCancelEditBtn');
+  if (cancelBtn) cancelBtn.style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+window.cancelEditHostModuleForm = () => {
+  const form = document.getElementById('hostModuleForm');
+  if (!form) return;
+  const cfg = MODULE_CONFIG[currentModuleKey];
+  const section = cfg.sections ? cfg.sections.find((s) => s.path === currentModuleSectionPath) : cfg;
+  form.reset();
+  delete form.dataset.editId;
+  // A brand-new row is never restricted — re-enable any fields left
+  // disabled from a previous edit.
+  if (section && section.frozenFields) {
+    section.frozenFields.forEach((f) => { const el = form.elements[f]; if (el) el.disabled = false; });
+    const hint = document.getElementById('hostModuleFrozenHint');
+    if (hint) hint.style.display = 'none';
+  }
+  const titleEl = document.getElementById('hostModuleFormTitle');
+  if (titleEl) titleEl.textContent = 'Add new';
+  const submitBtn = document.getElementById('hostModuleSubmitBtn');
+  if (submitBtn) submitBtn.textContent = 'Add';
+  const cancelBtn = document.getElementById('hostModuleCancelEditBtn');
+  if (cancelBtn) cancelBtn.style.display = 'none';
+};
+
+// --- Trip Passengers manifest (Transport Planning module) ---
+// Mirrors admin.js's manageTripPassengers/refreshTripPassengers: clicking
+// "Passengers" on a trip row opens this panel (appended below the Add/Edit
+// form by renderHostModuleSection whenever cfg.extraRowAction is set) to
+// add/view the delegates and host members riding that trip, each with an
+// optional pickup point. No Remove button here — removing a passenger is a
+// DELETE, and the server's global "DELETE requires super_admin" gate
+// (server/index.js) means a committee member's token can never call it
+// successfully, same reason every other section in this file has no delete
+// UI. (admin.js's own Remove button is gated behind canDelete() for the
+// exact same reason — a non-super-admin staff login can't use it either.)
+let currentTripPassengerId = null;
+let currentTripPassengerLabel = '';
+function tripPassengerCardHtml() {
+  return `
+    <div class="card" id="tripPassengerCard" style="margin-top:14px; display:none;">
+      <div class="section-title" style="margin-top:0">Manage passengers — <span id="tripPassengerTripLabel"></span></div>
+      <form id="tripPassengerForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Passenger type</label>
+            <select id="tripPassengerTypeSelect">
+              <option value="participant">Delegate</option>
+              <option value="host_member">Host member</option>
+            </select>
+          </div>
+          <div class="field"><label>Delegate</label><select id="tripPassengerParticipantSelect"></select></div>
+          <div class="field"><label>Host member</label><select id="tripPassengerHmSelect" style="display:none;"></select></div>
+        </div>
+        <div class="field"><label>Pickup point</label><input id="tripPassengerPickup" data-location-suggest="1" placeholder="Lobby / Room 204 / ..." /></div>
+        <button class="btn gold small" type="submit">Add passenger</button>
+      </form>
+      <div class="table-scroll" style="margin-top:12px;">
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Phone</th><th>Pickup point</th></tr></thead>
+          <tbody id="tripPassengerTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+window.manageTripPassengers = async (id, label) => {
+  currentTripPassengerId = id;
+  currentTripPassengerLabel = label;
+  const card = document.getElementById('tripPassengerCard');
+  if (!card) return;
+  document.getElementById('tripPassengerTripLabel').textContent = label;
+  card.style.display = '';
+  await refreshTripPassengerOptions();
+  await refreshTripPassengers();
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+async function refreshTripPassengerOptions() {
+  try {
+    const [participants, hostMembers] = await Promise.all([
+      jget(`${API}/portal-modules/transport/participants-lite`),
+      jget(`${API}/portal-modules/transport/host-members-lite`),
+    ]);
+    const pSelect = document.getElementById('tripPassengerParticipantSelect');
+    const hSelect = document.getElementById('tripPassengerHmSelect');
+    if (pSelect) pSelect.innerHTML = participants.map((p) => `<option value="${p.id}">${escapeHtml(p.name)} — ${escapeHtml(p.participant_code || '')} (${escapeHtml(p.club_name || 'no club')})</option>`).join('');
+    if (hSelect) hSelect.innerHTML = hostMembers.map((h) => `<option value="${h.id}">${escapeHtml(h.name)}${h.company ? ' (' + escapeHtml(h.company) + ')' : ''}</option>`).join('');
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+}
+async function refreshTripPassengers() {
+  if (!currentTripPassengerId) return;
+  let trip;
+  try {
+    trip = await jget(`${API}/portal-modules/transport/${currentTripPassengerId}`);
+  } catch (err) {
+    if (err instanceof UnauthorizedError) return;
+    toast(err.message);
+    return;
+  }
+  document.getElementById('tripPassengerTableBody').innerHTML = (trip.passengers || []).map((p) => `
+    <tr>
+      <td>${escapeHtml(p.participant_name || p.host_member_name || '-')}</td>
+      <td>${p.participant_id ? 'Delegate' : 'Host member'}</td>
+      <td>${escapeHtml(p.participant_phone || p.host_member_phone || '-')}</td>
+      <td>${escapeHtml(p.pickup_point || '-')}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" class="empty">No passengers added yet</td></tr>';
+}
+function wireTripPassengerForm() {
+  const sel = document.getElementById('tripPassengerTypeSelect');
+  if (sel && !sel.dataset.wired) {
+    sel.dataset.wired = '1';
+    sel.addEventListener('change', (e) => {
+      const isHm = e.target.value === 'host_member';
+      document.getElementById('tripPassengerParticipantSelect').style.display = isHm ? 'none' : '';
+      document.getElementById('tripPassengerHmSelect').style.display = isHm ? '' : 'none';
+    });
+  }
+  const form = document.getElementById('tripPassengerForm');
+  if (form && !form.dataset.wired) {
+    form.dataset.wired = '1';
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!currentTripPassengerId) { toast('Select a trip first — click "Passengers" on a row above.'); return; }
+      const isHm = document.getElementById('tripPassengerTypeSelect').value === 'host_member';
+      const body = {
+        participant_id: isHm ? null : (document.getElementById('tripPassengerParticipantSelect').value || null),
+        host_member_id: isHm ? (document.getElementById('tripPassengerHmSelect').value || null) : null,
+        pickup_point: document.getElementById('tripPassengerPickup').value
+      };
+      if (!body.participant_id && !body.host_member_id) { toast('Choose a delegate or a host member'); return; }
+      try {
+        await jpost(`${API}/portal-modules/transport/${currentTripPassengerId}/passengers`, body);
+        if (body.pickup_point) ensureTransportPoint(body.pickup_point);
+        document.getElementById('tripPassengerPickup').value = '';
+        toast('Passenger added');
+        await refreshTripPassengers();
+        // Re-render the trip table so the Passengers count badge stays in
+        // sync, then re-open this same panel (renderHostModuleSection wipes
+        // and rebuilds #hostModuleBody, including this card).
+        const cfg = MODULE_CONFIG.transport_planning;
+        await renderHostModuleSection(cfg, cfg);
+        await window.manageTripPassengers(currentTripPassengerId, currentTripPassengerLabel);
+      } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+    });
+  }
+}
+
+// --- Pre Tour "Manage" panel: day-wise itinerary, delegate/host-member
+// signups (with payment status), and tour-scoped transport. Mirrors
+// admin.js's manageTour/refreshTourItinerary/refreshTourParticipants/
+// refreshTourTrips, wired to this committee's own portal-modules/pretours
+// mount — including /pretours/:id/trips, a tour-scoped mirror of the shared
+// transport_trips table (see server/routes/pretours.js) added so a
+// committee only granted the Pre Tours module can plan this tour's
+// transport without also needing the separate Transport Planning module
+// grant. No delete UI on any of the three sub-tables, same reasoning as
+// the Trip Passengers manifest above — DELETE always 403s for a non-
+// super-admin token, so admin.js's own Remove/Delete buttons here are
+// gated behind canDelete() too.
+let currentTourId = null;
+let currentTourLabel = '';
+function tourManageCardHtml() {
+  return `
+    <div class="card" id="tourManageCard" style="margin-top:14px; display:none;">
+      <div class="section-title" style="margin-top:0">Manage — <span id="tourManageLabel"></span></div>
+
+      <div class="section-title" style="font-size:12px;">Day-wise itinerary</div>
+      <form id="tourItinForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Day label *</label><input name="day_label" required placeholder="Day 1 · 10 Aug" /></div>
+          <div class="field"><label>Time</label><input name="time_label" placeholder="9:00 AM" /></div>
+          <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="0" /></div>
+        </div>
+        <div class="field"><label>Title *</label><input name="title" required /></div>
+        <div class="field"><label>Location</label><input name="location" /></div>
+        <div class="field"><label>Description</label><textarea name="description"></textarea></div>
+        <button class="btn gold small" type="submit">Add itinerary item</button>
+      </form>
+      <div class="table-scroll" style="margin-top:8px;">
+        <table>
+          <thead><tr><th>Day</th><th>Time</th><th>Title</th><th>Location</th></tr></thead>
+          <tbody id="tourItinTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title" style="font-size:12px;margin-top:20px;">Delegates / host members signed up</div>
+      <form id="tourPartForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Type</label>
+            <select id="tourPartTypeSelect">
+              <option value="participant">Delegate</option>
+              <option value="host_member">Host member</option>
+            </select>
+          </div>
+          <div class="field"><label>Delegate</label><select id="tourPartParticipantSelect"></select></div>
+          <div class="field"><label>Host member</label><select id="tourPartHmSelect" style="display:none;"></select></div>
+        </div>
+        <div class="field"><label>Payment status</label>
+          <select id="tourPartPaymentSelect"><option value="pending">Pending</option><option value="paid">Paid</option></select>
+        </div>
+        <button class="btn gold small" type="submit">Add to tour</button>
+      </form>
+      <div class="table-scroll" style="margin-top:8px;">
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Phone</th><th>Payment</th></tr></thead>
+          <tbody id="tourPartTableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title" style="font-size:12px;margin-top:20px;">Transport for this tour</div>
+      <form id="tourTripForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>From *</label><input name="from_location" data-location-suggest="1" required /></div>
+          <div class="field"><label>To *</label><input name="to_location" data-location-suggest="1" required /></div>
+          <div class="field"><label>Purpose</label><input name="purpose" /></div>
+        </div>
+        <div class="form-grid cols-3">
+          <div class="field"><label>Date</label><input name="trip_date" type="date" /></div>
+          <div class="field"><label>Depart time</label><input name="depart_time" type="time" /></div>
+          <div class="field"><label>Vehicle *</label><select name="vehicle_id" id="tourTripVehicleSelect" required></select></div>
+        </div>
+        <div class="field"><label>Driver</label><select name="driver_id" id="tourTripDriverSelect"><option value="">-- none --</option></select></div>
+        <button class="btn gold small" type="submit">Add trip</button>
+      </form>
+      <div class="table-scroll" style="margin-top:8px;">
+        <table>
+          <thead><tr><th>Date</th><th>Route</th><th>Vehicle</th><th>Driver</th><th>Passengers</th></tr></thead>
+          <tbody id="tourTripTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+window.manageTour = async (id, name) => {
+  currentTourId = id;
+  currentTourLabel = name;
+  const card = document.getElementById('tourManageCard');
+  if (!card) return;
+  document.getElementById('tourManageLabel').textContent = name;
+  card.style.display = '';
+  await Promise.all([refreshTourPartOptions(), refreshTourTripOptions()]);
+  await Promise.all([refreshTourItinerary(), refreshTourParticipants(), refreshTourTrips()]);
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+async function refreshTourItinerary() {
+  if (!currentTourId) return;
+  let rows = [];
+  try { rows = await jget(`${API}/portal-modules/pretours/${currentTourId}/itinerary`); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); return; }
+  document.getElementById('tourItinTableBody').innerHTML = rows.map((i) => `
+    <tr>
+      <td>${escapeHtml(i.day_label)}</td><td>${escapeHtml(i.time_label || '-')}</td><td>${escapeHtml(i.title)}</td><td>${escapeHtml(i.location || '-')}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" class="empty">No itinerary items yet</td></tr>';
+}
+async function refreshTourPartOptions() {
+  try {
+    const [participants, hostMembers] = await Promise.all([
+      jget(`${API}/portal-modules/pretours/participants-lite`),
+      jget(`${API}/portal-modules/pretours/host-members-lite`),
+    ]);
+    const pSelect = document.getElementById('tourPartParticipantSelect');
+    const hSelect = document.getElementById('tourPartHmSelect');
+    if (pSelect) pSelect.innerHTML = participants.map((p) => `<option value="${p.id}">${escapeHtml(p.name)} — ${escapeHtml(p.participant_code || '')} (${escapeHtml(p.club_name || 'no club')})</option>`).join('');
+    if (hSelect) hSelect.innerHTML = hostMembers.map((h) => `<option value="${h.id}">${escapeHtml(h.name)}${h.company ? ' (' + escapeHtml(h.company) + ')' : ''}</option>`).join('');
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+}
+async function refreshTourParticipants() {
+  if (!currentTourId) return;
+  let rows = [];
+  try { rows = await jget(`${API}/portal-modules/pretours/${currentTourId}/participants`); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); return; }
+  document.getElementById('tourPartTableBody').innerHTML = rows.map((r) => `
+    <tr>
+      <td>${escapeHtml(r.participant_name || r.host_member_name || '-')}</td>
+      <td>${r.participant_id ? 'Delegate' : 'Host member'}</td>
+      <td>${escapeHtml(r.participant_phone || r.host_member_phone || '-')}</td>
+      <td><select onchange="updateTourParticipantPayment(${r.id}, this.value)">
+        <option value="pending" ${r.payment_status === 'pending' ? 'selected' : ''}>Pending</option>
+        <option value="paid" ${r.payment_status === 'paid' ? 'selected' : ''}>Paid</option>
+      </select></td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" class="empty">No signups yet</td></tr>';
+}
+window.updateTourParticipantPayment = async (rowId, payment_status) => {
+  try { await jput(`${API}/portal-modules/pretours/participants/${rowId}`, { payment_status }); toast('Payment status updated'); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
+async function refreshTourTripOptions() {
+  try {
+    const [vehicles, drivers] = await Promise.all([
+      jget(`${API}/portal-modules/pretours/vehicles-lite`),
+      jget(`${API}/portal-modules/pretours/drivers-lite`),
+    ]);
+    const vSelect = document.getElementById('tourTripVehicleSelect');
+    const dSelect = document.getElementById('tourTripDriverSelect');
+    if (vSelect) vSelect.innerHTML = '<option value="">-- select vehicle --</option>' + vehicles.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join('');
+    if (dSelect) dSelect.innerHTML = '<option value="">-- none --</option>' + drivers.map((d) => `<option value="${d.id}">${escapeHtml(d.name)}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}</option>`).join('');
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+}
+async function refreshTourTrips() {
+  if (!currentTourId) return;
+  let rows = [];
+  try { rows = await jget(`${API}/portal-modules/pretours/${currentTourId}/trips`); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); return; }
+  document.getElementById('tourTripTableBody').innerHTML = rows.map((t) => `
+    <tr>
+      <td>${t.trip_date || '-'}</td>
+      <td>${escapeHtml(t.from_location)} → ${escapeHtml(t.to_location)}</td>
+      <td>${t.vehicle_code || '-'}</td>
+      <td>${escapeHtml(t.driver_name || '-')}</td>
+      <td>${t.passenger_count || 0}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No transport planned yet</td></tr>';
+}
+// Re-renders the whole Pre Tours section (so the "Signed up"/"Trips" count
+// badges on the main table stay in sync) and then re-opens this same
+// tour's Manage panel — renderHostModuleSection wipes and rebuilds
+// #hostModuleBody, including this card, on every call.
+async function refreshPreTourCountsAndReopen() {
+  const cfg = MODULE_CONFIG.pretours;
+  await renderHostModuleSection(cfg, cfg);
+  await window.manageTour(currentTourId, currentTourLabel);
+}
+function wireTourManageForms() {
+  const itinForm = document.getElementById('tourItinForm');
+  if (itinForm && !itinForm.dataset.wired) {
+    itinForm.dataset.wired = '1';
+    itinForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
+      const body = Object.fromEntries(new FormData(e.target).entries());
+      try {
+        await jpost(`${API}/portal-modules/pretours/${currentTourId}/itinerary`, body);
+        e.target.reset();
+        toast('Itinerary item added');
+        refreshTourItinerary();
+      } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+    });
+  }
+  const typeSel = document.getElementById('tourPartTypeSelect');
+  if (typeSel && !typeSel.dataset.wired) {
+    typeSel.dataset.wired = '1';
+    typeSel.addEventListener('change', (e) => {
+      const isHm = e.target.value === 'host_member';
+      document.getElementById('tourPartParticipantSelect').style.display = isHm ? 'none' : '';
+      document.getElementById('tourPartHmSelect').style.display = isHm ? '' : 'none';
+    });
+  }
+  const partForm = document.getElementById('tourPartForm');
+  if (partForm && !partForm.dataset.wired) {
+    partForm.dataset.wired = '1';
+    partForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
+      const isHm = document.getElementById('tourPartTypeSelect').value === 'host_member';
+      const body = {
+        participant_id: isHm ? null : (document.getElementById('tourPartParticipantSelect').value || null),
+        host_member_id: isHm ? (document.getElementById('tourPartHmSelect').value || null) : null,
+        payment_status: document.getElementById('tourPartPaymentSelect').value
+      };
+      if (!body.participant_id && !body.host_member_id) { toast('Choose a delegate or a host member'); return; }
+      try {
+        await jpost(`${API}/portal-modules/pretours/${currentTourId}/participants`, body);
+        toast('Added to tour');
+        await refreshPreTourCountsAndReopen();
+      } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+    });
+  }
+  const tripForm = document.getElementById('tourTripForm');
+  if (tripForm && !tripForm.dataset.wired) {
+    tripForm.dataset.wired = '1';
+    tripForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
+      const body = Object.fromEntries(new FormData(e.target).entries());
+      if (!body.driver_id) delete body.driver_id;
+      try {
+        await jpost(`${API}/portal-modules/pretours/${currentTourId}/trips`, body);
+        e.target.reset();
+        toast('Trip added');
+        if (body.from_location) ensureTransportPoint(body.from_location);
+        if (body.to_location) ensureTransportPoint(body.to_location);
+        await refreshPreTourCountsAndReopen();
+      } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+    });
+  }
+}
+
+// --- Goodies & Inventory: per-item deliveries panel + Delivery Monitor ---
+// Mirrors admin.js's openInventoryDistModal (recipient list, bulk-assign,
+// individual add, per-recipient assigned/status) and its separate
+// "Delivery monitor" dashboard (filterable by committee/status/recipient
+// type). Recipient names (sponsors/speakers/guest visitors/delegates/host
+// members) come from the *-lite lookups added to server/routes/inventory.js
+// specifically for this — a committee only granted Goodies & Inventory has
+// no other route that would give it those names. No bulk delivered-by
+// override or delete here — the core ask is seeing + updating delivery
+// status, not every admin power-tool; and deletes 403 for a non-super-admin
+// token regardless, same reasoning as every other panel in this file.
+const INV_RECIPIENT_TYPE_LABELS = { sponsor: 'Sponsor', speaker: 'Guest Speaker', guest_visitor: 'Guest Visitor', participant: 'Delegate', host_member: 'Host Member' };
+const INV_RECIPIENT_LITE_PATH = { sponsor: 'inventory/sponsors-lite', speaker: 'inventory/speakers-lite', guest_visitor: 'inventory/guestvisitors-lite', participant: 'inventory/participants-lite', host_member: 'inventory/host-members-lite' };
+let inventoryDistCtx = { itemId: null, itemName: '' };
+function inventoryDistCardHtml() {
+  return `
+    <div class="card" id="inventoryDistCard" style="margin-top:14px; display:none;">
+      <div class="section-title" style="margin-top:0">Deliveries — <span id="inventoryDistItemLabel"></span></div>
+      <div id="inventoryDistRows"></div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+        <strong>Assign to everyone in a category</strong>
+        <form id="inventoryBulkAssignForm" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+          <select name="recipient_type" required>${Object.entries(INV_RECIPIENT_TYPE_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+          <input name="quantity" type="number" min="1" value="1" style="max-width:80px;" title="Quantity each" />
+          <select name="assigned_host_member_id" id="inventoryBulkAssignHmSelect" style="max-width:160px;"></select>
+          <button class="btn gold small" type="submit">Assign to all</button>
+        </form>
+      </div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
+        <strong>Add one recipient</strong>
+        <form id="inventoryAddRecipientForm" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:flex-start;">
+          <select name="recipient_type" id="invAddRecipientType" required>${Object.entries(INV_RECIPIENT_TYPE_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
+          <select name="recipient_id" id="invAddRecipientId" required style="min-width:160px;"><option value="">-- select --</option></select>
+          <input name="quantity" type="number" min="1" value="1" style="max-width:80px;" title="Quantity" />
+          <select name="assigned_host_member_id" id="inventoryAddRecipientHmSelect" style="max-width:160px;"></select>
+          <button class="btn small" type="submit">Add</button>
+        </form>
+      </div>
+    </div>
+  `;
+}
+window.openInventoryDist = async (itemId, itemName) => {
+  inventoryDistCtx = { itemId, itemName };
+  const card = document.getElementById('inventoryDistCard');
+  if (!card) return;
+  document.getElementById('inventoryDistItemLabel').textContent = itemName;
+  card.style.display = '';
+  await refreshInventoryDistHmOptions();
+  await onInvAddRecipientTypeChange();
+  await refreshInventoryDist();
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+async function refreshInventoryDistHmOptions() {
+  let hostMembers = [];
+  try { hostMembers = await jget(`${API}/portal-modules/inventory/host-members-lite`); } catch (e) { hostMembers = []; }
+  const opts = '<option value="">-- unassigned --</option>' + hostMembers.map((h) => `<option value="${h.id}">${escapeHtml(h.name)}</option>`).join('');
+  const a = document.getElementById('inventoryBulkAssignHmSelect');
+  const b = document.getElementById('inventoryAddRecipientHmSelect');
+  if (a) a.innerHTML = opts;
+  if (b) b.innerHTML = opts;
+}
+window.onInvAddRecipientTypeChange = async () => {
+  const sel = document.getElementById('invAddRecipientType');
+  const idSel = document.getElementById('invAddRecipientId');
+  if (!sel || !idSel) return;
+  let rows = [];
+  try { rows = await jget(`${API}/portal-modules/${INV_RECIPIENT_LITE_PATH[sel.value]}`); } catch (e) { rows = []; }
+  idSel.innerHTML = '<option value="">-- select --</option>' + rows.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+};
+async function refreshInventoryDist() {
+  const { itemId } = inventoryDistCtx;
+  if (!itemId) return;
+  let rows = [];
+  try { rows = await jget(`${API}/portal-modules/inventory/${itemId}/distributions`); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); return; }
+  let hostMembers = [];
+  try { hostMembers = await jget(`${API}/portal-modules/inventory/host-members-lite`); } catch (e) { hostMembers = []; }
+  const hmOptionsFor = (selectedId) => '<option value="">-- unassigned --</option>' + hostMembers.map((h) =>
+    `<option value="${h.id}" ${String(selectedId) === String(h.id) ? 'selected' : ''}>${escapeHtml(h.name)}</option>`).join('');
+  document.getElementById('inventoryDistRows').innerHTML = rows.map((d) => `
+    <div class="checklist-row status-${d.status}">
+      <span class="checklist-label">
+        <span class="pill single" style="margin-right:6px;">${INV_RECIPIENT_TYPE_LABELS[d.recipient_type] || d.recipient_type}</span>
+        ${escapeHtml(d.recipient_name || 'Unknown')}${d.quantity > 1 ? ` ×${d.quantity}` : ''}
+      </span>
+      <select style="max-width:160px;" title="Assigned to" onchange="updateInventoryDistField(${d.id}, 'assigned_host_member_id', this.value || null)">
+        ${hmOptionsFor(d.assigned_host_member_id)}
+      </select>
+      <select onchange="updateInventoryDistField(${d.id}, 'status', this.value)">
+        <option value="pending" ${d.status === 'pending' ? 'selected' : ''}>Pending</option>
+        <option value="delivered" ${d.status === 'delivered' ? 'selected' : ''}>Delivered</option>
+        <option value="cancelled" ${d.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+      </select>
+      ${d.status === 'delivered' && d.delivered_by_name ? `<span class="hint">✓ ${escapeHtml(d.delivered_by_name)}${d.delivered_at ? ' on ' + new Date(d.delivered_at).toLocaleDateString() : ''}</span>` : ''}
+    </div>
+  `).join('') || '<p class="empty">No recipients added yet.</p>';
+}
+window.updateInventoryDistField = async (distId, field, value) => {
+  try {
+    await jput(`${API}/portal-modules/inventory/distributions/${distId}`, { [field]: value });
+    toast('Updated');
+    await refreshInventoryDist();
+    refreshInventoryMonitor();
+    const cfg = MODULE_CONFIG.inventory;
+    if (currentModuleKey === 'inventory') renderHostModuleSection(cfg, cfg).then(() => window.openInventoryDist(inventoryDistCtx.itemId, inventoryDistCtx.itemName));
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
+function wireInventoryDistForms() {
+  const bulkForm = document.getElementById('inventoryBulkAssignForm');
+  if (bulkForm && !bulkForm.dataset.wired) {
+    bulkForm.dataset.wired = '1';
+    bulkForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const { itemId } = inventoryDistCtx;
+      if (!itemId) { toast('Click "Deliveries" on an item first'); return; }
+      const body = Object.fromEntries(new FormData(e.target).entries());
+      try {
+        const r = await jpost(`${API}/portal-modules/inventory/${itemId}/distributions/bulk`, body);
+        toast(`Assigned to ${r.created} recipient(s) (already-assigned recipients were skipped).`);
+        e.target.reset();
+        await refreshInventoryDist();
+        refreshInventoryMonitor();
+      } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+    });
+  }
+  const typeSel = document.getElementById('invAddRecipientType');
+  if (typeSel && !typeSel.dataset.wired) {
+    typeSel.dataset.wired = '1';
+    typeSel.addEventListener('change', () => window.onInvAddRecipientTypeChange());
+  }
+  const addForm = document.getElementById('inventoryAddRecipientForm');
+  if (addForm && !addForm.dataset.wired) {
+    addForm.dataset.wired = '1';
+    addForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const { itemId } = inventoryDistCtx;
+      if (!itemId) { toast('Click "Deliveries" on an item first'); return; }
+      const body = Object.fromEntries(new FormData(e.target).entries());
+      if (!body.recipient_id) { toast('Choose a recipient'); return; }
+      try {
+        await jpost(`${API}/portal-modules/inventory/${itemId}/distributions`, body);
+        toast('Recipient added');
+        e.target.reset();
+        await onInvAddRecipientTypeChange();
+        await refreshInventoryDist();
+        refreshInventoryMonitor();
+      } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+    });
+  }
+}
+
+// --- Delivery Monitor: cross-item, cross-committee view (mirrors admin.js's
+// refreshInventoryMonitorSummary/refreshInventoryMonitorDetail). Read-only,
+// same as admin's own detail table — status is updated from the per-item
+// Deliveries panel above, not inline here. Always rendered below the
+// inventory list (cfg.hasDeliveryMonitor), independent of any row selection.
+function inventoryMonitorCardHtml() {
+  return `
+    <div class="card" style="margin-top:16px;">
+      <div class="section-title" style="margin-top:0;font-size:14px;">Delivery monitor</div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Committee</th><th>Total</th><th>Delivered</th><th>Pending</th><th>%</th></tr></thead>
+          <tbody id="inventoryMonitorSummaryBody"></tbody>
+        </table>
+      </div>
+      <div class="form-grid cols-3" style="margin-top:10px;">
+        <div class="field"><label>Committee</label>
+          <select id="inventoryMonitorFilterCommittee"><option value="">All committees</option><option value="unassigned">Unassigned</option></select>
+        </div>
+        <div class="field"><label>Status</label>
+          <select id="inventoryMonitorFilterStatus">
+            <option value="">All statuses</option>
+            <option value="pending">Pending</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="field"><label>Recipient type</label>
+          <select id="inventoryMonitorFilterRecipientType">
+            <option value="">All types</option>
+            ${Object.entries(INV_RECIPIENT_TYPE_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="table-scroll" style="margin-top:8px;">
+        <table>
+          <thead><tr><th>Item</th><th>Recipient</th><th>Committee</th><th>Assigned to</th><th>Status</th><th>Delivered by</th></tr></thead>
+          <tbody id="inventoryMonitorDetailBody"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+async function refreshInventoryMonitorSummary() {
+  let rows = [];
+  try { rows = await jget(`${API}/portal-modules/inventory/monitor/summary`); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); return; }
+  document.getElementById('inventoryMonitorSummaryBody').innerHTML = rows.map((r) => `
+    <tr>
+      <td>${escapeHtml(r.committee_name || 'Unassigned')}</td>
+      <td>${r.total}</td>
+      <td>${r.delivered}</td>
+      <td>${r.pending}</td>
+      <td>${r.completion_pct !== null ? r.completion_pct + '%' : '-'}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No deliveries assigned yet.</td></tr>';
+
+  let committees = [];
+  try { committees = await jget(`${API}/portal-modules/inventory/committees-lite`); } catch (e) { committees = []; }
+  const filterSel = document.getElementById('inventoryMonitorFilterCommittee');
+  if (filterSel) {
+    const cur = filterSel.value;
+    filterSel.innerHTML = `<option value="">All committees</option><option value="unassigned">Unassigned</option>${committees.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}`;
+    filterSel.value = cur;
+  }
+}
+async function refreshInventoryMonitorDetail() {
+  const committee = document.getElementById('inventoryMonitorFilterCommittee')?.value || '';
+  const status = document.getElementById('inventoryMonitorFilterStatus')?.value || '';
+  const recipientType = document.getElementById('inventoryMonitorFilterRecipientType')?.value || '';
+  const params = new URLSearchParams();
+  if (committee) params.set('committee_id', committee);
+  if (status) params.set('status', status);
+  if (recipientType) params.set('recipient_type', recipientType);
+  let rows = [];
+  try { rows = await jget(`${API}/portal-modules/inventory/monitor?${params.toString()}`); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); return; }
+  document.getElementById('inventoryMonitorDetailBody').innerHTML = rows.map((r) => `
+    <tr>
+      <td>${escapeHtml(r.item_name)}${r.quantity > 1 ? ` ×${r.quantity}` : ''}<br><span class="hint">${escapeHtml(r.item_category || '-')}</span></td>
+      <td>${escapeHtml(r.recipient_name || '-')} <span class="hint">(${INV_RECIPIENT_TYPE_LABELS[r.recipient_type] || r.recipient_type})</span></td>
+      <td>${escapeHtml(r.committee_name || 'Unassigned')}</td>
+      <td>${escapeHtml(r.assigned_host_member_name || '-')}</td>
+      <td><span class="pill ${r.status === 'delivered' ? 'done' : r.status === 'cancelled' ? 'refunded' : 'in_progress'}">${r.status}</span></td>
+      <td>${r.delivered_by_name ? escapeHtml(r.delivered_by_name) + (r.delivered_at ? ' on ' + new Date(r.delivered_at).toLocaleDateString() : '') : '-'}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">No deliveries match this filter.</td></tr>';
+}
+async function refreshInventoryMonitor() {
+  if (currentModuleKey !== 'inventory') return;
+  await refreshInventoryMonitorSummary();
+  await refreshInventoryMonitorDetail();
+}
+function wireInventoryMonitorFilters() {
+  ['inventoryMonitorFilterCommittee', 'inventoryMonitorFilterStatus', 'inventoryMonitorFilterRecipientType'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && !el.dataset.wired) { el.dataset.wired = '1'; el.addEventListener('change', refreshInventoryMonitorDetail); }
+  });
+}
+
+// --- Agenda Builder (per-Itinerary-Slot event flow) ---
+// Mirrors admin.js's manageAgenda/refreshAgenda: one Itinerary Slot (e.g.
+// "Inaugural Ceremony") contains an ordered flow of individual events
+// (Prayer Song, National Anthem, dance performances...), each with a
+// description, who organised it (committee + free-text detail), and who's
+// performing (a Performer/Vendor Group + free-text detail). Organizing
+// committee names come from agenda.js's committees-lite lookup (added
+// specifically for this — the Itinerary module doesn't otherwise grant
+// access to the internal Committees admin data); performer group options
+// come straight from this same module's own "Performer / Vendor Groups"
+// section. No Update/Delete on agenda events here — same minimal scope as
+// the Trip Passengers manifest and Pre Tour sub-panels above.
+function itinerarySlotLabelHost(it) {
+  return [it.day_label, it.time_label, it.title].filter(Boolean).join(' · ');
+}
+let currentAgendaSlotId = null;
+let currentAgendaSlotLabel = '';
+function agendaCardHtml() {
+  return `
+    <div class="card" id="agendaCard" style="margin-top:14px; display:none;">
+      <div class="section-title" style="margin-top:0">Agenda — <span id="agendaSlotLabel"></span></div>
+      <form id="agendaForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Time</label><input name="time_label" placeholder="9:15 AM" /></div>
+          <div class="field"><label>Duration (min)</label><input name="duration_minutes" type="number" min="0" /></div>
+          <div class="field"><label>Sort order</label><input name="sort_order" type="number" value="0" /></div>
+        </div>
+        <div class="field"><label>Title *</label><input name="title" required /></div>
+        <div class="field"><label>Description</label><textarea name="description"></textarea></div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Organizing committee</label><select name="organizing_committee_id" id="agendaCommitteeSelect"></select></div>
+          <div class="field"><label>Organized by (detail)</label><input name="organized_by" placeholder="e.g. Cultural Committee volunteers" /></div>
+        </div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Performing group</label><select name="performer_group_id" id="agendaPerformerSelect"></select></div>
+          <div class="field"><label>Performed by (detail)</label><input name="performed_by" placeholder="e.g. lead vocalist name" /></div>
+        </div>
+        <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+        <button class="btn gold small" type="submit">Add agenda event</button>
+      </form>
+      <div class="table-scroll" style="margin-top:12px;">
+        <table>
+          <thead><tr><th>Time</th><th>Title</th><th>Description</th><th>Organizing</th><th>Performing</th></tr></thead>
+          <tbody id="agendaTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+window.openAgenda = async (itineraryItemId, label) => {
+  currentAgendaSlotId = itineraryItemId;
+  currentAgendaSlotLabel = label;
+  const card = document.getElementById('agendaCard');
+  if (!card) return;
+  document.getElementById('agendaSlotLabel').textContent = label;
+  card.style.display = '';
+  await refreshAgendaOptions();
+  await refreshAgenda();
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+async function refreshAgendaOptions() {
+  try {
+    const [committees, performerGroups] = await Promise.all([
+      jget(`${API}/portal-modules/agenda/committees-lite`),
+      jget(`${API}/portal-modules/performer-groups`),
+    ]);
+    const cSelect = document.getElementById('agendaCommitteeSelect');
+    const pSelect = document.getElementById('agendaPerformerSelect');
+    if (cSelect) cSelect.innerHTML = '<option value="">Unassigned</option>' + committees.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    if (pSelect) pSelect.innerHTML = '<option value="">-- none --</option>' + performerGroups.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+}
+async function refreshAgenda() {
+  if (!currentAgendaSlotId) return;
+  let rows = [];
+  try { rows = await jget(`${API}/portal-modules/agenda?itinerary_item_id=${currentAgendaSlotId}`); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); return; }
+  document.getElementById('agendaTableBody').innerHTML = rows.map((a) => `
+    <tr>
+      <td>${escapeHtml(a.time_label || '-')}</td>
+      <td><strong>${escapeHtml(a.title)}</strong>${a.duration_minutes ? ' <span class="hint">(' + a.duration_minutes + ' min)</span>' : ''}</td>
+      <td style="white-space:normal;max-width:220px;">${escapeHtml(a.description || '-')}</td>
+      <td>${escapeHtml([a.organizing_committee_name, a.organized_by].filter(Boolean).join(' · ') || '-')}</td>
+      <td>${escapeHtml([a.performer_group_name, a.performed_by].filter(Boolean).join(' · ') || '-')}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No agenda events yet for this slot</td></tr>';
+}
+function wireAgendaForm() {
+  const form = document.getElementById('agendaForm');
+  if (form && !form.dataset.wired) {
+    form.dataset.wired = '1';
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!currentAgendaSlotId) { toast('Click "Agenda" on an itinerary slot first'); return; }
+      const body = Object.fromEntries(new FormData(e.target).entries());
+      body.itinerary_item_id = currentAgendaSlotId;
+      try {
+        await jpost(`${API}/portal-modules/agenda`, body);
+        e.target.reset();
+        toast('Agenda event added');
+        await refreshAgenda();
+      } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+    });
+  }
 }
 
 // --- Arrivals & Departures to Plan (Transport Planning module only) ---
@@ -949,7 +1926,7 @@ async function renderHostModuleSection(cfg, section) {
 // hitting the same /transport/arrivals-queue, /departures-queue, and
 // /group-trip endpoints via the committee's portal-modules mount instead of
 // the admin-only one.
-function transportQueueGroupCardHost(direction, g) {
+function transportQueueGroupCardHost(direction, g, vehicleOpts, driverOpts) {
   const delegates = g.delegates || [];
   const hotelIds = new Set(delegates.map((d) => d.hotel_id).filter((x) => x !== null && x !== undefined));
   const sharedHotel = hotelIds.size === 1 ? delegates.find((d) => d.hotel_id !== null && d.hotel_id !== undefined)?.hotel_name : null;
@@ -989,8 +1966,8 @@ function transportQueueGroupCardHost(direction, g) {
           <div class="field"><label>Depart time</label><input name="depart_time" type="time" /></div>
         </div>
         <div class="form-grid cols-2">
-          <div class="field"><label>Vehicle ID (number)</label><input name="vehicle_id" type="number" /></div>
-          <div class="field"><label>Driver ID (number)</label><input name="driver_id" type="number" /></div>
+          <div class="field"><label>Vehicle *</label><select name="vehicle_id" class="queue-vehicle-select" required>${vehicleOpts || '<option value="">-- select vehicle --</option>'}</select></div>
+          <div class="field"><label>Driver</label><select name="driver_id" class="queue-driver-select" onchange="onQueueDriverChangeHost(this)">${driverOpts || '<option value="">-- none --</option>'}</select></div>
         </div>
         <div class="field"><label>Purpose</label><input name="purpose" value="${escapeHtml(purposeDefault)}" /></div>
         <button class="btn gold small" type="submit">Create trip for this group</button>
@@ -1000,6 +1977,16 @@ function transportQueueGroupCardHost(direction, g) {
 }
 window.toggleQueueGroupChecksHost = (btn, checked) => {
   btn.closest('.queue-group').querySelectorAll('.queue-delegate-cb').forEach((cb) => { cb.checked = checked; });
+};
+// Picking a driver auto-fills their usually-assigned vehicle (drivers carry a
+// vehicle_id in the Vehicles master) so the committee member doesn't have to
+// separately look up and re-select the matching vehicle. Still overridable.
+window.onQueueDriverChangeHost = (selectEl) => {
+  const driverId = selectEl.value;
+  const vehicleId = driverId && window.hostDriverVehicleMap ? window.hostDriverVehicleMap[driverId] : null;
+  if (!vehicleId) return;
+  const vehicleSelect = selectEl.closest('.queue-group')?.querySelector('.queue-vehicle-select');
+  if (vehicleSelect && vehicleSelect.querySelector(`option[value="${vehicleId}"]`)) vehicleSelect.value = String(vehicleId);
 };
 window.submitGroupTripHost = async (e, direction) => {
   e.preventDefault();
@@ -1024,15 +2011,20 @@ async function renderTransportQueue() {
   const el = document.getElementById('transportQueueBody');
   if (!el) return;
   try {
-    const [arrivals, departures] = await Promise.all([
+    const [arrivals, departures, vehicles, drivers] = await Promise.all([
       jget(`${API}/portal-modules/transport/arrivals-queue`),
       jget(`${API}/portal-modules/transport/departures-queue`),
+      jget(`${API}/portal-modules/transport/vehicles-lite`).catch(() => []),
+      jget(`${API}/portal-modules/transport/drivers-lite`).catch(() => []),
     ]);
+    const vehicleOpts = '<option value="">-- select vehicle --</option>' + vehicles.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join('');
+    const driverOpts = '<option value="">-- none --</option>' + drivers.map((d) => `<option value="${d.id}">${d.name}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}</option>`).join('');
+    window.hostDriverVehicleMap = Object.fromEntries(drivers.filter((d) => d.vehicle_id).map((d) => [String(d.id), d.vehicle_id]));
     el.innerHTML = `
       <div class="section-title" style="font-size:14px;">Arrivals to plan (${arrivals.length})</div>
-      ${arrivals.map((g) => transportQueueGroupCardHost('arrival', g)).join('') || '<p class="hint">No unplanned arrivals right now.</p>'}
+      ${arrivals.map((g) => transportQueueGroupCardHost('arrival', g, vehicleOpts, driverOpts)).join('') || '<p class="hint">No unplanned arrivals right now.</p>'}
       <div class="section-title" style="font-size:14px;">Departures to plan (${departures.length})</div>
-      ${departures.map((g) => transportQueueGroupCardHost('departure', g)).join('') || '<p class="hint">No unplanned departures right now.</p>'}
+      ${departures.map((g) => transportQueueGroupCardHost('departure', g, vehicleOpts, driverOpts)).join('') || '<p class="hint">No unplanned departures right now.</p>'}
     `;
     wireLocationDropdowns(el);
   } catch (err) {
@@ -1042,15 +2034,52 @@ async function renderTransportQueue() {
 }
 window.submitHostModuleForm = async (e) => {
   e.preventDefault();
+  const form = e.target;
   const cfg = MODULE_CONFIG[currentModuleKey];
   const section = cfg.sections ? cfg.sections.find((s) => s.path === currentModuleSectionPath) : cfg;
-  const body = Object.fromEntries(new FormData(e.target).entries());
+  const body = Object.fromEntries(new FormData(form).entries());
   Object.keys(body).forEach((k) => { if (body[k] === '') delete body[k]; });
+
+  // Occupant-type toggle (Accommodation & Rooms): only the visible one of
+  // participant_id/host_member_id should ever be sent — the backend rejects
+  // a row that's both or neither.
+  (section.fields || []).forEach((f) => {
+    if (f.type !== 'occupant_toggle') return;
+    const toggle = form.querySelector(`[data-occupant-type-select="${f.name}"]`);
+    if (!toggle) return;
+    if (toggle.value === 'participant') delete body[f.hostMemberField];
+    else delete body[f.participantField];
+  });
+
+  // spoc_host_member_id isn't a participants column — it's saved separately
+  // as a delegate_assignments row (role='SPOC') via
+  // PUT /portal-modules/participants/:id/spoc, same split admin.js's
+  // savePartForm does against /api/assignments/spoc/:id.
+  const hasSpocField = (section.fields || []).some((f) => f.name === 'spoc_host_member_id');
+  let spocHostMemberId;
+  if (hasSpocField) {
+    spocHostMemberId = body.spoc_host_member_id || '';
+    delete body.spoc_host_member_id;
+  }
+
+  const editId = form.dataset.editId;
   try {
-    await jpost(`${API}/portal-modules/${section.path}`, body);
-    toast('Saved');
-    e.target.reset();
-    ['from_location', 'to_location', 'arrival_point'].forEach((k) => { if (body[k]) ensureTransportPoint(body[k]); });
+    let rowId = editId;
+    if (editId) {
+      await jput(`${API}/portal-modules/${section.path}/${editId}`, body);
+      toast('Updated');
+    } else {
+      const res = await jpost(`${API}/portal-modules/${section.path}`, body);
+      rowId = res && res.id;
+      toast('Saved');
+    }
+    if (hasSpocField && rowId) {
+      try { await jput(`${API}/portal-modules/participants/${rowId}/spoc`, { host_member_id: spocHostMemberId || null }); }
+      catch (spocErr) { toast('Saved, but SPOC link failed: ' + spocErr.message); }
+    }
+    LOCATION_SUGGEST_FIELDS.forEach((k) => { if (body[k]) ensureTransportPoint(body[k]); });
+    if (editId) window.cancelEditHostModuleForm();
+    else form.reset();
     renderHostModuleSection(cfg, section);
   } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
   return false;

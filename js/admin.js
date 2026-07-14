@@ -5109,6 +5109,7 @@ async function refreshUsersAdmin() {
       <td>${userBadge(u.status)}</td>
       <td>${new Date(u.created_at).toLocaleDateString()}</td>
       <td class="sticky-actions">
+        <button class="btn small" onclick="openChangeRoleModal(${u.id})">Change role</button>
         <button class="btn small" onclick="resetUserPassword(${u.id}, '${(u.username || '').replace(/'/g, "\\'")}')">Reset password</button>
         ${u.id === CURRENT_USER.id ? '<span class="hint">(you)</span>' : `<button class="btn danger small" onclick="deleteUser(${u.id})">Delete</button>`}
       </td>
@@ -5118,6 +5119,125 @@ async function refreshUsersAdmin() {
 window.approveUser = async (id) => { await jput(`${API}/auth/users/${id}/approve`, {}); toast('Approved'); refreshUsersAdmin(); };
 window.rejectUser = async (id) => { await jput(`${API}/auth/users/${id}/reject`, {}); toast('Rejected'); refreshUsersAdmin(); };
 window.deleteUser = async (id) => { if (!confirm('Delete this login?')) return; await jdel(`${API}/auth/users/${id}`); toast('Login removed'); refreshUsersAdmin(); };
+
+// Change a login's role + linked profile record. Reuses the same
+// role -> linked-column mapping as "Generate a Login" (LINKED_FIELD_BY_ROLE
+// below) and the same ROLE_LABEL text as createUserRoleSelect, so the two
+// forms stay in sync. The backend (PUT /auth/users/:id) always clears every
+// OTHER linked column when the role changes, so switching e.g.
+// host_member -> media can't leave a stale host_member_id behind.
+const ROLE_LABEL = {
+  admin: 'Admin', super_admin: 'Super Admin', host_member: 'Host Member',
+  media: 'Media (designer — upload video/posters only)',
+  transporter: 'Transporter (transport vendor coordinator)', driver: 'Driver',
+  volunteer: 'Volunteer (external/non-member data-entry helper)',
+  vendor: 'Vendor (goods supplier — manages own products/orders)'
+};
+const LINKED_FIELD_BY_ROLE = { host_member: 'host_member_id', driver: 'driver_id', transporter: 'partner_id', volunteer: 'volunteer_id', vendor: 'vendor_id' };
+const LINKED_LABEL_BY_ROLE = { host_member: 'host member', driver: 'driver', transporter: 'transport partner', volunteer: 'volunteer', vendor: 'vendor' };
+
+function changeRoleToggleFields(role) {
+  const map = { host_member: 'changeRoleHmField', driver: 'changeRoleDriverField', transporter: 'changeRolePartnerField', volunteer: 'changeRoleVolunteerField', vendor: 'changeRoleVendorField' };
+  Object.values(map).forEach((fieldId) => {
+    const el = document.getElementById(fieldId);
+    if (el) el.style.display = 'none';
+  });
+  const activeFieldId = map[role];
+  if (activeFieldId) {
+    const el = document.getElementById(activeFieldId);
+    if (el) el.style.display = '';
+  }
+}
+
+window.openChangeRoleModal = async (id) => {
+  let users;
+  try { users = await jget(`${API}/auth/users`); } catch (e) { toast(e.message); return; }
+  const u = users.find((x) => x.id === id);
+  if (!u) return;
+  let hmRows, driverRows, partnerRows, volRows, vendorRows;
+  try {
+    [hmRows, driverRows, partnerRows, volRows, vendorRows] = await Promise.all([
+      jget(`${API}/hostmembers`).catch(() => []),
+      jget(`${API}/drivers`).catch(() => []),
+      jget(`${API}/partners`).catch(() => []),
+      jget(`${API}/volunteers`).catch(() => []),
+      jget(`${API}/vendors`).catch(() => [])
+    ]);
+  } catch (e) {
+    hmRows = driverRows = partnerRows = volRows = vendorRows = [];
+  }
+  const hmOpts = hmRows.map((h) => `<option value="${h.id}">${h.name}${h.company ? ' (' + h.company + ')' : ''}</option>`).join('');
+  const driverOpts = driverRows.map((d) => `<option value="${d.id}">${d.name}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}</option>`).join('');
+  const partnerOpts = partnerRows.map((p) => `<option value="${p.id}">${p.name}${p.category ? ' (' + p.category + ')' : ''}</option>`).join('');
+  const volOpts = volRows.map((v) => `<option value="${v.id}">${v.name}${v.organization ? ' (' + v.organization + ')' : ''}</option>`).join('');
+  const vendorOpts = vendorRows.map((v) => `<option value="${v.id}">${v.name}${v.category ? ' (' + v.category + ')' : ''}</option>`).join('');
+
+  document.getElementById('changeRoleModalTitle').textContent = `Change role — ${u.username}`;
+  document.getElementById('changeRoleModalBody').innerHTML = `
+    <form id="changeRoleForm" data-user-id="${u.id}">
+      <div class="form-grid cols-2">
+        <div class="field">
+          <label>Role</label>
+          <select name="role" id="changeRoleSelect">
+            ${Object.entries(ROLE_LABEL).map(([r, label]) => `<option value="${r}" ${r === u.role ? 'selected' : ''}>${label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field" id="changeRoleHmField" style="display:none;">
+          <label>Host member *</label>
+          <select name="host_member_id" id="changeRoleHmSelect"><option value="">-- select --</option>${hmOpts}</select>
+        </div>
+        <div class="field" id="changeRoleDriverField" style="display:none;">
+          <label>Driver *</label>
+          <select name="driver_id" id="changeRoleDriverSelect"><option value="">-- select --</option>${driverOpts}</select>
+        </div>
+        <div class="field" id="changeRolePartnerField" style="display:none;">
+          <label>Transport partner (vendor) *</label>
+          <select name="partner_id" id="changeRolePartnerSelect"><option value="">-- select --</option>${partnerOpts}</select>
+        </div>
+        <div class="field" id="changeRoleVolunteerField" style="display:none;">
+          <label>Volunteer *</label>
+          <select name="volunteer_id" id="changeRoleVolunteerSelect"><option value="">-- select --</option>${volOpts}</select>
+        </div>
+        <div class="field" id="changeRoleVendorField" style="display:none;">
+          <label>Vendor *</label>
+          <select name="vendor_id" id="changeRoleVendorSelect"><option value="">-- select --</option>${vendorOpts}</select>
+        </div>
+      </div>
+      <button class="btn gold" type="submit">Save role</button>
+    </form>
+  `;
+  // Preselect whichever linked-profile select matches this login's CURRENT
+  // role/link, then show only that field (matching the create-login toggle).
+  const linkedField = LINKED_FIELD_BY_ROLE[u.role];
+  if (linkedField && u[linkedField]) {
+    const selectId = { host_member_id: 'changeRoleHmSelect', driver_id: 'changeRoleDriverSelect', partner_id: 'changeRolePartnerSelect', volunteer_id: 'changeRoleVolunteerSelect', vendor_id: 'changeRoleVendorSelect' }[linkedField];
+    const sel = document.getElementById(selectId);
+    if (sel) sel.value = String(u[linkedField]);
+  }
+  changeRoleToggleFields(u.role);
+  document.getElementById('changeRoleSelect').addEventListener('change', (e) => changeRoleToggleFields(e.target.value));
+  document.getElementById('changeRoleForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = Object.fromEntries(fd.entries());
+    for (const field of ['host_member_id', 'driver_id', 'partner_id', 'volunteer_id', 'vendor_id']) {
+      if (LINKED_FIELD_BY_ROLE[body.role] !== field) delete body[field];
+    }
+    const requiredField = LINKED_FIELD_BY_ROLE[body.role];
+    if (requiredField && !body[requiredField]) {
+      toast(`Choose which ${LINKED_LABEL_BY_ROLE[body.role]} this login belongs to.`);
+      return;
+    }
+    try {
+      await jput(`${API}/auth/users/${e.target.dataset.userId}`, body);
+      toast('Role updated');
+      closeChangeRoleModal();
+      refreshUsersAdmin();
+    } catch (err) { toast(err.message); }
+  });
+  document.getElementById('changeRoleModal').style.display = '';
+};
+window.closeChangeRoleModal = () => { document.getElementById('changeRoleModal').style.display = 'none'; };
 // Forgot-password recovery for any login (regular admin, host member, media,
 // transporter, driver) — sets a brand-new password without needing to know
 // the old one, unlike the self-service "Change my password" flow elsewhere
