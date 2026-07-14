@@ -760,7 +760,7 @@ const MODULE_CONFIG = {
       { name: 'notes', label: 'Notes', type: 'textarea' },
     ] },
   transport_planning: { label: 'Transport Planning', path: 'transport', hasArrivalsQueue: true, editable: true,
-    columns: [['trip_date', 'Date'], ['from_location', 'From'], ['to_location', 'To'], ['passenger_count', 'Passengers'], ['status', 'Status']],
+    columns: [['trip_date', 'Date'], ['from_location', 'From'], ['to_location', 'To'], ['partner_name', 'Transporter'], ['passenger_count', 'Passengers'], ['status', 'Status']],
     // Per-row "Passengers" button (mirrors admin.js's manageTripPassengers)
     // opening the manifest panel below the table — see #tripPassengerCard
     // markup in tripPassengerCardHtml()/manageTripPassengers/
@@ -771,6 +771,8 @@ const MODULE_CONFIG = {
       { name: 'from_location', label: 'From', required: true }, { name: 'to_location', label: 'To', required: true },
       { name: 'trip_date', label: 'Trip date', type: 'date' }, { name: 'depart_time', label: 'Depart time' },
       { name: 'purpose', label: 'Purpose' },
+      { name: 'partner_id', label: 'Transport partner', type: 'select', optionsFrom: 'transport/partners-lite',
+        optionLabel: (p) => `${p.name}${p.category ? ' (' + p.category + ')' : ''}` },
       { name: 'vehicle_id', label: 'Vehicle', type: 'select', required: true, optionsFrom: 'transport/vehicles-lite',
         optionLabel: (v) => `${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}` },
       { name: 'driver_id', label: 'Driver', type: 'select', optionsFrom: 'transport/drivers-lite',
