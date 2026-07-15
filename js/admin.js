@@ -277,6 +277,11 @@ document.getElementById('imgUploadInput').addEventListener('change', async (e) =
       await uploadFileBlob(`${API}/vendors/products/${target.id}/photo`, file);
       toast('Product photo updated');
       if (typeof renderVendorModalBody === 'function') renderVendorModalBody();
+    } else if (MEMBER_UPLOAD_KINDS[target.kind]) {
+      const { endpoint, field, label, refresh } = MEMBER_UPLOAD_KINDS[target.kind];
+      await uploadFileBlob(`${API}/${endpoint}/${target.id}/${field}`, file);
+      toast(`${label} updated`);
+      refresh();
     }
   } catch (err) {
     toast(err.message);
@@ -293,6 +298,55 @@ window.removeSpeakerPhoto = async (id) => {
   try { await jdel(`${API}/speakers/${id}/photo`); toast('Photo removed'); refreshSpeakers(); }
   catch (err) { toast(err.message); }
 };
+
+// --- Congress-wide member Photo / Business Card uploads (Delegates, Host
+// Members, Volunteers) — same shared imgUploadInput mechanism as the
+// sponsor logo / speaker photo uploads above, just with 6 more "kinds"
+// (photo + business card, times 3 member types). Refresh functions are
+// referenced by name rather than called directly here since they're
+// function declarations defined later in this file — hoisted, so this is
+// safe (the listener only ever runs after the whole script has executed).
+const MEMBER_UPLOAD_KINDS = {
+  participant_photo: { endpoint: 'participants', field: 'photo', label: 'Photo', refresh: () => refreshParts() },
+  participant_card: { endpoint: 'participants', field: 'business-card', label: 'Business card', refresh: () => refreshParts() },
+  hostmember_photo: { endpoint: 'hostmembers', field: 'photo', label: 'Photo', refresh: () => refreshHostMembers() },
+  hostmember_card: { endpoint: 'hostmembers', field: 'business-card', label: 'Business card', refresh: () => refreshHostMembers() },
+  volunteer_photo: { endpoint: 'volunteers', field: 'photo', label: 'Photo', refresh: () => refreshVolunteers() },
+  volunteer_card: { endpoint: 'volunteers', field: 'business-card', label: 'Business card', refresh: () => refreshVolunteers() }
+};
+const MEMBER_UPLOAD_ENDPOINT = { participant: 'participants', host_member: 'hostmembers', volunteer: 'volunteers' };
+window.triggerMemberPhotoUpload = (memberType, id) => { imgUploadTarget = { kind: `${memberType === 'host_member' ? 'hostmember' : memberType}_photo`, id }; document.getElementById('imgUploadInput').click(); };
+window.triggerMemberCardUpload = (memberType, id) => { imgUploadTarget = { kind: `${memberType === 'host_member' ? 'hostmember' : memberType}_card`, id }; document.getElementById('imgUploadInput').click(); };
+window.removeMemberPhoto = async (memberType, id) => {
+  try {
+    await jdel(`${API}/${MEMBER_UPLOAD_ENDPOINT[memberType]}/${id}/photo`);
+    toast('Photo removed');
+    MEMBER_UPLOAD_KINDS[`${memberType === 'host_member' ? 'hostmember' : memberType}_photo`].refresh();
+  } catch (err) { toast(err.message); }
+};
+window.removeMemberCard = async (memberType, id) => {
+  try {
+    await jdel(`${API}/${MEMBER_UPLOAD_ENDPOINT[memberType]}/${id}/business-card`);
+    toast('Business card removed');
+    MEMBER_UPLOAD_KINDS[`${memberType === 'host_member' ? 'hostmember' : memberType}_card`].refresh();
+  } catch (err) { toast(err.message); }
+};
+
+// Renders the Photo/Card table cells shared by the Delegates, Host Members,
+// and Volunteers tables — a small thumbnail + Replace/Remove once a file is
+// on file, or just an Upload button when there's none yet.
+function photoCell(memberType, obj) {
+  const thumb = obj.photo_url
+    ? `<img src="${mediaUrl(obj.photo_url)}" alt="${obj.name} photo" style="width:36px;height:36px;object-fit:cover;border-radius:50%;border:1px solid var(--border,#ddd);cursor:zoom-in;" onclick="openImageLightbox(this.src)" />`
+    : '';
+  return `${thumb}<button type="button" class="btn small" onclick="triggerMemberPhotoUpload('${memberType}', ${obj.id})">${obj.photo_url ? 'Replace' : 'Upload'}</button>${obj.photo_url ? ` <button type="button" class="btn small" onclick="removeMemberPhoto('${memberType}', ${obj.id})">Remove</button>` : ''}`;
+}
+function cardCell(memberType, obj) {
+  const thumb = obj.business_card_url
+    ? `<img src="${mediaUrl(obj.business_card_url)}" alt="${obj.name} business card" style="width:48px;height:32px;object-fit:cover;border-radius:4px;border:1px solid var(--border,#ddd);cursor:zoom-in;" onclick="openImageLightbox(this.src)" />`
+    : '';
+  return `${thumb}<button type="button" class="btn small" onclick="triggerMemberCardUpload('${memberType}', ${obj.id})">${obj.business_card_url ? 'Replace' : 'Upload'}</button>${obj.business_card_url ? ` <button type="button" class="btn small" onclick="removeMemberCard('${memberType}', ${obj.id})">Remove</button>` : ''}`;
+}
 
 // --- Auth: login / signup / logout ---
 function showAuthGate() {
@@ -856,6 +910,9 @@ async function refreshParts(query) {
       <td>${p.pickup_by || '-'}${p.pickup_vehicle ? '<br><span class="hint">' + p.pickup_vehicle + '</span>' : ''}</td>
       <td>${spocDisplay(p)}</td>
       <td>${paymentPill(p.payment_status)}</td>
+      <td>${p.shirt_size ? 'Shirt: ' + p.shirt_size : ''}${p.shirt_size && p.tshirt_size ? '<br>' : ''}${p.tshirt_size ? 'Tee: ' + p.tshirt_size : ''}${!p.shirt_size && !p.tshirt_size ? '-' : ''}</td>
+      <td>${photoCell('participant', p)}</td>
+      <td>${cardCell('participant', p)}</td>
       <td>
         <button class="btn small" onclick="editPart(${p.id})">Update</button>
         <button class="btn small" onclick="openGoodiesModal('participant', ${p.id}, '${(p.name || '').replace(/'/g, "\\'")}')">Goodies</button>
@@ -863,7 +920,7 @@ async function refreshParts(query) {
         ${canDelete() ? `<button class="btn danger small" onclick="deletePart(${p.id})">Delete</button>` : ''}
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="10" class="empty">No delegates yet</td></tr>';
+  `).join('') || '<tr><td colspan="13" class="empty">No delegates yet</td></tr>';
 }
 window.deletePart = async (id) => { await jdel(`${API}/participants/${id}`); toast('Delegate deleted'); refreshParts(); };
 
@@ -871,7 +928,8 @@ const PART_FORM_FIELDS = [
   'name', 'phone', 'whatsapp', 'email', 'address', 'club_id', 'registration_id', 'designation', 'is_primary',
   'travel_mode', 'travel_number', 'travel_datetime', 'arrival_point',
   'departure_mode', 'departure_number', 'departure_datetime', 'departure_point',
-  'pickup_by', 'pickup_vehicle', 'pickup_phone', 'spoc_name', 'spoc_phone', 'notes'
+  'pickup_by', 'pickup_vehicle', 'pickup_phone', 'spoc_name', 'spoc_phone', 'notes',
+  'shirt_size', 'tshirt_size'
 ];
 
 // Core identity/registration fields — frozen for everyone except super_admin
@@ -1397,6 +1455,9 @@ async function refreshHostMembers(query) {
       <td>${h.leadership_role ? `<span class="pill paid">${h.leadership_role}</span>` : '-'}</td>
       <td style="white-space:normal;max-width:220px;" title="${committeeNames.join(', ')}">${committeesLabel}</td>
       <td><span class="pill ${h.payment_status}">${h.payment_status}</span> <span class="hint">₹${h.payment_amount}</span></td>
+      <td>${h.shirt_size ? 'Shirt: ' + h.shirt_size : ''}${h.shirt_size && h.tshirt_size ? '<br>' : ''}${h.tshirt_size ? 'Tee: ' + h.tshirt_size : ''}${!h.shirt_size && !h.tshirt_size ? '-' : ''}</td>
+      <td>${photoCell('host_member', h)}</td>
+      <td>${cardCell('host_member', h)}</td>
       <td>${h.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createHostLogin(${h.id}, '${(h.name || '').replace(/'/g, '')}')">Create login</button>`}</td>
       <td class="sticky-actions">
         <button class="btn small" onclick="editHm(${h.id})">Update</button>
@@ -1407,7 +1468,7 @@ async function refreshHostMembers(query) {
       </td>
     </tr>
   `;
-  }).join('') || '<tr><td colspan="8" class="empty">No host members yet</td></tr>';
+  }).join('') || '<tr><td colspan="11" class="empty">No host members yet</td></tr>';
 
   // Keep every other tab's host-member dropdowns in sync with the latest list.
   const opts = rows.map((h) => `<option value="${h.id}">${h.name}${h.company ? ' (' + h.company + ')' : ''}</option>`).join('');
@@ -1430,7 +1491,7 @@ window.createHostLogin = async (id, name) => {
   } catch (err) { toast(err.message); }
 };
 
-const HM_FORM_FIELDS = ['name', 'phone', 'email', 'company', 'designation', 'category', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date', 'notes', 'leadership_role'];
+const HM_FORM_FIELDS = ['name', 'phone', 'email', 'company', 'designation', 'category', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date', 'notes', 'leadership_role', 'shirt_size', 'tshirt_size'];
 window.editHm = async (id) => {
   const h = await jget(`${API}/hostmembers/${id}`);
   const form = document.getElementById('hmForm');
@@ -1818,6 +1879,9 @@ async function refreshVolunteers() {
       <td class="sticky-col">${v.name}${v.organization ? ' <span class="hint">(' + v.organization + ')</span>' : ''}</td>
       <td>${v.phone || '-'}</td>
       <td>${v.organization || '-'}</td>
+      <td>${v.shirt_size ? 'Shirt: ' + v.shirt_size : ''}${v.shirt_size && v.tshirt_size ? '<br>' : ''}${v.tshirt_size ? 'Tee: ' + v.tshirt_size : ''}${!v.shirt_size && !v.tshirt_size ? '-' : ''}</td>
+      <td>${photoCell('volunteer', v)}</td>
+      <td>${cardCell('volunteer', v)}</td>
       <td>${v.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createVolunteerLogin(${v.id}, '${(v.name || '').replace(/'/g, '')}')">Create login</button>`}</td>
       <td class="sticky-actions">
         <button class="btn small" onclick="toggleVolunteerModules(${v.id})">Modules (${(v.module_access || []).length})</button>
@@ -1825,8 +1889,8 @@ async function refreshVolunteers() {
         ${canDelete() ? `<button class="btn danger small" onclick="deleteVol(${v.id})">Delete</button>` : ''}
       </td>
     </tr>
-    <tr id="volModulesRow-${v.id}" style="display:none;"><td colspan="5"><div id="volModulesPanel-${v.id}"></div></td></tr>
-  `).join('') || '<tr><td colspan="5" class="empty">No volunteers yet</td></tr>';
+    <tr id="volModulesRow-${v.id}" style="display:none;"><td colspan="8"><div id="volModulesPanel-${v.id}"></div></td></tr>
+  `).join('') || '<tr><td colspan="8" class="empty">No volunteers yet</td></tr>';
 
   const opts = rows.map((v) => `<option value="${v.id}">${v.name}${v.organization ? ' (' + v.organization + ')' : ''}</option>`).join('');
   const createUserVolunteerSelect = document.getElementById('createUserVolunteerSelect');
@@ -1853,7 +1917,7 @@ window.createVolunteerLogin = async (id, name) => {
   } catch (err) { toast(err.message); }
 };
 
-const VOL_FORM_FIELDS = ['name', 'phone', 'email', 'organization', 'notes'];
+const VOL_FORM_FIELDS = ['name', 'phone', 'email', 'organization', 'notes', 'shirt_size', 'tshirt_size'];
 window.editVol = async (id) => {
   const v = await jget(`${API}/volunteers/${id}`);
   const form = document.getElementById('volForm');

@@ -563,6 +563,61 @@ function renderHostProfile(p) {
     <p class="hint" style="margin:2px 0 0;">${[p.company, p.category].filter(Boolean).join(' · ') || '-'}</p>
     <p class="hint" style="margin:2px 0 0;">${[p.phone, p.email].filter(Boolean).join(' · ') || '-'}</p>
   `;
+  const sizesForm = document.getElementById('hostSizesForm');
+  if (sizesForm) {
+    if (sizesForm.elements.shirt_size) sizesForm.elements.shirt_size.value = p.shirt_size || '';
+    if (sizesForm.elements.tshirt_size) sizesForm.elements.tshirt_size.value = p.tshirt_size || '';
+  }
+  renderHostMediaPreview('hostPhotoPreview', p.photo_url, 'photo');
+  renderHostMediaPreview('hostCardPreview', p.business_card_url, 'business card');
+}
+
+function renderHostMediaPreview(wrapId, url, label) {
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  wrap.innerHTML = url
+    ? `<img src="${mediaUrl(url)}" alt="Your ${label}" style="max-width:100%;max-height:200px;border-radius:8px;border:1px solid var(--border,#ddd);display:block;" />`
+    : `<p class="hint" style="margin:0;">No ${label} on file yet.</p>`;
+}
+
+const hostSizesFormEl = document.getElementById('hostSizesForm');
+if (hostSizesFormEl) {
+  hostSizesFormEl.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target).entries());
+    try {
+      await jput(`${API}/host/me/sizes`, body);
+      toast('Sizes saved');
+    } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+  });
+}
+const hostPhotoUploadBtn = document.getElementById('hostPhotoUploadBtn');
+if (hostPhotoUploadBtn) {
+  hostPhotoUploadBtn.addEventListener('click', () => document.getElementById('hostPhotoInput').click());
+  document.getElementById('hostPhotoInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const data = await uploadFileBlob(`${API}/host/me/photo`, file);
+      toast('Photo uploaded');
+      renderHostMediaPreview('hostPhotoPreview', data.photo_url, 'photo');
+    } catch (err) { toast(err.message); }
+  });
+}
+const hostCardUploadBtn = document.getElementById('hostCardUploadBtn');
+if (hostCardUploadBtn) {
+  hostCardUploadBtn.addEventListener('click', () => document.getElementById('hostCardInput').click());
+  document.getElementById('hostCardInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const data = await uploadFileBlob(`${API}/host/me/business-card`, file);
+      toast('Business card uploaded');
+      renderHostMediaPreview('hostCardPreview', data.business_card_url, 'business card');
+    } catch (err) { toast(err.message); }
+  });
 }
 
 function renderHostPayment(p) {
