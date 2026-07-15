@@ -527,7 +527,7 @@ async function tryResumeSession() {
 // ================= STATS DASHBOARD (merged in from the old dashboard.html —=
 // it used to be a separate page with its own admin login; now it's just the
 // first sidebar tab, reusing this same admin session). =====================
-let clubChart, stateChart;
+let clubChart, stateChart, merchShirtChart, merchTeeChart;
 let dashboardStarted = false;
 
 function renderOverview(s) {
@@ -3226,23 +3226,33 @@ function pdfKeyValues(doc, y, pairs) {
   return y + 8;
 }
 // Styled table: navy header with white text, zebra-striped body rows, thin
-// borders — re-draws the header after each page break.
+// borders — re-draws the header after each page break. Row height is
+// computed per-row from the actual wrapped line count of each cell (via
+// jsPDF's splitTextToSize), so long company names / multi-item lists like
+// Committees wrap onto extra lines within their own row instead of
+// overflowing into — and visually overlapping — the row below.
 function pdfTable(doc, y, columns, rows) {
   const startX = PDF_MARGIN;
   const xs = [];
   let x = startX;
   columns.forEach((c) => { xs.push(x); x += c.width; });
   const tableRight = xs[xs.length - 1] + columns[columns.length - 1].width;
-  const rowHeight = 17;
+  const headerRowHeight = 17;
+  const lineHeight = 10.5; // vertical spacing between wrapped lines within a cell
+  const minRowHeight = 17; // same as the old fixed height, for single-line rows
+  const rowBottomPad = 6;  // breathing room below the last line before the next row
   function drawHeader() {
     pdfSetColor(doc, 'setFillColor', PDF_BRAND.navy);
-    doc.rect(startX, y - 11, tableRight - startX, rowHeight, 'F');
+    doc.rect(startX, y - 11, tableRight - startX, headerRowHeight, 'F');
     doc.setTextColor(255, 255, 255);
     doc.setFont(undefined, 'bold'); doc.setFontSize(8.5);
     columns.forEach((c, i) => doc.text(c.label, xs[i] + 4, y + 1, c.align === 'right' ? { align: 'right', maxWidth: 0 } : {}));
     doc.setTextColor(0, 0, 0);
-    y += rowHeight;
+    y += headerRowHeight;
     doc.setFont(undefined, 'normal'); doc.setFontSize(8.8);
+  }
+  function cellWidth(i) {
+    return i < columns.length - 1 ? (xs[i + 1] - xs[i] - 8) : (tableRight - xs[i] - 4);
   }
   y = pdfMaybeNewPage(doc, y, 34);
   drawHeader();
@@ -3250,19 +3260,30 @@ function pdfTable(doc, y, columns, rows) {
     pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
     doc.text('None', startX + 4, y + 2);
     doc.setTextColor(0, 0, 0);
-    return y + rowHeight;
+    return y + headerRowHeight;
   }
   rows.forEach((row, ri) => {
+    // Wrap every cell's text to its column width first, so we know how many
+    // lines the tallest cell in this row needs before drawing anything.
+    const cellLines = row.map((cell, i) => {
+      const text = String(cell === null || cell === undefined || cell === '' ? '-' : cell);
+      return doc.splitTextToSize(text, cellWidth(i));
+    });
+    const maxLines = Math.max(1, ...cellLines.map((lines) => lines.length));
+    const rowHeight = Math.max(minRowHeight, maxLines * lineHeight + rowBottomPad);
+
     if (y + rowHeight > PDF_CONTENT_BOTTOM) { doc.addPage(); y = 44; drawHeader(); }
     if (ri % 2 === 1) {
       pdfSetColor(doc, 'setFillColor', PDF_BRAND.rowTint);
       doc.rect(startX, y - 11, tableRight - startX, rowHeight, 'F');
     }
     row.forEach((cell, i) => {
-      const w = i < columns.length - 1 ? (xs[i + 1] - xs[i] - 8) : (tableRight - xs[i] - 4);
-      const text = String(cell === null || cell === undefined || cell === '' ? '-' : cell);
-      if (columns[i].align === 'right') doc.text(text, xs[i] + w, y + 1, { align: 'right', maxWidth: w });
-      else doc.text(text, xs[i] + 4, y + 1, { maxWidth: w });
+      const w = cellWidth(i);
+      cellLines[i].forEach((line, li) => {
+        const ly = y + 1 + li * lineHeight;
+        if (columns[i].align === 'right') doc.text(line, xs[i] + w, ly, { align: 'right', maxWidth: w });
+        else doc.text(line, xs[i] + 4, ly, { maxWidth: w });
+      });
     });
     y += rowHeight;
   });
@@ -3559,12 +3580,14 @@ window.downloadDelegatesListPdf = async () => {
   try {
     const rows = await jget(`${API}/participants`);
     await downloadListReportPdf('Delegates Directory', `${rows.length} delegate(s)`, [
-      { label: 'Reg ID', width: 65, get: (r) => r.participant_code },
-      { label: 'Name', width: 130, get: (r) => r.name },
-      { label: 'Club', width: 110, get: (r) => r.club_name },
-      { label: 'Reg #', width: 75, get: (r) => r.reg_number },
-      { label: 'Phone', width: 80, get: (r) => r.phone },
-      { label: 'Payment', width: 55, get: (r) => r.payment_status },
+      { label: 'Reg ID', width: 60, get: (r) => r.participant_code },
+      { label: 'Name', width: 115, get: (r) => r.name },
+      { label: 'Club', width: 95, get: (r) => r.club_name },
+      { label: 'Reg #', width: 65, get: (r) => r.reg_number },
+      { label: 'Phone', width: 70, get: (r) => r.phone },
+      { label: 'Shirt', width: 35, get: (r) => r.shirt_size },
+      { label: 'Tee', width: 35, get: (r) => r.tshirt_size },
+      { label: 'Payment', width: 40, get: (r) => r.payment_status },
     ], rows, 'delegates-directory.pdf');
   } catch (err) { toast(err.message); }
 };
@@ -3594,10 +3617,12 @@ window.downloadHostMembersListPdf = async () => {
   try {
     const rows = await jget(`${API}/hostmembers`);
     await downloadListReportPdf('Host Members Directory', `${rows.length} host member(s)`, [
-      { label: 'Name', width: 150, get: (r) => r.name },
-      { label: 'Company', width: 130, get: (r) => r.company },
-      { label: 'Phone', width: 90, get: (r) => r.phone },
-      { label: 'Committees', width: 90, get: (r) => (r.committees || []).map((c) => c.name).join(', ') },
+      { label: 'Name', width: 125, get: (r) => r.name },
+      { label: 'Company', width: 110, get: (r) => r.company },
+      { label: 'Phone', width: 70, get: (r) => r.phone },
+      { label: 'Committees', width: 85, get: (r) => (r.committees || []).map((c) => c.name).join(', ') },
+      { label: 'Shirt', width: 35, get: (r) => r.shirt_size },
+      { label: 'Tee', width: 35, get: (r) => r.tshirt_size },
       { label: 'Payment', width: 55, get: (r) => r.payment_status },
     ], rows, 'host-members-directory.pdf');
   } catch (err) { toast(err.message); }
@@ -4793,6 +4818,166 @@ window.deleteInventoryItem = async (id) => {
   refreshInventoryMonitor();
 };
 
+// --- Merchandise Requirement charts: accumulated Shirt/Tee size counts, ---
+// --- Delegates vs Host Members, from GET /inventory/merchandise-requirement ---
+function mergeMerchSizeSeries(delegateBreakdown, hostBreakdown) {
+  const order = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+  const sizes = Array.from(new Set([...delegateBreakdown.map((s) => s.size), ...hostBreakdown.map((s) => s.size)]));
+  sizes.sort((a, b) => {
+    const ia = order.indexOf(a), ib = order.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+  const delMap = Object.fromEntries(delegateBreakdown.map((s) => [s.size, s.count]));
+  const hostMap = Object.fromEntries(hostBreakdown.map((s) => [s.size, s.count]));
+  return { labels: sizes, delegates: sizes.map((s) => delMap[s] || 0), hostMembers: sizes.map((s) => hostMap[s] || 0) };
+}
+function renderMerchChart(canvasId, existingChart, series, title) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return existingChart;
+  if (existingChart) existingChart.destroy();
+  return new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: series.labels,
+      datasets: [
+        { label: 'Delegates', data: series.delegates, backgroundColor: '#314691', borderRadius: 3 },
+        { label: 'Host Members', data: series.hostMembers, backgroundColor: '#65A8DE', borderRadius: 3 }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 } } },
+        title: { display: true, text: title, font: { size: 12 } }
+      },
+      scales: { y: { ticks: { precision: 0 } } }
+    }
+  });
+}
+async function refreshMerchandiseRequirement() {
+  try {
+    const data = await jget(`${API}/inventory/merchandise-requirement`);
+    merchShirtChart = renderMerchChart('merchShirtChart', merchShirtChart, mergeMerchSizeSeries(data.delegates.shirt, data.hostMembers.shirt), 'Shirt sizes');
+    merchTeeChart = renderMerchChart('merchTeeChart', merchTeeChart, mergeMerchSizeSeries(data.delegates.tshirt, data.hostMembers.tshirt), 'T-shirt sizes');
+    const hint = document.getElementById('merchSizesOnFileHint');
+    if (hint) {
+      hint.textContent = `${data.delegates.sizesOnFile} of ${data.delegates.total} delegate(s) and ${data.hostMembers.sizesOnFile} of ${data.hostMembers.total} host member(s) have sizes on file.`;
+    }
+  } catch (e) { /* chart is supplementary — fail quietly */ }
+}
+window.syncMerchandiseRequirements = async () => {
+  try {
+    const r = await jpost(`${API}/inventory/requirements/sync-merchandise`, {});
+    toast(`Synced (${r.created} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} already actioned — left as-is` : ''}).`);
+    refreshMerchandiseRequirement();
+    refreshRequirements();
+  } catch (err) { toast(err.message); }
+};
+
+// --- Requirements: needs raised for procurement (manual, or auto-synced ---
+// --- from the Merchandise sizes above) that the Purchase team turns into ---
+// --- a real Finance Purchase Request. ---
+const REQUIREMENT_STATUS_LABELS = { open: 'Open', requested: 'Requested', fulfilled: 'Fulfilled', cancelled: 'Cancelled' };
+async function refreshRequirements() {
+  try {
+    const rows = await jget(`${API}/inventory/requirements`);
+    renderRequirements(rows);
+  } catch (e) { /* fail quietly — supplementary panel */ }
+}
+function renderRequirements(rows) {
+  const body = document.getElementById('requirementsTableBody');
+  if (!body) return;
+  body.innerHTML = rows.map((r) => `
+    <tr>
+      <td>${r.item_name}</td>
+      <td>${r.category}</td>
+      <td>${r.size || '-'}</td>
+      <td>${r.quantity_needed} ${r.unit || ''}</td>
+      <td>${r.source === 'auto-merchandise' ? 'Merchandise sizes' : 'Manual'}</td>
+      <td><span class="pill single">${REQUIREMENT_STATUS_LABELS[r.status] || r.status}</span></td>
+      <td>${r.purchase_request_id ? `PR #${r.purchase_request_id} (${r.purchase_request_status || '-'})` : '-'}</td>
+      <td>
+        ${r.status === 'open' ? `<button class="btn small" onclick="openRequirementPrModal(${r.id})">Raise Purchase Request</button>` : ''}
+        ${r.status === 'open' ? ` <button class="btn small outline" onclick="cancelRequirement(${r.id})">Cancel</button>` : ''}
+        ${canDelete() ? ` <button class="btn danger small" onclick="deleteRequirement(${r.id})">Delete</button>` : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="8" class="empty">No requirements raised yet.</td></tr>';
+}
+document.getElementById('requirementForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const body = Object.fromEntries(new FormData(form).entries());
+  try {
+    await jpost(`${API}/inventory/requirements`, body);
+    toast('Requirement raised');
+    form.reset();
+    if (form.elements['category']) form.elements['category'].value = 'General';
+    refreshRequirements();
+  } catch (err) { toast(err.message); }
+});
+window.cancelRequirement = async (id) => {
+  if (!confirm('Cancel this requirement?')) return;
+  try {
+    await jput(`${API}/inventory/requirements/${id}`, { status: 'cancelled' });
+    toast('Requirement cancelled');
+    refreshRequirements();
+  } catch (err) { toast(err.message); }
+};
+window.deleteRequirement = async (id) => {
+  if (!confirm('Delete this requirement? This cannot be undone.')) return;
+  await jdel(`${API}/inventory/requirements/${id}`);
+  toast('Requirement removed');
+  refreshRequirements();
+};
+
+// Small modal to collect the few extra details (unit cost, vendor, expected
+// delivery) needed to raise a real Finance Purchase Request from a
+// requirement — same shape as finance.js's POST /purchases, just pre-filled
+// from the requirement server-side so nothing has to be re-typed here.
+let requirementPrCtx = { id: null };
+window.openRequirementPrModal = async (id) => {
+  requirementPrCtx = { id };
+  let vendors = [];
+  try { vendors = await jget(`${API}/inventory/vendors-lite`); } catch (e) { vendors = []; }
+  const vendorOptions = vendors.map((v) => `<option value="${v.id}">${v.name}${v.category ? ` (${v.category})` : ''}</option>`).join('');
+  document.getElementById('requirementPrModalBody').innerHTML = `
+    <form onsubmit="return submitRequirementPr(event)">
+      <div class="form-grid cols-2">
+        <div class="field"><label>Vendor (from master)</label><select name="vendor_id"><option value="">-- none / one-off --</option>${vendorOptions}</select></div>
+        <div class="field"><label>Payee / vendor name (one-off, optional)</label><input name="payee_or_payer" placeholder="Only if not in the vendor master" /></div>
+      </div>
+      <div class="form-grid cols-2">
+        <div class="field"><label>Unit cost (₹) *</label><input name="purchase_unit_cost" type="number" min="0" step="0.01" required /></div>
+        <div class="field"><label>Expected delivery date</label><input name="expected_delivery_date" type="date" /></div>
+      </div>
+      <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+      <button class="btn gold" type="submit">Raise Purchase Request</button>
+    </form>
+  `;
+  document.getElementById('requirementPrModal').style.display = '';
+};
+window.closeRequirementPrModal = () => {
+  document.getElementById('requirementPrModal').style.display = 'none';
+  requirementPrCtx = { id: null };
+};
+window.submitRequirementPr = async (e) => {
+  e.preventDefault();
+  const { id } = requirementPrCtx;
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  try {
+    await jpost(`${API}/inventory/requirements/${id}/raise-purchase-request`, body);
+    toast('Purchase Request raised — now waiting on approval in Finance.');
+    closeRequirementPrModal();
+    refreshRequirements();
+  } catch (err) { toast(err.message); }
+  return false;
+};
+
 // --- Manage one item's deliveries: bulk-assign, individual add, per-row status ---
 let inventoryDistCtx = { itemId: null, itemName: '' };
 
@@ -5904,6 +6089,8 @@ function loadAllData() {
   refreshVendorProductPicker();
   refreshInventoryItems();
   refreshInventoryMonitor();
+  refreshMerchandiseRequirement();
+  refreshRequirements();
   refreshSponsors();
   refreshSpeakers();
   refreshGuestVisitors();
