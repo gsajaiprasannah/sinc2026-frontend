@@ -1401,6 +1401,47 @@
   <!-- GOODIES & INVENTORY: procurement stock list + per-recipient delivery tracking -->
   <section class="tab-panel" id="tab-inventory">
     <p class="hint" style="margin-top:0;">Track goodies and other physical items from procurement through to delivery — how many are in stock, which committee owns getting them out, who's assigned to deliver each one, and who actually delivered it.</p>
+
+    <!-- Merchandise Requirement: accumulated Shirt/Tee size counts from -->
+    <!-- Delegate/Host Member self-fill data, Delegates vs Host Members. -->
+    <div class="card">
+      <div class="section-title" style="margin-top:0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <span>Merchandise Requirement Chart</span>
+        <button type="button" class="btn small outline" onclick="syncMerchandiseRequirements()">Sync into Requirements</button>
+      </div>
+      <p class="hint" style="margin-top:0;">Accumulated Shirt &amp; T-shirt size counts from everyone who's filled in their size, Delegates and Host Members tracked separately. "Sync into Requirements" writes these counts into the Requirements list below so the Purchase team can act on them.</p>
+      <div class="form-grid cols-2">
+        <div class="chart-scroll" style="height:220px;"><canvas id="merchShirtChart"></canvas></div>
+        <div class="chart-scroll" style="height:220px;"><canvas id="merchTeeChart"></canvas></div>
+      </div>
+      <p class="hint" id="merchSizesOnFileHint" style="margin-bottom:0;"></p>
+    </div>
+
+    <!-- Requirements: needs raised for procurement (manual, or synced from -->
+    <!-- the Merchandise sizes above) — the Purchase team reviews these and -->
+    <!-- raises a real Finance Purchase Request from whichever ones they're -->
+    <!-- ready to action. -->
+    <div class="card">
+      <div class="section-title" style="margin-top:0;">Requirements</div>
+      <p class="hint" style="margin-top:0;">Anything needed for the congress — merchandise sizes, or any other goodie/inventory item — raised here so the Purchase team can review and turn it into a Purchase Request.</p>
+      <form id="requirementForm">
+        <div class="form-grid cols-4">
+          <div class="field"><label>Item *</label><input name="item_name" required placeholder="e.g. Delegate Bag" /></div>
+          <div class="field"><label>Category</label><input name="category" value="General" /></div>
+          <div class="field"><label>Size (optional)</label><input name="size" placeholder="e.g. M" /></div>
+          <div class="field"><label>Quantity needed *</label><input name="quantity_needed" type="number" min="1" required /></div>
+        </div>
+        <div class="field"><label>Notes</label><input name="notes" placeholder="optional" /></div>
+        <button class="btn gold small" type="submit">Raise requirement</button>
+      </form>
+      <div class="table-scroll" style="margin-top:12px;">
+        <table>
+          <thead><tr><th>Item</th><th>Category</th><th>Size</th><th>Qty needed</th><th>Source</th><th>Status</th><th>Purchase Request</th><th></th></tr></thead>
+          <tbody id="requirementsTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="card">
       <div class="section-title" style="margin-top:0" id="inventoryFormTitle">Add inventory item</div>
       <form id="inventoryForm">
@@ -2217,6 +2258,18 @@
       <button type="button" class="modal-close" onclick="closeInventoryDistModal()">&times;</button>
     </div>
     <div id="inventoryDistModalBody"></div>
+  </div>
+</div>
+
+<!-- Collects unit cost / vendor / expected delivery to turn one open -->
+<!-- Requirement into a real Finance Purchase Request. -->
+<div class="modal-overlay" id="requirementPrModal" style="display:none;" onclick="if(event.target===this) closeRequirementPrModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="section-title" style="margin:0;">Raise Purchase Request</div>
+      <button type="button" class="modal-close" onclick="closeRequirementPrModal()">&times;</button>
+    </div>
+    <div id="requirementPrModalBody"></div>
   </div>
 </div>
 
