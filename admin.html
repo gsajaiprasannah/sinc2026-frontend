@@ -359,6 +359,17 @@
         </div>
         <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
 
+        <div class="section-title" style="font-size:12px;margin:16px 0 8px;">Merchandise &amp; profile</div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Shirt size</label>
+            <select name="shirt_size"><option value="">-- none --</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option><option>XXXL</option></select>
+          </div>
+          <div class="field"><label>T-Shirt size</label>
+            <select name="tshirt_size"><option value="">-- none --</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option><option>XXXL</option></select>
+          </div>
+        </div>
+        <p class="hint">Photo &amp; Business Card are uploaded per-delegate from the table below, once the delegate is saved.</p>
+
         <button class="btn gold" type="submit" id="partSubmitBtn">Save Delegate</button>
         <button type="button" class="btn outline" id="partCancelEditBtn" style="display:none;">Cancel edit</button>
       </form>
@@ -392,7 +403,7 @@
     </div>
     <div class="card table-scroll">
       <table>
-        <thead><tr><th>Registration ID</th><th>Name</th><th>Club</th><th>Reg #</th><th>Phone</th><th>Travel In</th><th>Pickup</th><th>SPOC</th><th>Payment</th><th></th></tr></thead>
+        <thead><tr><th>Registration ID</th><th>Name</th><th>Club</th><th>Reg #</th><th>Phone</th><th>Travel In</th><th>Pickup</th><th>SPOC</th><th>Payment</th><th>Sizes</th><th>Photo</th><th>Card</th><th></th></tr></thead>
         <tbody id="partsTableBody"></tbody>
       </table>
     </div>
@@ -603,6 +614,18 @@
           <div class="field"><label>Payment date</label><input name="payment_date" type="date" /></div>
         </div>
         <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+
+        <div class="section-title" style="font-size:12px;margin:16px 0 8px;">Merchandise &amp; profile</div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Shirt size</label>
+            <select name="shirt_size"><option value="">-- none --</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option><option>XXXL</option></select>
+          </div>
+          <div class="field"><label>T-Shirt size</label>
+            <select name="tshirt_size"><option value="">-- none --</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option><option>XXXL</option></select>
+          </div>
+        </div>
+        <p class="hint">Photo &amp; Business Card are uploaded per-person from the table below, once saved.</p>
+
         <button class="btn gold" type="submit" id="hmSubmitBtn">Save Host Member</button>
         <button type="button" class="btn outline" id="hmCancelEditBtn" style="display:none;">Cancel edit</button>
       </form>
@@ -624,7 +647,7 @@
     <div class="field"><input id="hmSearch" placeholder="Search by name, phone, or company..." /></div>
     <div class="card table-scroll">
       <table>
-        <thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Leadership Role</th><th>Committees</th><th>Payment</th><th>Login</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Leadership Role</th><th>Committees</th><th>Payment</th><th>Sizes</th><th>Photo</th><th>Card</th><th>Login</th><th></th></tr></thead>
         <tbody id="hmTableBody"></tbody>
       </table>
     </div>
@@ -695,6 +718,18 @@
           <div class="field"><label>Organization</label><input name="organization" placeholder="Company / freelance / referred by..." /></div>
         </div>
         <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
+
+        <div class="section-title" style="font-size:12px;margin:16px 0 8px;">Merchandise &amp; profile</div>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Shirt size</label>
+            <select name="shirt_size"><option value="">-- none --</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option><option>XXXL</option></select>
+          </div>
+          <div class="field"><label>T-Shirt size</label>
+            <select name="tshirt_size"><option value="">-- none --</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option><option>XXXL</option></select>
+          </div>
+        </div>
+        <p class="hint">Photo &amp; Business Card are uploaded per-person from the table below, once saved.</p>
+
         <button class="btn gold" type="submit" id="volSubmitBtn">Save Volunteer</button>
         <button type="button" class="btn outline" id="volCancelEditBtn" style="display:none;">Cancel edit</button>
       </form>
@@ -703,7 +738,7 @@
     <div class="section-title">All volunteers</div>
     <div class="card table-scroll">
       <table>
-        <thead><tr><th>Name</th><th>Phone</th><th>Organization</th><th>Login</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Phone</th><th>Organization</th><th>Sizes</th><th>Photo</th><th>Card</th><th>Login</th><th></th></tr></thead>
         <tbody id="volTableBody"></tbody>
       </table>
     </div>
