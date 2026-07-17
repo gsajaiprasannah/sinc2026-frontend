@@ -1415,6 +1415,17 @@
         <div class="chart-scroll" style="height:220px;"><canvas id="merchTeeChart"></canvas></div>
       </div>
       <p class="hint" id="merchSizesOnFileHint" style="margin-bottom:0;"></p>
+
+      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Who chose what size</span>
+        <button type="button" class="btn small" onclick="downloadMerchSizeListPdf()">Download PDF</button>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Club / Company</th><th>Phone</th><th>Shirt</th><th>Tee</th></tr></thead>
+          <tbody id="merchSizeListTableBody"></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Requirements: needs raised for procurement (manual, or synced from -->
