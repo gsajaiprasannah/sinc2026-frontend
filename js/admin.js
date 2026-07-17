@@ -348,6 +348,42 @@ function cardCell(memberType, obj) {
   return `${thumb}<button type="button" class="btn small" onclick="triggerMemberCardUpload('${memberType}', ${obj.id})">${obj.business_card_url ? 'Replace' : 'Upload'}</button>${obj.business_card_url ? ` <button type="button" class="btn small" onclick="removeMemberCard('${memberType}', ${obj.id})">Remove</button>` : ''}`;
 }
 
+// Shared Shirt/Tee/Waist summary shown on the Delegates, Host Members, and
+// Volunteers cards — one place so all three stay in sync (previously each
+// table rebuilt this string inline and two of the three had drifted out of
+// sync with the Waist size field once it was added).
+function sizesLabel(obj) {
+  const parts = [];
+  if (obj.shirt_size) parts.push('Shirt: ' + obj.shirt_size);
+  if (obj.tshirt_size) parts.push('Tee: ' + obj.tshirt_size);
+  if (obj.waist_size) parts.push('Waist: ' + obj.waist_size);
+  return parts.length ? parts.join('<br>') : '-';
+}
+
+// Builds one card for the Delegates/Host Members/Volunteers "record card
+// list" layout (see .record-card-list in styles.css). Replaces the old
+// wide-table row so nothing ever needs horizontal scrolling to reach the
+// action buttons. `headerLeftHtml`/`headerRightHtml` sit side-by-side atop
+// the card; `fields` is an array of {label, value} pairs (falsy values are
+// skipped so blank fields don't leave an empty gap); `actionsHtml` is a
+// pre-built string of one or more <button> tags.
+function renderRecordCard(headerLeftHtml, headerRightHtml, fields, actionsHtml) {
+  const fieldsHtml = fields
+    .filter((f) => f && f.value !== undefined && f.value !== null && f.value !== '')
+    .map((f) => `<div class="record-card-field"><label>${f.label}</label><div class="value">${f.value}</div></div>`)
+    .join('');
+  return `
+    <div class="record-card">
+      <div class="record-card-header">
+        <div class="record-card-name">${headerLeftHtml}</div>
+        ${headerRightHtml ? `<div class="record-card-header-right">${headerRightHtml}</div>` : ''}
+      </div>
+      <div class="record-card-fields">${fieldsHtml}</div>
+      <div class="record-card-actions">${actionsHtml}</div>
+    </div>
+  `;
+}
+
 // --- Auth: login / signup / logout ---
 function showAuthGate() {
   document.getElementById('authGate').style.display = 'block';
@@ -899,28 +935,28 @@ async function refreshParts(query) {
   let rows = await jget(url);
   const sortSelect = document.getElementById('partSortSelect');
   rows = sortParts(rows, sortSelect ? sortSelect.value : '');
-  document.getElementById('partsTableBody').innerHTML = rows.map((p) => `
-    <tr>
-      <td><strong>${p.participant_code || '-'}</strong></td>
-      <td>${p.name}${p.designation ? ' <span class="hint">(' + p.designation + ')</span>' : ''}</td>
-      <td>${p.club_name || '-'}</td>
-      <td>${p.reg_number || '-'}</td>
-      <td>${p.phone || '-'}</td>
-      <td>${p.travel_mode ? p.travel_mode + ' ' + (p.travel_number || '') + '<br><span class="hint">' + (p.travel_datetime || '') + '</span>' : '-'}</td>
-      <td>${p.pickup_by || '-'}${p.pickup_vehicle ? '<br><span class="hint">' + p.pickup_vehicle + '</span>' : ''}</td>
-      <td>${spocDisplay(p)}</td>
-      <td>${paymentPill(p.payment_status)}</td>
-      <td>${p.shirt_size ? 'Shirt: ' + p.shirt_size : ''}${p.shirt_size && p.tshirt_size ? '<br>' : ''}${p.tshirt_size ? 'Tee: ' + p.tshirt_size : ''}${!p.shirt_size && !p.tshirt_size ? '-' : ''}</td>
-      <td>${photoCell('participant', p)}</td>
-      <td>${cardCell('participant', p)}</td>
-      <td>
-        <button class="btn small" onclick="editPart(${p.id})">Update</button>
-        <button class="btn small" onclick="openGoodiesModal('participant', ${p.id}, '${(p.name || '').replace(/'/g, "\\'")}')">Goodies</button>
-        <button class="btn small" onclick="downloadDelegateDetailPdf(${p.id})">PDF</button>
-        ${canDelete() ? `<button class="btn danger small" onclick="deletePart(${p.id})">Delete</button>` : ''}
-      </td>
-    </tr>
-  `).join('') || '<tr><td colspan="13" class="empty">No delegates yet</td></tr>';
+  document.getElementById('partsTableBody').innerHTML = rows.map((p) => {
+    const header = `${p.name}${p.designation ? ' <span class="hint">(' + p.designation + ')</span>' : ''}`;
+    const fields = [
+      { label: 'Registration ID', value: `<strong>${p.participant_code || '-'}</strong>` },
+      { label: 'Reg #', value: p.reg_number || '-' },
+      { label: 'Phone', value: p.phone || '-' },
+      { label: 'Travel In', value: p.travel_mode ? p.travel_mode + ' ' + (p.travel_number || '') + '<br><span class="hint">' + (p.travel_datetime || '') + '</span>' : '-' },
+      { label: 'Pickup', value: (p.pickup_by || '-') + (p.pickup_vehicle ? '<br><span class="hint">' + p.pickup_vehicle + '</span>' : '') },
+      { label: 'SPOC', value: spocDisplay(p) },
+      { label: 'Payment', value: paymentPill(p.payment_status) },
+      { label: 'Sizes', value: sizesLabel(p) },
+      { label: 'Photo', value: photoCell('participant', p) },
+      { label: 'Card', value: cardCell('participant', p) },
+    ];
+    const actions = `
+      <button class="btn small" onclick="editPart(${p.id})">Update</button>
+      <button class="btn small" onclick="openGoodiesModal('participant', ${p.id}, '${(p.name || '').replace(/'/g, "\\'")}')">Goodies</button>
+      <button class="btn small" onclick="downloadDelegateDetailPdf(${p.id})">PDF</button>
+      ${canDelete() ? `<button class="btn danger small" onclick="deletePart(${p.id})">Delete</button>` : ''}
+    `;
+    return renderRecordCard(header, p.club_name || '-', fields, actions);
+  }).join('') || '<p class="empty">No delegates yet</p>';
 }
 window.deletePart = async (id) => { await jdel(`${API}/participants/${id}`); toast('Delegate deleted'); refreshParts(); };
 
@@ -1447,28 +1483,26 @@ async function refreshHostMembers(query) {
     const committeesLabel = committeeNames.length > 2
       ? committeeNames.slice(0, 2).join(', ') + ` +${committeeNames.length - 2} more`
       : (committeeNames.join(', ') || '-');
-    return `
-    <tr>
-      <td class="sticky-col">${h.name}${h.designation ? ' <span class="hint">(' + h.designation + ')</span>' : ''}</td>
-      <td>${h.company || '-'}</td>
-      <td>${h.phone || '-'}</td>
-      <td>${h.leadership_role ? `<span class="pill paid">${h.leadership_role}</span>` : '-'}</td>
-      <td style="white-space:normal;max-width:220px;" title="${committeeNames.join(', ')}">${committeesLabel}</td>
-      <td><span class="pill ${h.payment_status}">${h.payment_status}</span> <span class="hint">₹${h.payment_amount}</span></td>
-      <td>${h.shirt_size ? 'Shirt: ' + h.shirt_size : ''}${h.shirt_size && h.tshirt_size ? '<br>' : ''}${h.tshirt_size ? 'Tee: ' + h.tshirt_size : ''}${!h.shirt_size && !h.tshirt_size ? '-' : ''}</td>
-      <td>${photoCell('host_member', h)}</td>
-      <td>${cardCell('host_member', h)}</td>
-      <td>${h.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createHostLogin(${h.id}, '${(h.name || '').replace(/'/g, '')}')">Create login</button>`}</td>
-      <td class="sticky-actions">
-        <button class="btn small" onclick="editHm(${h.id})">Update</button>
-        <button class="btn small" onclick="openGoodiesModal('host_member', ${h.id}, '${(h.name || '').replace(/'/g, "\\'")}')">Goodies</button>
-        <button class="btn small" onclick="downloadHostMemberDetailPdf(${h.id})">PDF</button>
-        <button class="btn small" onclick="downloadHostMemberReceiptPdf(${h.id})">Receipt</button>
-        ${canDelete() ? `<button class="btn danger small" onclick="deleteHm(${h.id})">Delete</button>` : ''}
-      </td>
-    </tr>
-  `;
-  }).join('') || '<tr><td colspan="11" class="empty">No host members yet</td></tr>';
+    const header = `${h.name}${h.designation ? ' <span class="hint">(' + h.designation + ')</span>' : ''}`;
+    const fields = [
+      { label: 'Phone', value: h.phone || '-' },
+      { label: 'Leadership Role', value: h.leadership_role ? `<span class="pill paid">${h.leadership_role}</span>` : '-' },
+      { label: 'Committees', value: `<span title="${committeeNames.join(', ')}">${committeesLabel}</span>` },
+      { label: 'Payment', value: `<span class="pill ${h.payment_status}">${h.payment_status}</span> <span class="hint">₹${h.payment_amount}</span>` },
+      { label: 'Sizes', value: sizesLabel(h) },
+      { label: 'Photo', value: photoCell('host_member', h) },
+      { label: 'Card', value: cardCell('host_member', h) },
+      { label: 'Login', value: h.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createHostLogin(${h.id}, '${(h.name || '').replace(/'/g, '')}')">Create login</button>` },
+    ];
+    const actions = `
+      <button class="btn small" onclick="editHm(${h.id})">Update</button>
+      <button class="btn small" onclick="openGoodiesModal('host_member', ${h.id}, '${(h.name || '').replace(/'/g, "\\'")}')">Goodies</button>
+      <button class="btn small" onclick="downloadHostMemberDetailPdf(${h.id})">PDF</button>
+      <button class="btn small" onclick="downloadHostMemberReceiptPdf(${h.id})">Receipt</button>
+      ${canDelete() ? `<button class="btn danger small" onclick="deleteHm(${h.id})">Delete</button>` : ''}
+    `;
+    return renderRecordCard(header, h.company || '-', fields, actions);
+  }).join('') || '<p class="empty">No host members yet</p>';
 
   // Keep every other tab's host-member dropdowns in sync with the latest list.
   const opts = rows.map((h) => `<option value="${h.id}">${h.name}${h.company ? ' (' + h.company + ')' : ''}</option>`).join('');
@@ -1874,23 +1908,22 @@ let ALL_VOLUNTEERS_CACHE = [];
 async function refreshVolunteers() {
   const rows = await jget(`${API}/volunteers`);
   ALL_VOLUNTEERS_CACHE = rows;
-  document.getElementById('volTableBody').innerHTML = rows.map((v) => `
-    <tr>
-      <td class="sticky-col">${v.name}${v.organization ? ' <span class="hint">(' + v.organization + ')</span>' : ''}</td>
-      <td>${v.phone || '-'}</td>
-      <td>${v.organization || '-'}</td>
-      <td>${v.shirt_size ? 'Shirt: ' + v.shirt_size : ''}${v.shirt_size && v.tshirt_size ? '<br>' : ''}${v.tshirt_size ? 'Tee: ' + v.tshirt_size : ''}${!v.shirt_size && !v.tshirt_size ? '-' : ''}</td>
-      <td>${photoCell('volunteer', v)}</td>
-      <td>${cardCell('volunteer', v)}</td>
-      <td>${v.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createVolunteerLogin(${v.id}, '${(v.name || '').replace(/'/g, '')}')">Create login</button>`}</td>
-      <td class="sticky-actions">
-        <button class="btn small" onclick="toggleVolunteerModules(${v.id})">Modules (${(v.module_access || []).length})</button>
-        <button class="btn small" onclick="editVol(${v.id})">Update</button>
-        ${canDelete() ? `<button class="btn danger small" onclick="deleteVol(${v.id})">Delete</button>` : ''}
-      </td>
-    </tr>
-    <tr id="volModulesRow-${v.id}" style="display:none;"><td colspan="8"><div id="volModulesPanel-${v.id}"></div></td></tr>
-  `).join('') || '<tr><td colspan="8" class="empty">No volunteers yet</td></tr>';
+  document.getElementById('volTableBody').innerHTML = rows.map((v) => {
+    const fields = [
+      { label: 'Phone', value: v.phone || '-' },
+      { label: 'Sizes', value: sizesLabel(v) },
+      { label: 'Photo', value: photoCell('volunteer', v) },
+      { label: 'Card', value: cardCell('volunteer', v) },
+      { label: 'Login', value: v.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createVolunteerLogin(${v.id}, '${(v.name || '').replace(/'/g, '')}')">Create login</button>` },
+    ];
+    const actions = `
+      <button class="btn small" onclick="toggleVolunteerModules(${v.id})">Modules (${(v.module_access || []).length})</button>
+      <button class="btn small" onclick="editVol(${v.id})">Update</button>
+      ${canDelete() ? `<button class="btn danger small" onclick="deleteVol(${v.id})">Delete</button>` : ''}
+    `;
+    return renderRecordCard(v.name, v.organization || '-', fields, actions)
+      + `<div id="volModulesRow-${v.id}" class="record-card-subpanel" style="display:none;"><div id="volModulesPanel-${v.id}"></div></div>`;
+  }).join('') || '<p class="empty">No volunteers yet</p>';
 
   const opts = rows.map((v) => `<option value="${v.id}">${v.name}${v.organization ? ' (' + v.organization + ')' : ''}</option>`).join('');
   const createUserVolunteerSelect = document.getElementById('createUserVolunteerSelect');
