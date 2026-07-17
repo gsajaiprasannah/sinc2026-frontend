@@ -26,8 +26,18 @@ function toast(msg, durationMs) {
 // for server-side re-verification.
 let current = null;
 
+// Photo/business-card files the person has picked but not yet saved — chosen
+// via the file inputs, held here, and only actually uploaded when "Save
+// changes" is clicked. This (plus the sizes) is what makes "Save changes" a
+// single, unambiguous action instead of some fields auto-saving on selection
+// and others needing a separate click.
+let pendingPhoto = null;
+let pendingCard = null;
+
 function showLookup() {
   current = null;
+  pendingPhoto = null;
+  pendingCard = null;
   document.getElementById('lookupCard').style.display = '';
   document.getElementById('pickCard').style.display = 'none';
   document.getElementById('editCard').style.display = 'none';
@@ -51,6 +61,8 @@ function showPicker(matches, phone) {
 
 function openRecord(match) {
   current = { type: match.type, id: match.id, name: match.name, phone: match.phone };
+  pendingPhoto = null;
+  pendingCard = null;
   document.getElementById('lookupCard').style.display = 'none';
   document.getElementById('pickCard').style.display = 'none';
   document.getElementById('editCard').style.display = '';
@@ -67,6 +79,18 @@ function renderPreview(wrapId, url, label) {
   wrap.innerHTML = url
     ? `<img src="${mediaUrl(url)}" alt="Your ${label}" style="max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--border,#ddd);display:block;" />`
     : `<p class="hint" style="margin:0;">No ${label} on file yet.</p>`;
+}
+
+// Shows the just-picked file immediately (from local disk, via an object
+// URL) so the person can see what they selected, with a note that it's not
+// saved to the server yet — that only happens when "Save changes" is hit.
+function renderPendingPreview(wrapId, file, label) {
+  const wrap = document.getElementById(wrapId);
+  const url = URL.createObjectURL(file);
+  wrap.innerHTML = `
+    <img src="${url}" alt="Selected ${label}" style="max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--border,#ddd);display:block;" />
+    <p class="hint" style="margin:6px 0 0;color:var(--gold,#b8860b);">New ${label} selected — not saved yet. Click "Save changes" below.</p>
+  `;
 }
 
 document.getElementById('lookupForm').addEventListener('submit', async (e) => {
@@ -93,13 +117,22 @@ document.getElementById('lookupForm').addEventListener('submit', async (e) => {
   }
 });
 
+// One button, one action: saves the sizes plus whichever of photo/business
+// card were picked (staged in pendingPhoto/pendingCard), so there's never a
+// question of "did that last thing I did actually get saved" — either this
+// click succeeds and everything on the page is saved, or it fails and
+// nothing silently half-saves.
 document.getElementById('editForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!current) return;
-  const body = Object.fromEntries(new FormData(e.target).entries());
-  body.name = current.name;
-  body.phone = current.phone;
+  const btn = document.getElementById('saveAllBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
   try {
+    const body = Object.fromEntries(new FormData(e.target).entries());
+    body.name = current.name;
+    body.phone = current.phone;
     const r = await fetch(`${API}/public-profile/${current.type}/${current.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -107,9 +140,26 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Save failed');
-    toast('Saved — thank you!');
+
+    if (pendingPhoto) {
+      const pd = await uploadImage('photo', pendingPhoto);
+      renderPreview('photoPreviewWrap', pd.photo_url, 'photo');
+      pendingPhoto = null;
+    }
+    if (pendingCard) {
+      const cd = await uploadImage('business-card', pendingCard);
+      renderPreview('cardPreviewWrap', cd.business_card_url, 'business card');
+      pendingCard = null;
+    }
+
+    btn.textContent = '✓ Saved';
+    toast('All changes saved — thank you!', 3000);
+    setTimeout(() => { btn.textContent = originalLabel; }, 2000);
   } catch (err) {
-    toast(err.message);
+    toast(err.message, 4000);
+    btn.textContent = originalLabel;
+  } finally {
+    btn.disabled = false;
   }
 });
 
@@ -126,27 +176,21 @@ async function uploadImage(field, file) {
 }
 
 document.getElementById('photoUploadBtn').addEventListener('click', () => document.getElementById('photoInput').click());
-document.getElementById('photoInput').addEventListener('change', async (e) => {
+document.getElementById('photoInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
-  try {
-    const data = await uploadImage('photo', file);
-    toast('Photo uploaded');
-    renderPreview('photoPreviewWrap', data.photo_url, 'photo');
-  } catch (err) { toast(err.message); }
+  pendingPhoto = file;
+  renderPendingPreview('photoPreviewWrap', file, 'photo');
 });
 
 document.getElementById('cardUploadBtn').addEventListener('click', () => document.getElementById('cardInput').click());
-document.getElementById('cardInput').addEventListener('change', async (e) => {
+document.getElementById('cardInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
-  try {
-    const data = await uploadImage('business-card', file);
-    toast('Business card uploaded');
-    renderPreview('cardPreviewWrap', data.business_card_url, 'business card');
-  } catch (err) { toast(err.message); }
+  pendingCard = file;
+  renderPendingPreview('cardPreviewWrap', file, 'business card');
 });
 
 document.getElementById('startOverBtn').addEventListener('click', showLookup);
