@@ -70,6 +70,7 @@ function openRecord(match) {
   const form = document.getElementById('editForm');
   form.elements.shirt_size.value = match.shirt_size || '';
   form.elements.tshirt_size.value = match.tshirt_size || '';
+  form.elements.waist_size.value = match.waist_size || '';
   renderPreview('photoPreviewWrap', match.photo_url, 'photo');
   renderPreview('cardPreviewWrap', match.business_card_url, 'business card');
 }

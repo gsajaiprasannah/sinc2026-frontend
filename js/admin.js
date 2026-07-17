@@ -929,7 +929,7 @@ const PART_FORM_FIELDS = [
   'travel_mode', 'travel_number', 'travel_datetime', 'arrival_point',
   'departure_mode', 'departure_number', 'departure_datetime', 'departure_point',
   'pickup_by', 'pickup_vehicle', 'pickup_phone', 'spoc_name', 'spoc_phone', 'notes',
-  'shirt_size', 'tshirt_size'
+  'shirt_size', 'tshirt_size', 'waist_size'
 ];
 
 // Core identity/registration fields — frozen for everyone except super_admin
@@ -1491,7 +1491,7 @@ window.createHostLogin = async (id, name) => {
   } catch (err) { toast(err.message); }
 };
 
-const HM_FORM_FIELDS = ['name', 'phone', 'email', 'company', 'designation', 'category', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date', 'notes', 'leadership_role', 'shirt_size', 'tshirt_size'];
+const HM_FORM_FIELDS = ['name', 'phone', 'email', 'company', 'designation', 'category', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date', 'notes', 'leadership_role', 'shirt_size', 'tshirt_size', 'waist_size'];
 window.editHm = async (id) => {
   const h = await jget(`${API}/hostmembers/${id}`);
   const form = document.getElementById('hmForm');
@@ -1917,7 +1917,7 @@ window.createVolunteerLogin = async (id, name) => {
   } catch (err) { toast(err.message); }
 };
 
-const VOL_FORM_FIELDS = ['name', 'phone', 'email', 'organization', 'notes', 'shirt_size', 'tshirt_size'];
+const VOL_FORM_FIELDS = ['name', 'phone', 'email', 'organization', 'notes', 'shirt_size', 'tshirt_size', 'waist_size'];
 window.editVol = async (id) => {
   const v = await jget(`${API}/volunteers/${id}`);
   const form = document.getElementById('volForm');
@@ -4900,8 +4900,9 @@ function renderMerchSizeList(rows) {
         <td>${r.phone || '-'}</td>
         <td>${r.shirt_size || '-'}</td>
         <td>${r.tshirt_size || '-'}</td>
+        <td>${r.waist_size || '-'}</td>
       </tr>
-    `).join('') || '<tr><td colspan="5" class="empty">Nobody in this category has a size on file yet.</td></tr>';
+    `).join('') || '<tr><td colspan="6" class="empty">Nobody in this category has a size on file yet.</td></tr>';
   });
 }
 window.downloadMerchSizeListPdf = async (category) => {
@@ -4916,6 +4917,7 @@ window.downloadMerchSizeListPdf = async (category) => {
       { label: 'Phone', width: 95, get: (r) => r.phone },
       { label: 'Shirt', width: 45, get: (r) => r.shirt_size },
       { label: 'Tee', width: 45, get: (r) => r.tshirt_size },
+      { label: 'Waist', width: 45, get: (r) => r.waist_size },
     ], filtered, `merchandise-size-list-${fileSlug}.pdf`);
   } catch (err) { toast(err.message); }
 };

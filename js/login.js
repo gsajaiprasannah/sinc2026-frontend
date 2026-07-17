@@ -567,6 +567,7 @@ function renderHostProfile(p) {
   if (sizesForm) {
     if (sizesForm.elements.shirt_size) sizesForm.elements.shirt_size.value = p.shirt_size || '';
     if (sizesForm.elements.tshirt_size) sizesForm.elements.tshirt_size.value = p.tshirt_size || '';
+    if (sizesForm.elements.waist_size) sizesForm.elements.waist_size.value = p.waist_size || '';
   }
   renderHostMediaPreview('hostPhotoPreview', p.photo_url, 'photo');
   renderHostMediaPreview('hostCardPreview', p.business_card_url, 'business card');
