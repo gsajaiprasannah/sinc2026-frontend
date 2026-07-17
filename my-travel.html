@@ -16,7 +16,7 @@
         <img src="img/skal-logo.png" alt="Skål International" class="logo-mark" />
         <div>
           <h1>My Travel Details</h1>
-          <span class="hint">Address, arrival &amp; departure — Delegates only, no login needed</span>
+          <span class="hint">Address, travel, shirt/tee size, photo &amp; business card — Delegates only, no login needed</span>
         </div>
       </div>
     </div>
@@ -87,6 +87,30 @@
         <div class="field"><label>Date &amp; time</label><input name="departure_datetime" type="datetime-local" /></div>
       </div>
       <div class="field"><label>Departure point</label><input name="departure_point" placeholder="Airport / Railway Station / Bus Stand..." /></div>
+
+      <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Merchandise</div>
+      <div class="form-grid cols-3">
+        <div class="field"><label>Shirt size</label>
+          <select name="shirt_size"><option value="">-- none --</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option><option>XXXL</option></select>
+        </div>
+        <div class="field"><label>T-Shirt size</label>
+          <select name="tshirt_size"><option value="">-- none --</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option><option>XXXL</option></select>
+        </div>
+        <div class="field"><label>Waist size</label>
+          <select name="waist_size"><option value="">-- none --</option><option>28</option><option>30</option><option>32</option><option>34</option><option>36</option><option>38</option><option>40</option><option>42</option><option>44</option><option>46</option></select>
+        </div>
+      </div>
+
+      <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Your photo</div>
+      <div id="photoPreviewWrap" style="margin-bottom:8px;"></div>
+      <input type="file" id="photoInput" accept="image/*" style="display:none;" />
+      <button type="button" class="btn" id="photoUploadBtn">Choose / replace photo</button>
+
+      <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Your business card</div>
+      <p class="hint" style="margin-top:-6px;">A photo/scan of your business card, if you have one.</p>
+      <div id="cardPreviewWrap" style="margin-bottom:8px;"></div>
+      <input type="file" id="cardInput" accept="image/*" style="display:none;" />
+      <button type="button" class="btn" id="cardUploadBtn">Choose / replace business card</button>
 
       <button class="btn gold" type="submit" id="saveAllBtn" style="width:100%;margin-top:20px;">Save changes</button>
     </form>
