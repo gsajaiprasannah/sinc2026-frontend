@@ -1416,14 +1416,29 @@
       </div>
       <p class="hint" id="merchSizesOnFileHint" style="margin-bottom:0;"></p>
 
-      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="section-title">
         <span>Who chose what size</span>
-        <button type="button" class="btn small" onclick="downloadMerchSizeListPdf()">Download PDF</button>
+      </div>
+
+      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+        <span>Delegates</span>
+        <button type="button" class="btn small" onclick="downloadMerchSizeListPdf('Delegate')">Download PDF</button>
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Club / Company</th><th>Phone</th><th>Shirt</th><th>Tee</th></tr></thead>
-          <tbody id="merchSizeListTableBody"></tbody>
+          <thead><tr><th>Name</th><th>Club / Company</th><th>Phone</th><th>Shirt</th><th>Tee</th></tr></thead>
+          <tbody id="merchSizeListTableBody_Delegate"></tbody>
+        </table>
+      </div>
+
+      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
+        <span>Host Members</span>
+        <button type="button" class="btn small" onclick="downloadMerchSizeListPdf('Host Member')">Download PDF</button>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Name</th><th>Club / Company</th><th>Phone</th><th>Shirt</th><th>Tee</th></tr></thead>
+          <tbody id="merchSizeListTableBody_HostMember"></tbody>
         </table>
       </div>
     </div>
