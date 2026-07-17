@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>SINC2026 — My Travel Details</title>
+<link rel="stylesheet" href="css/styles.css" />
+<meta name="theme-color" content="#314691" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-left">
+      <div class="brand">
+        <img src="img/skal-logo.png" alt="Skål International" class="logo-mark" />
+        <div>
+          <h1>My Travel Details</h1>
+          <span class="hint">Address, arrival &amp; departure — Delegates only, no login needed</span>
+        </div>
+      </div>
+    </div>
+    <nav>
+      <a href="my-profile.html">My Details</a>
+      <a href="index.html">← Home</a>
+    </nav>
+  </div>
+</header>
+
+<div class="container" style="max-width:640px;">
+
+  <!-- STEP 1: look yourself up -->
+  <div class="card" id="lookupCard">
+    <div class="section-title" style="margin-top:0">Find your record</div>
+    <p class="hint" style="margin-top:-6px;">Enter your full name and phone number exactly as you registered — this is how we find your record without needing a password. This page is for Delegates only.</p>
+    <div id="lookupError" class="field" style="color:var(--red);font-size:12.5px;display:none;"></div>
+    <form id="lookupForm">
+      <div class="field"><label>Full name</label><input name="name" required /></div>
+      <div class="field"><label>Phone number</label><input name="phone" required inputmode="tel" /></div>
+      <button class="btn gold" type="submit" style="width:100%;">Find my record</button>
+    </form>
+  </div>
+
+  <!-- Shown only when the lookup finds more than one matching Delegate record -->
+  <!-- (e.g. duplicate registration entries under the same name+phone). -->
+  <div class="card" id="pickCard" style="display:none;margin-top:14px;">
+    <div class="section-title" style="margin-top:0">Which record is yours?</div>
+    <p class="hint" style="margin-top:-6px;">We found more than one match — please pick the right one.</p>
+    <div id="pickList"></div>
+  </div>
+
+  <!-- STEP 2: edit travel details -->
+  <div class="card" id="editCard" style="display:none;margin-top:14px;">
+    <div class="section-title" style="margin-top:0" id="editTitle">Update your travel details</div>
+    <p class="hint" style="margin-top:-6px;">Fill in whatever applies below, then hit <strong>Save changes</strong> at the bottom — one button saves everything on this page at once.</p>
+    <form id="editForm">
+      <div class="field"><label>Address</label><textarea name="address" rows="3"></textarea></div>
+
+      <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Travel — arrival</div>
+      <div class="form-grid cols-3">
+        <div class="field"><label>Mode</label>
+          <select name="travel_mode">
+            <option value="">-</option>
+            <option value="flight">Flight</option>
+            <option value="train">Train</option>
+            <option value="road">Road</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="field"><label>Flight / Train number</label><input name="travel_number" /></div>
+        <div class="field"><label>Date &amp; time</label><input name="travel_datetime" type="datetime-local" /></div>
+      </div>
+      <div class="field"><label>Arrival point</label><input name="arrival_point" placeholder="Airport / Railway Station / Bus Stand..." /></div>
+
+      <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Travel — departure</div>
+      <div class="form-grid cols-3">
+        <div class="field"><label>Mode</label>
+          <select name="departure_mode">
+            <option value="">-</option>
+            <option value="flight">Flight</option>
+            <option value="train">Train</option>
+            <option value="road">Road</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="field"><label>Flight / Train number</label><input name="departure_number" /></div>
+        <div class="field"><label>Date &amp; time</label><input name="departure_datetime" type="datetime-local" /></div>
+      </div>
+      <div class="field"><label>Departure point</label><input name="departure_point" placeholder="Airport / Railway Station / Bus Stand..." /></div>
+
+      <button class="btn gold" type="submit" id="saveAllBtn" style="width:100%;margin-top:20px;">Save changes</button>
+    </form>
+
+    <div style="margin-top:18px;">
+      <button type="button" class="btn outline" id="startOverBtn">Look up someone else</button>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="js/config.js"></script>
+<script src="js/mytravel.js"></script>
+</body>
+</html>
