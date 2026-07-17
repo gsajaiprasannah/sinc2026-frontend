@@ -4879,32 +4879,44 @@ async function refreshMerchSizeList() {
     renderMerchSizeList(rows);
   } catch (e) { /* fail quietly — supplementary panel */ }
 }
+// Split into one table per category (Delegate / Host Member) rather than one
+// combined list with a "Type" column — each category is its own audience for
+// whoever's packing/handing out that group's merchandise, and each gets its
+// own Download PDF button. Both use the exact same PDF layout (downloadListReportPdf
+// with the same column set) so the two exports are visually consistent.
+const MERCH_SIZE_CATEGORIES = [
+  { type: 'Delegate', bodyId: 'merchSizeListTableBody_Delegate' },
+  { type: 'Host Member', bodyId: 'merchSizeListTableBody_HostMember' }
+];
 function renderMerchSizeList(rows) {
-  const body = document.getElementById('merchSizeListTableBody');
-  if (!body) return;
-  body.innerHTML = rows.map((r) => `
-    <tr>
-      <td>${r.name}</td>
-      <td>${r.type}</td>
-      <td>${r.club_or_company || '-'}</td>
-      <td>${r.phone || '-'}</td>
-      <td>${r.shirt_size || '-'}</td>
-      <td>${r.tshirt_size || '-'}</td>
-    </tr>
-  `).join('') || '<tr><td colspan="6" class="empty">Nobody has a size on file yet.</td></tr>';
+  MERCH_SIZE_CATEGORIES.forEach(({ type, bodyId }) => {
+    const body = document.getElementById(bodyId);
+    if (!body) return;
+    const filtered = rows.filter((r) => r.type === type);
+    body.innerHTML = filtered.map((r) => `
+      <tr>
+        <td>${r.name}</td>
+        <td>${r.club_or_company || '-'}</td>
+        <td>${r.phone || '-'}</td>
+        <td>${r.shirt_size || '-'}</td>
+        <td>${r.tshirt_size || '-'}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="5" class="empty">Nobody in this category has a size on file yet.</td></tr>';
+  });
 }
-window.downloadMerchSizeListPdf = async () => {
+window.downloadMerchSizeListPdf = async (category) => {
   try {
     const rows = await jget(`${API}/inventory/merchandise-size-list`);
-    if (!rows.length) { toast('Nobody has a size on file yet'); return; }
-    await downloadListReportPdf('Who Chose What Size', `${rows.length} with sizes on file`, [
-      { label: 'Name', width: 140, get: (r) => r.name },
-      { label: 'Type', width: 80, get: (r) => r.type },
-      { label: 'Club / Company', width: 120, get: (r) => r.club_or_company },
-      { label: 'Phone', width: 75, get: (r) => r.phone },
-      { label: 'Shirt', width: 50, get: (r) => r.shirt_size },
-      { label: 'Tee', width: 50, get: (r) => r.tshirt_size },
-    ], rows, 'merchandise-size-list.pdf');
+    const filtered = rows.filter((r) => r.type === category);
+    if (!filtered.length) { toast(`Nobody in ${category}s has a size on file yet`); return; }
+    const fileSlug = category.toLowerCase().replace(/\s+/g, '-');
+    await downloadListReportPdf(`Who Chose What Size — ${category}s`, `${filtered.length} with sizes on file`, [
+      { label: 'Name', width: 180, get: (r) => r.name },
+      { label: 'Club / Company', width: 150, get: (r) => r.club_or_company },
+      { label: 'Phone', width: 95, get: (r) => r.phone },
+      { label: 'Shirt', width: 45, get: (r) => r.shirt_size },
+      { label: 'Tee', width: 45, get: (r) => r.tshirt_size },
+    ], filtered, `merchandise-size-list-${fileSlug}.pdf`);
   } catch (err) { toast(err.message); }
 };
 window.syncMerchandiseRequirements = async () => {
