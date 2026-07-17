@@ -492,6 +492,80 @@ tr:nth-child(even) .sticky-actions { background: #fff; }
 }
 tr:nth-child(even) .sticky-col-left { background: #fff; }
 
+/* Record card list — used for Delegates, Host Members, and Volunteers,
+   replacing a wide table (many columns + several action buttons per row)
+   that forced horizontal scrolling and could hide content behind the sticky
+   action column. Each record is now a self-contained card: an identity
+   header up top, a label/value field grid in the middle, and the action
+   buttons wrapped along the bottom — nothing ever needs horizontal scroll,
+   at any screen width. See renderRecordCard() in admin.js. */
+.record-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.record-card {
+  border: 1px solid var(--line, #e3e6ee);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: #fff;
+}
+.record-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line, #eef0f5);
+}
+.record-card-name {
+  font-weight: 700;
+  font-size: 14.5px;
+  color: var(--ink, #1a2340);
+}
+.record-card-header-right {
+  font-size: 12.5px;
+  color: var(--muted);
+  text-align: right;
+}
+.record-card-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px 18px;
+  margin-bottom: 12px;
+}
+.record-card-field label {
+  display: block;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted, #8891a8);
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+.record-card-field .value {
+  font-size: 13px;
+  color: var(--ink, #1a2340);
+  white-space: normal;
+}
+.record-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line, #eef0f5);
+}
+.record-card-subpanel {
+  margin: -4px 0 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--line, #e3e6ee);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  background: #fbfbfd;
+}
+
 /* Host Registration & Payments: give every column more breathing room so the
    Status column (previously easy to miss next to dense text columns) reads
    clearly, and color the select so paid/pending is obvious at a glance. */
