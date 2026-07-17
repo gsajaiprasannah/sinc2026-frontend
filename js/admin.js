@@ -4869,6 +4869,44 @@ async function refreshMerchandiseRequirement() {
     }
   } catch (e) { /* chart is supplementary — fail quietly */ }
 }
+// Per-person "who chose what size" list — so whoever's packing/handing out
+// merchandise doesn't have to open Delegates/Host Members and cross-reference
+// every time. Refreshed alongside the chart since it's the same underlying
+// data, just at person-level instead of aggregated.
+async function refreshMerchSizeList() {
+  try {
+    const rows = await jget(`${API}/inventory/merchandise-size-list`);
+    renderMerchSizeList(rows);
+  } catch (e) { /* fail quietly — supplementary panel */ }
+}
+function renderMerchSizeList(rows) {
+  const body = document.getElementById('merchSizeListTableBody');
+  if (!body) return;
+  body.innerHTML = rows.map((r) => `
+    <tr>
+      <td>${r.name}</td>
+      <td>${r.type}</td>
+      <td>${r.club_or_company || '-'}</td>
+      <td>${r.phone || '-'}</td>
+      <td>${r.shirt_size || '-'}</td>
+      <td>${r.tshirt_size || '-'}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">Nobody has a size on file yet.</td></tr>';
+}
+window.downloadMerchSizeListPdf = async () => {
+  try {
+    const rows = await jget(`${API}/inventory/merchandise-size-list`);
+    if (!rows.length) { toast('Nobody has a size on file yet'); return; }
+    await downloadListReportPdf('Who Chose What Size', `${rows.length} with sizes on file`, [
+      { label: 'Name', width: 140, get: (r) => r.name },
+      { label: 'Type', width: 80, get: (r) => r.type },
+      { label: 'Club / Company', width: 120, get: (r) => r.club_or_company },
+      { label: 'Phone', width: 75, get: (r) => r.phone },
+      { label: 'Shirt', width: 50, get: (r) => r.shirt_size },
+      { label: 'Tee', width: 50, get: (r) => r.tshirt_size },
+    ], rows, 'merchandise-size-list.pdf');
+  } catch (err) { toast(err.message); }
+};
 window.syncMerchandiseRequirements = async () => {
   try {
     const r = await jpost(`${API}/inventory/requirements/sync-merchandise`, {});
@@ -6090,6 +6128,7 @@ function loadAllData() {
   refreshInventoryItems();
   refreshInventoryMonitor();
   refreshMerchandiseRequirement();
+  refreshMerchSizeList();
   refreshRequirements();
   refreshSponsors();
   refreshSpeakers();
