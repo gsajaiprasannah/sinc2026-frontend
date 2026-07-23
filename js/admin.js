@@ -3547,8 +3547,23 @@ const PDF_CONTENT_RIGHT = PDF_PAGE_W - PDF_MARGIN;
 const PDF_CONTENT_BOTTOM = 780;
 
 let PDF_LOGO_CACHE = null;
+// R2-hosted photos (person photo_url etc.) live on a different origin than
+// this admin panel. Cloudflare's bot-mitigation in front of the public
+// r2.dev bucket domain blocks programmatic fetch()/CORS-mode requests for
+// these objects with a 503 — a plain <img> tag load still works fine (which
+// is why record-card thumbnails look normal even though embedding that same
+// photo into a jsPDF badge/PDF silently failed and fell back to a
+// placeholder). Rerouting r2.dev URLs through our own backend's
+// /media/proxy-image endpoint — which fetches the object server-side via
+// the R2 API rather than hitting the public URL — sidesteps this entirely,
+// and since the response then comes from our own API's origin (with normal
+// CORS headers), the browser can also safely read it into a canvas for
+// cropping without a taint error.
 function pdfImageToDataUrl(path) {
-  return fetch(path)
+  const fetchUrl = (/^https?:\/\//.test(path) && path.includes('r2.dev'))
+    ? `${API}/media/proxy-image?url=${encodeURIComponent(path)}`
+    : path;
+  return fetch(fetchUrl)
     .then((res) => res.blob())
     .then((blob) => new Promise((resolve, reject) => {
       const reader = new FileReader();
