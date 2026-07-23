@@ -319,9 +319,10 @@
           <div class="field"><label>Registration</label><select name="registration_id" id="partRegSelect"></select></div>
           <div class="field"><label>Designation</label><input name="designation" placeholder="President / Member / Spouse" /></div>
           <div class="field"><label>Primary registrant?</label>
-            <select name="is_primary"><option value="1">Yes</option><option value="0">No (co-registrant)</option></select>
+            <select name="is_primary" id="partIsPrimarySelect"><option value="1">Yes</option><option value="0">No (co-registrant)</option></select>
           </div>
         </div>
+        <p class="hint" id="partRegOccupancyHint" style="margin-top:-6px;"></p>
         <div class="field"><label>Address</label><textarea name="address"></textarea></div>
 
         <div class="section-title" style="font-size:12px;margin:16px 0 8px;">Travel — arrival</div>
