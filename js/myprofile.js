@@ -68,6 +68,7 @@ function openRecord(match) {
   document.getElementById('editCard').style.display = '';
   document.getElementById('editTitle').textContent = `Update your details — ${match.name} (${match.label})`;
   const form = document.getElementById('editForm');
+  form.elements.email.value = match.email || '';
   form.elements.shirt_size.value = match.shirt_size || '';
   form.elements.tshirt_size.value = match.tshirt_size || '';
   form.elements.waist_size.value = match.waist_size || '';

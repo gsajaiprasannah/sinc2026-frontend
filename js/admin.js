@@ -2411,6 +2411,228 @@ document.getElementById('msgForm').addEventListener('submit', async (e) => {
   } catch (err) { toast(err.message); }
 });
 
+// --- Email Campaigns: bulk personalized email blasts (via Resend) to any ---
+// audience with an email column — Delegates, Host Members, Volunteers,
+// Sponsors, Guest Speakers, Guest Visitors. See server/routes/emailCampaigns.js.
+// Distinct from Announcements above: reaches people with no login at all.
+const AUDIENCE_LABELS = {
+  participant: 'Delegates', host_member: 'Host Members', volunteer: 'Volunteers',
+  sponsor: 'Sponsors', speaker: 'Guest Speakers', guest_visitor: 'Guest Visitors'
+};
+let ecDirectoryCache = [];      // [{id, name, email, meta}] for the currently-chosen audience
+let ecPickedIds = new Set();    // hand-picked recipient ids (only used when Recipients = "pick")
+let ecCurrentAudience = '';
+let openEcRecipientPanels = new Set();
+
+const ecAudienceTypeSelect = document.getElementById('ecAudienceType');
+const ecRecipientModeSelect = document.getElementById('ecRecipientMode');
+const ecIndividualField = document.getElementById('ecIndividualField');
+
+async function refreshEcAudienceCount() {
+  const countEl = document.getElementById('ecAudienceCount');
+  if (!ecAudienceTypeSelect.value) { countEl.textContent = ''; return; }
+  try {
+    const audiences = await jget(`${API}/email-campaigns/audiences`);
+    const a = audiences[ecAudienceTypeSelect.value];
+    countEl.textContent = a ? `${a.with_email} of ${a.total} have an email on file.` : '';
+  } catch (err) { countEl.textContent = ''; }
+}
+
+function renderEcIndividualGrid(filter) {
+  const grid = document.getElementById('ecIndividualGrid');
+  if (!grid) return;
+  const q = (filter || '').toLowerCase();
+  const rows = q ? ecDirectoryCache.filter((p) => p.name.toLowerCase().includes(q)) : ecDirectoryCache;
+  grid.innerHTML = rows.map((p) => `
+    <label class="${p.email ? '' : 'hint'}" title="${p.email ? '' : 'No email on file — cannot be picked'}">
+      <input type="checkbox" data-ec-pick="${p.id}" ${ecPickedIds.has(p.id) ? 'checked' : ''} ${p.email ? '' : 'disabled'} />
+      ${p.name} ${p.meta ? `<span class="hint">(${p.meta})</span>` : ''} ${p.email ? '' : '<span class="hint">— no email</span>'}
+    </label>
+  `).join('') || '<span class="hint">No records in this audience yet.</span>';
+  grid.querySelectorAll('input[data-ec-pick]').forEach((box) => {
+    box.addEventListener('change', () => {
+      const id = Number(box.dataset.ecPick);
+      if (box.checked) ecPickedIds.add(id); else ecPickedIds.delete(id);
+      updateEcPickedCount();
+    });
+  });
+  updateEcPickedCount();
+}
+function updateEcPickedCount() {
+  const el = document.getElementById('ecPickedCount');
+  if (el) el.textContent = `${ecPickedIds.size} selected`;
+}
+
+async function loadEcDirectory(audienceType) {
+  ecDirectoryCache = await jget(`${API}/email-campaigns/directory/${audienceType}`);
+  ecPickedIds = new Set();
+  renderEcIndividualGrid(document.getElementById('ecIndividualSearch')?.value);
+}
+
+if (ecAudienceTypeSelect) {
+  ecAudienceTypeSelect.addEventListener('change', async () => {
+    ecCurrentAudience = ecAudienceTypeSelect.value;
+    refreshEcAudienceCount();
+    if (ecCurrentAudience && ecRecipientModeSelect.value === 'pick') await loadEcDirectory(ecCurrentAudience);
+  });
+}
+if (ecRecipientModeSelect) {
+  ecRecipientModeSelect.addEventListener('change', async () => {
+    const picking = ecRecipientModeSelect.value === 'pick';
+    ecIndividualField.style.display = picking ? '' : 'none';
+    if (picking) {
+      if (!ecCurrentAudience) { toast('Pick an audience first.'); ecRecipientModeSelect.value = 'all'; ecIndividualField.style.display = 'none'; return; }
+      await loadEcDirectory(ecCurrentAudience);
+    }
+  });
+}
+const ecIndividualSearch = document.getElementById('ecIndividualSearch');
+if (ecIndividualSearch) ecIndividualSearch.addEventListener('input', (e) => renderEcIndividualGrid(e.target.value));
+const ecSelectAllBtn = document.getElementById('ecSelectAllBtn');
+if (ecSelectAllBtn) ecSelectAllBtn.addEventListener('click', () => {
+  ecDirectoryCache.forEach((p) => { if (p.email) ecPickedIds.add(p.id); });
+  renderEcIndividualGrid(document.getElementById('ecIndividualSearch')?.value);
+});
+const ecClearAllBtn = document.getElementById('ecClearAllBtn');
+if (ecClearAllBtn) ecClearAllBtn.addEventListener('click', () => {
+  ecPickedIds = new Set();
+  renderEcIndividualGrid(document.getElementById('ecIndividualSearch')?.value);
+});
+
+function ecCurrentRecipientIds() {
+  return (ecRecipientModeSelect.value === 'pick') ? Array.from(ecPickedIds) : null;
+}
+
+document.getElementById('ecPreviewBtn').addEventListener('click', async () => {
+  const audience_type = ecAudienceTypeSelect.value;
+  const subject = document.getElementById('ecSubject').value;
+  const body_html = document.getElementById('ecBody').value;
+  if (!audience_type || !subject || !body_html) { toast('Fill in Audience, Subject and Body first.'); return; }
+  try {
+    const result = await jpost(`${API}/email-campaigns/preview`, { audience_type, recipient_ids: ecCurrentRecipientIds(), subject, body_html });
+    const panel = document.getElementById('ecPreviewPanel');
+    panel.style.display = '';
+    panel.innerHTML = `
+      <p class="hint"><strong>${result.recipient_count}</strong> recipient(s) would receive this send.</p>
+      ${result.sample.map((s) => `
+        <div class="card" style="margin-bottom:8px;">
+          <p class="hint" style="margin:0;">To: ${s.name} &lt;${s.email}&gt;</p>
+          <p style="margin:6px 0 4px;"><strong>${s.subject}</strong></p>
+          <div style="border-top:1px solid var(--line);padding-top:6px;">${s.body_html}</div>
+        </div>
+      `).join('') || '<p class="hint">No recipients match yet.</p>'}
+    `;
+  } catch (err) { toast(err.message); }
+});
+
+document.getElementById('ecForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const name = form.elements['name'].value;
+  const from_name = form.elements['from_name'].value;
+  const audience_type = ecAudienceTypeSelect.value;
+  const subject = document.getElementById('ecSubject').value;
+  const body_html = document.getElementById('ecBody').value;
+  if (!audience_type) { toast('Pick an audience.'); return; }
+  const recipient_ids = ecCurrentRecipientIds();
+  if (recipient_ids && !recipient_ids.length) { toast('Pick at least one person, or switch Recipients to "Everyone".'); return; }
+  try {
+    await jpost(`${API}/email-campaigns`, { name, subject, body_html, audience_type, recipient_ids, from_name });
+    toast('Campaign saved as a draft — find it below to send.');
+    form.reset();
+    document.getElementById('ecSubject').value = '';
+    document.getElementById('ecBody').value = '';
+    document.getElementById('ecPreviewPanel').style.display = 'none';
+    ecPickedIds = new Set();
+    ecRecipientModeSelect.value = 'all';
+    ecIndividualField.style.display = 'none';
+    refreshEcHistory();
+  } catch (err) { toast(err.message); }
+});
+
+function ecStatusPill(status) {
+  const cls = status === 'sent' ? 'paid' : status === 'sending' ? 'billed' : status === 'failed' ? 'cancelled' : 'not_started';
+  return `<span class="pill ${cls}">${status}</span>`;
+}
+
+async function refreshEcHistory() {
+  const rows = await jget(`${API}/email-campaigns`);
+  document.getElementById('ecHistoryBody').innerHTML = rows.map((c) => `
+    <tr>
+      <td>${c.name}</td>
+      <td>${AUDIENCE_LABELS[c.audience_type] || c.audience_type}${c.recipient_ids ? ' <span class="hint">(hand-picked)</span>' : ''}</td>
+      <td>${c.attempted_count}</td>
+      <td>${c.sent_count} / ${c.failed_count}</td>
+      <td>${ecStatusPill(c.status)}</td>
+      <td>${new Date(c.created_at).toLocaleString()}</td>
+      <td class="sticky-actions">
+        ${c.status === 'draft' ? `<button class="btn small" onclick="ecSendTest(${c.id})">Send test</button> <button class="btn gold small" onclick="ecSendCampaign(${c.id}, ${c.attempted_count || 0})">Send</button>` : ''}
+        <button class="btn small" onclick="toggleEcRecipients(${c.id})">View</button>
+      </td>
+    </tr>
+    <tr id="ecRecipientsRow-${c.id}" style="display:none;"><td colspan="7"><div id="ecRecipientsPanel-${c.id}"></div></td></tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No email campaigns yet</td></tr>';
+
+  for (const id of openEcRecipientPanels) {
+    const row = document.getElementById(`ecRecipientsRow-${id}`);
+    if (row) { row.style.display = ''; renderEcRecipientsPanel(id); }
+  }
+}
+
+window.toggleEcRecipients = async (id) => {
+  const row = document.getElementById(`ecRecipientsRow-${id}`);
+  if (!row) return;
+  const isOpen = row.style.display !== 'none';
+  if (isOpen) { row.style.display = 'none'; openEcRecipientPanels.delete(id); }
+  else { row.style.display = ''; openEcRecipientPanels.add(id); await renderEcRecipientsPanel(id); }
+};
+async function renderEcRecipientsPanel(id) {
+  const panel = document.getElementById(`ecRecipientsPanel-${id}`);
+  if (!panel) return;
+  panel.innerHTML = '<p class="hint">Loading...</p>';
+  const rows = await jget(`${API}/email-campaigns/${id}/recipients`);
+  panel.innerHTML = `
+    <table>
+      <thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Error</th></tr></thead>
+      <tbody>
+        ${rows.map((r) => `
+          <tr>
+            <td>${r.name || '-'}</td>
+            <td>${r.email}</td>
+            <td>${ecStatusPill(r.status)}</td>
+            <td class="hint">${r.error || ''}</td>
+          </tr>
+        `).join('') || '<tr><td colspan="4" class="empty">No recipients yet — click Send.</td></tr>'}
+      </tbody>
+    </table>
+  `;
+}
+
+window.ecSendTest = async (id) => {
+  const to = prompt('Send a test email to which address?', CURRENT_USER?.username?.includes('@') ? CURRENT_USER.username : '');
+  if (!to) return;
+  try {
+    await jpost(`${API}/email-campaigns/${id}/send-test`, { to });
+    toast(`Test email sent to ${to}`);
+  } catch (err) { toast(err.message); }
+};
+window.ecSendCampaign = async (id, recipientCount) => {
+  if (!confirm(`Send this campaign now? This cannot be undone.`)) return;
+  try {
+    const result = await jpost(`${API}/email-campaigns/${id}/send`, {});
+    toast(`Sending to ${result.recipient_count} recipient(s)...`);
+    openEcRecipientPanels.add(id);
+    refreshEcHistory();
+    // Poll a few times so sent/failed counts update live without a manual refresh.
+    let polls = 0;
+    const timer = setInterval(async () => {
+      polls++;
+      await refreshEcHistory();
+      if (polls >= 10) clearInterval(timer);
+    }, 4000);
+  } catch (err) { toast(err.message); }
+};
+
 // --- Committee's own checklist (separate from per-member task delegation
 // above, and from the cross-committee "Committee Delivery" tab which is
 // checklist items OTHER entities need this committee to deliver). This is
@@ -6422,6 +6644,7 @@ function loadAllData() {
   refreshVolunteers();
   refreshMessageHistory();
   refreshMsgIndividualDirectory();
+  refreshEcHistory();
   refreshAssignmentDropdowns();
   refreshAssignments();
   refreshTasks();

@@ -154,6 +154,7 @@ function openRecord(match) {
   document.getElementById('editCard').style.display = '';
   document.getElementById('editTitle').textContent = `Update your travel details — ${match.name}`;
   const form = document.getElementById('editForm');
+  form.elements.email.value = match.email || '';
   form.elements.address.value = match.address || '';
   form.elements.travel_mode.value = match.travel_mode || '';
   form.elements.travel_number.value = match.travel_number || '';
