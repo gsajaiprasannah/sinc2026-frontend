@@ -3667,6 +3667,33 @@ function badgeUrlFor(token) {
 async function getQrDataUrl(token, sizePx) {
   return window.QRCode.toDataURL(badgeUrlFor(token), { width: sizePx || 300, margin: 1 });
 }
+// Badge photos are square headshots, but source photos are almost never
+// exactly square — feeding a non-square image straight into jsPDF's
+// addImage(w, h) stretches/squashes it to fit the box. This crops a centered
+// square out of the source first (like CSS object-fit:cover), so the photo
+// on the printed badge looks like a normal portrait, not squeezed.
+function pdfSquarePhotoDataUrl(path, size) {
+  return fetch(path)
+    .then((res) => res.blob())
+    .then((blob) => new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const side = Math.min(img.naturalWidth, img.naturalHeight);
+          const sx = (img.naturalWidth - side) / 2;
+          const sy = (img.naturalHeight - side) / 2;
+          const canvas = document.createElement('canvas');
+          canvas.width = size; canvas.height = size;
+          canvas.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size);
+          resolve(canvas.toDataURL('image/jpeg', 0.92));
+        } catch (err) { reject(err); }
+        finally { URL.revokeObjectURL(url); }
+      };
+      img.onerror = reject;
+      img.src = url;
+    }));
+}
 window.downloadQrPng = async (token, name) => {
   try {
     const dataUrl = await getQrDataUrl(token, 480);
@@ -3691,54 +3718,64 @@ async function buildBadgePdf(person) {
     const { w, h } = pdfFitImage(logos.coimbatore.ratio, 140, 26);
     doc.addImage(logos.coimbatore.dataUrl, 'PNG', (W - w) / 2, (54 - h) / 2, w, h);
   }
-  let y = 90;
-  const photoSize = 100;
+  let y = 82;
+  const photoSize = 92;
   const photoX = (W - photoSize) / 2;
+  let photoPlaced = false;
   if (person.photo_url) {
     try {
-      const dataUrl = await pdfImageToDataUrl(mediaUrl(person.photo_url));
-      doc.addImage(dataUrl, photoX, y, photoSize, photoSize);
+      const dataUrl = await pdfSquarePhotoDataUrl(mediaUrl(person.photo_url), 300);
+      doc.addImage(dataUrl, 'JPEG', photoX, y, photoSize, photoSize);
+      photoPlaced = true;
     } catch (err) { /* fall through to initial */ }
-  } else {
+  }
+  if (!photoPlaced) {
     pdfSetColor(doc, 'setFillColor', PDF_BRAND.navy);
     doc.circle(W / 2, y + photoSize / 2, photoSize / 2, 'F');
     doc.setTextColor(255, 255, 255);
-    doc.setFont(undefined, 'bold'); doc.setFontSize(40);
-    doc.text((person.name || '?').trim().charAt(0).toUpperCase(), W / 2, y + photoSize / 2 + 14, { align: 'center' });
+    doc.setFont(undefined, 'bold'); doc.setFontSize(36);
+    doc.text((person.name || '?').trim().charAt(0).toUpperCase(), W / 2, y + photoSize / 2 + 13, { align: 'center' });
     doc.setTextColor(0, 0, 0);
   }
   pdfSetColor(doc, 'setDrawColor', PDF_BRAND.border);
   doc.setLineWidth(1.2);
   doc.rect(photoX, y, photoSize, photoSize);
-  y += photoSize + 22;
+  y += photoSize + 18;
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.navy);
-  doc.setFont(undefined, 'bold'); doc.setFontSize(16);
+  doc.setFont(undefined, 'bold'); doc.setFontSize(15);
   doc.text(person.name || '', W / 2, y, { align: 'center', maxWidth: W - 30 });
-  y += 18;
-  doc.setFont(undefined, 'normal'); doc.setFontSize(10.5);
+  y += 16;
+  doc.setFont(undefined, 'normal'); doc.setFontSize(10);
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.grey);
   doc.text(person.roleLabel || '', W / 2, y, { align: 'center', maxWidth: W - 30 });
   if (person.orgLabel) {
-    y += 13;
+    y += 12;
     doc.text(person.orgLabel, W / 2, y, { align: 'center', maxWidth: W - 30 });
   }
   doc.setTextColor(0, 0, 0);
-  y += 20;
-  const qrSize = 130;
+  y += 16;
+  // Everything below is positioned relative to the actual content above it
+  // (rather than fixed pixel offsets) so the footer/divider never crowd or
+  // overlap the QR block — regardless of whether an org label is present or
+  // the footnote wraps to a second line.
+  const qrSize = 112;
   try {
     const qrDataUrl = await getQrDataUrl(person.badge_token, 400);
     doc.addImage(qrDataUrl, 'PNG', (W - qrSize) / 2, y, qrSize, qrSize);
-    y += qrSize + 12;
+    y += qrSize + 10;
   } catch (err) { /* skip QR if generation failed — badge is still usable */ }
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
-  doc.setFont(undefined, 'normal'); doc.setFontSize(7.5);
-  doc.text('Scan for contact card · staff scan for room/transport & check-in', W / 2, y, { align: 'center', maxWidth: W - 24 });
+  doc.setFont(undefined, 'normal'); doc.setFontSize(7);
+  const footLines = doc.splitTextToSize('Scan for contact card · staff scan for room/transport & check-in', W - 28);
+  doc.text(footLines, W / 2, y, { align: 'center' });
+  y += footLines.length * 8.5 + 10;
   pdfSetColor(doc, 'setDrawColor', PDF_BRAND.border);
   doc.setLineWidth(0.75);
-  doc.line(20, 410, W - 20, 410);
+  doc.line(20, y, W - 20, y);
+  y += 12;
   doc.setFont(undefined, 'bold'); doc.setFontSize(8.5);
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.navy);
-  doc.text('SINC2026 · Skål International Coimbatore', W / 2, 422, { align: 'center' });
+  doc.text('SINC2026 · Skål International Coimbatore', W / 2, y, { align: 'center' });
   doc.setTextColor(0, 0, 0);
   return doc;
 };
