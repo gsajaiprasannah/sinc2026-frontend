@@ -2255,6 +2255,13 @@
       <div id="bulkCreateLoginsResult" class="hint" style="margin-top:10px;white-space:pre-wrap;"></div>
     </div>
 
+    <div class="section-title">Reset every host member's password to pass123</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">Use this right before sending a credentials newsletter so <code>pass123</code> is guaranteed correct for every host member — creates a login for anyone who doesn't have one yet (same as above), and <strong>also resets the password of everyone who already has a login</strong>, even if they already changed it. This is more disruptive than "Create Logins" above — only run it when you're about to tell everyone their password is pass123.</p>
+      <button class="btn" type="button" id="bulkResetHostPasswordsBtn" style="border:1px solid var(--red);color:var(--red);">Reset ALL Host Member Passwords to pass123</button>
+      <div id="bulkResetHostPasswordsResult" class="hint" style="margin-top:10px;white-space:pre-wrap;"></div>
+    </div>
+
     <div class="section-title">Pending signup requests</div>
     <div class="card table-scroll">
       <table>
