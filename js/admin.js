@@ -299,6 +299,39 @@ window.removeSpeakerPhoto = async (id) => {
   catch (err) { toast(err.message); }
 };
 
+// Shared hidden <input type="file"> (see admin.html) for the vendor/payee's
+// actual bill on a finance outward payment or purchase request — kept
+// separate from #imgUploadInput above since a bill is often a PDF scan, not
+// an image (that input's accept="image/*" would reject it).
+let financeBillUploadTarget = null; // finance_transactions.id
+document.getElementById('financeBillUploadInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  const id = financeBillUploadTarget;
+  e.target.value = '';
+  financeBillUploadTarget = null;
+  if (!file || !id) return;
+  try {
+    await uploadFileBlob(`${API}/finance/outward/${id}/bill`, file);
+    toast('Bill attached');
+    refreshFinanceOutward();
+    refreshFinancePurchases();
+  } catch (err) { toast(err.message); }
+});
+window.triggerFinanceBillUpload = (id) => { financeBillUploadTarget = id; document.getElementById('financeBillUploadInput').click(); };
+window.removeFinanceBill = async (id) => {
+  try { await jdel(`${API}/finance/outward/${id}/bill`); toast('Bill removed'); refreshFinanceOutward(); refreshFinancePurchases(); }
+  catch (err) { toast(err.message); }
+};
+// Renders the Bill cell shared by the Outward Payments and Purchase
+// Requests tables — a "View" link to the vendor/payee's actual bill file
+// (image or PDF, opened in a new tab — no thumbnail assumption since it
+// isn't always an image) plus Upload/Replace/Remove, same shape as
+// photoCell/cardCell above but for finance_transactions rows.
+function financeBillCell(id, billUrl) {
+  const view = billUrl ? `<a href="${mediaUrl(billUrl)}" target="_blank" rel="noopener" class="btn small" style="text-decoration:none;">View</a> ` : '';
+  return `${view}<button type="button" class="btn small" onclick="triggerFinanceBillUpload(${id})">${billUrl ? 'Replace' : 'Upload'}</button>${billUrl ? ` <button type="button" class="btn small" onclick="removeFinanceBill(${id})">Remove</button>` : ''}`;
+}
+
 // --- Congress-wide member Photo / Business Card uploads (Delegates, Host
 // Members, Volunteers) — same shared imgUploadInput mechanism as the
 // sponsor logo / speaker photo uploads above, just with 6 more "kinds"
@@ -3751,6 +3784,65 @@ window.downloadAllHostMemberReceiptsPdf = async () => {
   } catch (err) { toast(err.message); }
 };
 
+// Payment Receipt PDF (Sponsorship payment) — same letterhead/badge/
+// watermark treatment as the delegate/host-member receipts above, for a
+// single sponsor's own sponsorship payment. Sponsors don't have a natural
+// receipt number, so one is synthesized as SP-RC-<zero-padded id>
+// (distinct from the sponsor's SP-#### pass code).
+function sponsorReceiptNo(s) {
+  return `SP-RC-${String(s.id).padStart(6, '0')}`;
+}
+async function pdfAddSponsorReceiptBody(doc, s, firstPage) {
+  if (!firstPage) doc.addPage();
+  const receiptNo = sponsorReceiptNo(s);
+  let y = await pdfLetterhead(doc, 'Payment Receipt', `Receipt No. ${receiptNo}  ·  Issued ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`);
+
+  if (s.payment_status === 'paid') {
+    doc.setFont(undefined, 'bold'); doc.setFontSize(70);
+    doc.setTextColor(236, 243, 233);
+    doc.text('PAID', 300, 430, { align: 'center', angle: 30 });
+    doc.setTextColor(0, 0, 0);
+  }
+
+  pdfBadge(doc, PDF_CONTENT_RIGHT - 110, y - 14, s.payment_status === 'paid' ? 'PAID' : 'PAYMENT PENDING', s.payment_status === 'paid' ? 'paid' : 'neutral');
+
+  y = pdfSectionLabel(doc, y, 'Billed To');
+  y = pdfKeyValues(doc, y, [
+    ['Sponsor / Organization', s.name || '-'],
+    ['Tier', s.tier || '-'],
+    ['Contact Person', s.contact_person || '-'],
+  ]);
+
+  y = pdfSectionLabel(doc, y, 'Payment Details');
+  y = pdfTable(doc, y, [
+    { label: 'Description', width: 355 },
+    { label: 'Amount (₹)', width: 160, align: 'right' },
+  ], [[`Sponsorship${s.tier ? ' — ' + s.tier : ''} — ${receiptNo}`, Number(s.payment_amount || 0).toLocaleString('en-IN')]]);
+
+  y = pdfSectionLabel(doc, y + 8, 'Payment Information');
+  y = pdfKeyValues(doc, y, [
+    ['Status', receiptStatusLabel(s.payment_status === 'paid' ? 'paid' : 'pending')],
+    ['Payment Mode', s.payment_mode || '-'],
+    ['Payment Date', s.payment_date ? new Date(s.payment_date).toLocaleDateString('en-IN') : '-'],
+  ]);
+
+  y = pdfMaybeNewPage(doc, y, 30);
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
+  doc.text('This receipt confirms the sponsorship payment recorded in the SINC2026 system. For queries, contact the Sponsorship team.', PDF_MARGIN, y, { maxWidth: 515 });
+  doc.setTextColor(0, 0, 0);
+  return y;
+}
+window.downloadSponsorReceiptPdf = async (id) => {
+  try {
+    const s = await jget(`${API}/sponsors/${id}`);
+    const doc = pdfDoc();
+    await pdfAddSponsorReceiptBody(doc, s, true);
+    pdfFinalize(doc);
+    doc.save(`receipt-${sponsorReceiptNo(s)}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
 // Host Registration & Payments (own ₹5,000 contribution report)
 window.downloadHostPaymentsListPdf = async () => {
   try {
@@ -4436,18 +4528,20 @@ async function refreshSponsors() {
       <td>${s.guest_relation_name || '-'}</td>
       <td>${s.checklist_done}/${s.checklist_total}</td>
       <td><span class="pill ${s.status === 'confirmed' ? 'paid' : s.status === 'cancelled' ? 'pending' : 'not_started'}">${s.status}</span></td>
+      <td><span class="pill ${s.payment_status}">${s.payment_status}</span>${s.payment_amount ? ' <span class="hint">₹' + Number(s.payment_amount).toLocaleString('en-IN') + '</span>' : ''}</td>
       <td class="sticky-actions">
         <button class="btn small" onclick="editSponsor(${s.id})">Edit</button>
         <button class="btn small" onclick="openChecklistModal('sponsor', ${s.id})">Checklist</button>
         <button class="btn small" onclick="downloadSponsorDetailPdf(${s.id})">PDF</button>
+        <button class="btn small" onclick="downloadSponsorReceiptPdf(${s.id})">Receipt</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteSponsor(${s.id})">Delete</button>` : ''}
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="8" class="empty">No sponsors yet</td></tr>';
+  `).join('') || '<tr><td colspan="9" class="empty">No sponsors yet</td></tr>';
 }
 window.deleteSponsor = async (id) => { await jdel(`${API}/sponsors/${id}`); toast('Sponsor deleted'); refreshSponsors(); };
 
-const SPONSOR_FORM_FIELDS = ['name', 'tier', 'contact_person', 'phone', 'email', 'guest_relation_host_member_id', 'status', 'notes'];
+const SPONSOR_FORM_FIELDS = ['name', 'tier', 'contact_person', 'phone', 'email', 'guest_relation_host_member_id', 'status', 'notes', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date'];
 window.editSponsor = async (id) => {
   const s = await jget(`${API}/sponsors/${id}`);
   const form = document.getElementById('sponsorForm');
@@ -6227,7 +6321,7 @@ async function refreshFinanceSummary() {
 // --- Inward ledger ---
 const FINANCE_SOURCE_LABEL = {
   registration: 'Registration', host_member: 'Host Member', stall_booking: 'Stall Booking',
-  pre_tour: 'Pre-Tour', manual: 'Manual entry'
+  pre_tour: 'Pre-Tour', sponsor: 'Sponsor', manual: 'Manual entry'
 };
 async function refreshFinanceInward() {
   try {
@@ -6241,6 +6335,7 @@ async function refreshFinanceInward() {
         <td>${Number(r.amount || 0).toLocaleString('en-IN')}</td>
         <td>${r.payment_mode || '-'}</td>
         <td class="sticky-actions">
+          <button class="btn small" onclick="downloadInwardReceiptPdf('${r.source}', ${r.source_id})">Receipt</button>
           ${r.source === 'manual' ? `
             <button class="btn small" onclick="editFinanceInward(${r.source_id})">Update</button>
             ${canDelete() ? `<button class="btn danger small" onclick="deleteFinanceInward(${r.source_id})">Delete</button>` : ''}
@@ -6315,6 +6410,82 @@ window.downloadFinanceInwardListPdf = async () => {
   } catch (err) { toast(err.message); }
 };
 
+// Per-row Payment Receipt PDF for the Inward Ledger — works uniformly for
+// every source (Registration, Host Member, Stall Booking, Pre-Tour,
+// Sponsor, and Manual entries) since every ledger row already carries
+// enough fields (category, reference, amount, payment mode, date, notes) to
+// build a full receipt, without needing bespoke logic per source module.
+// Same letterhead/badge/watermark treatment as the other receipts in this
+// file, just labelled "RECEIVED" rather than "PAID" since every row here is,
+// by definition, money that has already come in.
+const INWARD_RECEIPT_PREFIX = {
+  registration: 'REG', host_member: 'HC', stall_booking: 'SB', pre_tour: 'PT', sponsor: 'SP', manual: 'MAN'
+};
+function inwardReceiptNo(row) {
+  return `IN-${INWARD_RECEIPT_PREFIX[row.source] || 'GEN'}-${String(row.source_id).padStart(6, '0')}`;
+}
+async function pdfAddInwardReceiptBody(doc, row, firstPage) {
+  if (!firstPage) doc.addPage();
+  const receiptNo = inwardReceiptNo(row);
+  let y = await pdfLetterhead(doc, 'Payment Receipt', `Receipt No. ${receiptNo}  ·  Issued ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}`);
+
+  doc.setFont(undefined, 'bold'); doc.setFontSize(70);
+  doc.setTextColor(236, 243, 233);
+  doc.text('RECEIVED', 300, 430, { align: 'center', angle: 30 });
+  doc.setTextColor(0, 0, 0);
+
+  pdfBadge(doc, PDF_CONTENT_RIGHT - 110, y - 14, 'RECEIVED', 'paid');
+
+  y = pdfSectionLabel(doc, y, 'Received From');
+  y = pdfKeyValues(doc, y, [
+    ['Name / Source', row.reference || '-'],
+    ['Source Type', FINANCE_SOURCE_LABEL[row.source] || row.source],
+  ]);
+
+  y = pdfSectionLabel(doc, y, 'Payment Details');
+  y = pdfTable(doc, y, [
+    { label: 'Description', width: 355 },
+    { label: 'Amount (₹)', width: 160, align: 'right' },
+  ], [[`${row.category || FINANCE_SOURCE_LABEL[row.source] || row.source} — ${receiptNo}`, Number(row.amount || 0).toLocaleString('en-IN')]]);
+
+  y = pdfSectionLabel(doc, y + 8, 'Payment Information');
+  y = pdfKeyValues(doc, y, [
+    ['Payment Mode', row.payment_mode || '-'],
+    ['Date', row.transaction_date ? new Date(row.transaction_date).toLocaleDateString('en-IN') : '-'],
+    ['Notes', row.notes || '-'],
+  ]);
+
+  y = pdfMaybeNewPage(doc, y, 30);
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
+  doc.text('This receipt confirms an inward payment recorded in the SINC2026 Finance ledger. For queries, contact the Finance team.', PDF_MARGIN, y, { maxWidth: 515 });
+  doc.setTextColor(0, 0, 0);
+  return y;
+}
+window.downloadInwardReceiptPdf = async (source, sourceId) => {
+  try {
+    const rows = await jget(`${API}/finance/inward`);
+    const row = rows.find((r) => r.source === source && Number(r.source_id) === Number(sourceId));
+    if (!row) { toast('Transaction not found'); return; }
+    const doc = pdfDoc();
+    await pdfAddInwardReceiptBody(doc, row, true);
+    pdfFinalize(doc);
+    doc.save(`receipt-${inwardReceiptNo(row)}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadAllInwardReceiptsPdf = async () => {
+  try {
+    const rows = await jget(`${API}/finance/inward`);
+    if (!rows.length) { toast('No inward transactions to generate receipts for'); return; }
+    const doc = pdfDoc();
+    for (let i = 0; i < rows.length; i++) {
+      await pdfAddInwardReceiptBody(doc, rows[i], i === 0);
+    }
+    pdfFinalize(doc);
+    doc.save('all-inward-receipts.pdf');
+  } catch (err) { toast(err.message); }
+};
+
 // --- Outward: plain payments ---
 async function refreshFinanceOutward() {
   try {
@@ -6326,6 +6497,7 @@ async function refreshFinanceOutward() {
         <td>${Number(r.amount || 0).toLocaleString('en-IN')}</td>
         <td><span class="pill ${r.status}">${FINANCE_STATUS_LABEL[r.status] || r.status}</span></td>
         <td>${financeApprovalChipsHtml(r.approvals)}</td>
+        <td>${financeBillCell(r.id, r.bill_url)}</td>
         <td class="sticky-actions">
           ${r.status === 'pending_approval' ? `<button class="btn small" onclick="editFinanceOutward(${r.id})">Update</button>` : ''}
           ${r.status === 'approved' ? `<button class="btn small" onclick="markFinanceOutwardPaid(${r.id})">Mark Paid</button>` : ''}
@@ -6333,7 +6505,7 @@ async function refreshFinanceOutward() {
           ${canDelete() ? `<button class="btn danger small" onclick="deleteFinanceOutward(${r.id}, '${r.status}')">Delete</button>` : ''}
         </td>
       </tr>
-    `).join('') || '<tr><td colspan="6" class="empty">No payment requests yet</td></tr>';
+    `).join('') || '<tr><td colspan="7" class="empty">No payment requests yet</td></tr>';
   } catch (err) { toast(err.message); }
 }
 // Deleting a request that's already fully paid is a permanent removal from
@@ -6471,6 +6643,7 @@ async function refreshFinancePurchases() {
           ${r.actual_delivery_date ? `<div class="hint">Actual: ${new Date(r.actual_delivery_date).toLocaleDateString()}</div>` : ''}
         </td>
         <td>${r.inventory_item_id ? `Linked (item #${r.inventory_item_id})` : '-'}</td>
+        <td>${financeBillCell(r.id, r.bill_url)}</td>
         <td class="sticky-actions">
           ${r.status === 'pending_approval' ? `<button class="btn small" onclick="editFinancePurchase(${r.id})">Update</button>` : ''}
           ${r.status === 'approved' ? `<button class="btn small" onclick="markFinanceOutwardPaid(${r.id})">Mark Paid</button>` : ''}
@@ -6478,7 +6651,7 @@ async function refreshFinancePurchases() {
           ${canDelete() ? `<button class="btn danger small" onclick="deleteFinanceOutward(${r.id}, '${r.status}')">Delete</button>` : ''}
         </td>
       </tr>
-    `).join('') || '<tr><td colspan="8" class="empty">No purchase requests yet</td></tr>';
+    `).join('') || '<tr><td colspan="9" class="empty">No purchase requests yet</td></tr>';
   } catch (err) { toast(err.message); }
 }
 window.updateFinancePurchaseDelivery = async (id, delivery_status) => {
