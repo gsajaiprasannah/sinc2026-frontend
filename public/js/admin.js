@@ -860,6 +860,8 @@ async function refreshParts(query) {
         <button class="btn small" onclick="editPart(${p.id})">Update</button>
         <button class="btn small" onclick="openGoodiesModal('participant', ${p.id}, '${(p.name || '').replace(/'/g, "\\'")}')">Goodies</button>
         <button class="btn small" onclick="downloadDelegateDetailPdf(${p.id})">PDF</button>
+        ${p.badge_token ? `<button class="btn small" onclick="downloadParticipantBadge(${p.id})">Badge</button>
+        <button class="btn small" onclick="downloadQrPng('${p.badge_token}', '${(p.name || '').replace(/'/g, "\\'")}')">QR</button>` : ''}
         ${canDelete() ? `<button class="btn danger small" onclick="deletePart(${p.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -1383,6 +1385,8 @@ async function refreshHostMembers(query) {
         <button class="btn small" onclick="openGoodiesModal('host_member', ${h.id}, '${(h.name || '').replace(/'/g, "\\'")}')">Goodies</button>
         <button class="btn small" onclick="downloadHostMemberDetailPdf(${h.id})">PDF</button>
         <button class="btn small" onclick="downloadHostMemberReceiptPdf(${h.id})">Receipt</button>
+        ${h.badge_token ? `<button class="btn small" onclick="downloadHostMemberBadge(${h.id})">Badge</button>
+        <button class="btn small" onclick="downloadQrPng('${h.badge_token}', '${(h.name || '').replace(/'/g, "\\'")}')">QR</button>` : ''}
         ${canDelete() ? `<button class="btn danger small" onclick="deleteHm(${h.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -3075,6 +3079,135 @@ function pdfFinalize(doc) {
   }
 }
 
+// --- QR Badges -----------------------------------------------------------
+// One QR per Delegate/Host Member, encoding this frontend's own origin +
+// /badge.html?token=<badge_token> (never the raw id — see server/db.js's
+// badge_token migration comment for why). The SAME link works three ways
+// depending on who scans it: see public/badge.html + server/routes/badge.js.
+// window.QRCode comes from the qrcode CDN script tag in admin.html.
+function badgeUrlFor(token) {
+  return `${window.location.origin}/badge.html?token=${encodeURIComponent(token)}`;
+}
+async function getQrDataUrl(token, sizePx) {
+  return window.QRCode.toDataURL(badgeUrlFor(token), { width: sizePx || 300, margin: 1 });
+}
+// Downloads just the QR code as a standalone PNG — the lightweight option in
+// the admin list (vs. the full Badge PDF below) for someone who just wants
+// to print/paste the code somewhere themselves.
+window.downloadQrPng = async (token, name) => {
+  try {
+    const dataUrl = await getQrDataUrl(token, 480);
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = `qr-${(name || 'badge').replace(/[^a-z0-9]+/gi, '_')}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } catch (err) { toast('Could not generate QR code: ' + err.message); }
+};
+
+// Builds one printable badge (4in x 6in, portrait) with the person's name,
+// role/org, photo (or an initial if no photo on file), and the same QR used
+// everywhere else for them. `person` needs: name, badge_token, photo_url,
+// and roleLabel/orgLabel already resolved by the caller (Delegate vs Host
+// Member each format that slightly differently).
+async function buildBadgePdf(person) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: [288, 432] });
+  const W = 288;
+  const logos = await getPdfLogos();
+
+  pdfSetColor(doc, 'setFillColor', PDF_BRAND.navy);
+  doc.rect(0, 0, W, 54, 'F');
+  pdfSetColor(doc, 'setFillColor', PDF_BRAND.lightblue);
+  doc.rect(0, 54, W, 3, 'F');
+  if (logos.coimbatore) {
+    const { w, h } = pdfFitImage(logos.coimbatore.ratio, 140, 26);
+    doc.addImage(logos.coimbatore.dataUrl, 'PNG', (W - w) / 2, (54 - h) / 2, w, h);
+  }
+
+  let y = 90;
+  // Photo (circle-cropped via a clipping trick jsPDF doesn't natively support,
+  // so we just draw it square with a rounded-rect border for a clean look).
+  const photoSize = 100;
+  const photoX = (W - photoSize) / 2;
+  if (person.photo_url) {
+    try {
+      const dataUrl = await pdfImageToDataUrl(mediaUrl(person.photo_url));
+      doc.addImage(dataUrl, photoX, y, photoSize, photoSize);
+    } catch (err) { /* fall through to initial */ }
+  } else {
+    pdfSetColor(doc, 'setFillColor', PDF_BRAND.navy);
+    doc.circle(W / 2, y + photoSize / 2, photoSize / 2, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont(undefined, 'bold'); doc.setFontSize(40);
+    doc.text((person.name || '?').trim().charAt(0).toUpperCase(), W / 2, y + photoSize / 2 + 14, { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+  }
+  pdfSetColor(doc, 'setDrawColor', PDF_BRAND.border);
+  doc.setLineWidth(1.2);
+  doc.rect(photoX, y, photoSize, photoSize);
+  y += photoSize + 22;
+
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.navy);
+  doc.setFont(undefined, 'bold'); doc.setFontSize(16);
+  doc.text(person.name || '', W / 2, y, { align: 'center', maxWidth: W - 30 });
+  y += 18;
+  doc.setFont(undefined, 'normal'); doc.setFontSize(10.5);
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.grey);
+  doc.text(person.roleLabel || '', W / 2, y, { align: 'center', maxWidth: W - 30 });
+  if (person.orgLabel) {
+    y += 13;
+    doc.text(person.orgLabel, W / 2, y, { align: 'center', maxWidth: W - 30 });
+  }
+  doc.setTextColor(0, 0, 0);
+  y += 20;
+
+  const qrSize = 130;
+  try {
+    const qrDataUrl = await getQrDataUrl(person.badge_token, 400);
+    doc.addImage(qrDataUrl, 'PNG', (W - qrSize) / 2, y, qrSize, qrSize);
+    y += qrSize + 12;
+  } catch (err) { /* skip QR if generation failed — badge is still usable */ }
+
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
+  doc.setFont(undefined, 'normal'); doc.setFontSize(7.5);
+  doc.text('Scan for contact card · staff scan for room/transport & check-in', W / 2, y, { align: 'center', maxWidth: W - 24 });
+
+  pdfSetColor(doc, 'setDrawColor', PDF_BRAND.border);
+  doc.setLineWidth(0.75);
+  doc.line(20, 410, W - 20, 410);
+  doc.setFont(undefined, 'bold'); doc.setFontSize(8.5);
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.navy);
+  doc.text('SINC2026 · Skål International Coimbatore', W / 2, 422, { align: 'center' });
+  doc.setTextColor(0, 0, 0);
+  return doc;
+};
+window.downloadParticipantBadge = async (id) => {
+  try {
+    const p = await jget(`${API}/participants/${id}`);
+    if (!p.badge_token) { toast('This delegate has no QR badge token yet — refresh the page and try again.'); return; }
+    const doc = await buildBadgePdf({
+      name: p.name, photo_url: p.photo_url, badge_token: p.badge_token,
+      roleLabel: 'Delegate' + (p.designation ? ' · ' + p.designation : ''),
+      orgLabel: p.club_name || ''
+    });
+    doc.save(`badge-${(p.name || 'delegate').replace(/[^a-z0-9]+/gi, '_')}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadHostMemberBadge = async (id) => {
+  try {
+    const h = await jget(`${API}/hostmembers/${id}`);
+    if (!h.badge_token) { toast('This host member has no QR badge token yet — refresh the page and try again.'); return; }
+    const doc = await buildBadgePdf({
+      name: h.name, photo_url: h.photo_url, badge_token: h.badge_token,
+      roleLabel: h.designation || 'Host Member',
+      orgLabel: h.company || ''
+    });
+    doc.save(`badge-${(h.name || 'host_member').replace(/[^a-z0-9]+/gi, '_')}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
 function pdfSectionLabel(doc, y, label) {
   y = pdfMaybeNewPage(doc, y, 26);
   pdfSetColor(doc, 'setFillColor', PDF_BRAND.lightblue);
@@ -3361,6 +3494,30 @@ async function pdfAddReceiptBody(doc, reg, delegates, firstPage) {
     ['Payment Reference', reg.payment_ref || '-'],
   ]);
 
+  // One QR thumbnail per delegate on this registration (badge_token — never
+  // the raw id), side by side, so a printed receipt doubles as a scannable
+  // check-in/contact-card reference even before the badge itself is issued.
+  const qrDelegates = delegates.filter((d) => d.badge_token);
+  if (qrDelegates.length) {
+    y = pdfSectionLabel(doc, y + 8, 'Delegate QR Codes');
+    y = pdfMaybeNewPage(doc, y, 90);
+    const qrSize = 62;
+    const gap = 24;
+    let qx = PDF_MARGIN;
+    for (const d of qrDelegates) {
+      try {
+        const dataUrl = await getQrDataUrl(d.badge_token, 300);
+        doc.addImage(dataUrl, 'PNG', qx, y, qrSize, qrSize);
+        doc.setFont(undefined, 'normal'); doc.setFontSize(8);
+        pdfSetColor(doc, 'setTextColor', PDF_BRAND.grey);
+        doc.text(d.name || '', qx + qrSize / 2, y + qrSize + 11, { align: 'center', maxWidth: qrSize + 20 });
+        doc.setTextColor(0, 0, 0);
+      } catch (err) { /* skip this delegate's QR if generation failed */ }
+      qx += qrSize + gap;
+    }
+    y += qrSize + 24;
+  }
+
   y = pdfMaybeNewPage(doc, y, 30);
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
   doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
@@ -3534,6 +3691,24 @@ async function pdfAddHostMemberReceiptBody(doc, h, firstPage) {
     ['Payment Mode', h.payment_mode || '-'],
     ['Payment Date', h.payment_date ? new Date(h.payment_date).toLocaleDateString('en-IN') : '-'],
   ]);
+
+  // QR (badge_token, never the raw id) so this receipt doubles as a
+  // scannable check-in/contact-card reference even before the badge itself
+  // is printed.
+  if (h.badge_token) {
+    y = pdfSectionLabel(doc, y + 8, 'QR Code');
+    y = pdfMaybeNewPage(doc, y, 90);
+    const qrSize = 62;
+    try {
+      const dataUrl = await getQrDataUrl(h.badge_token, 300);
+      doc.addImage(dataUrl, 'PNG', PDF_MARGIN, y, qrSize, qrSize);
+      doc.setFont(undefined, 'normal'); doc.setFontSize(8);
+      pdfSetColor(doc, 'setTextColor', PDF_BRAND.grey);
+      doc.text(h.name || '', PDF_MARGIN + qrSize / 2, y + qrSize + 11, { align: 'center', maxWidth: qrSize + 20 });
+      doc.setTextColor(0, 0, 0);
+      y += qrSize + 24;
+    } catch (err) { /* skip QR if generation failed — receipt is still valid */ }
+  }
 
   y = pdfMaybeNewPage(doc, y, 30);
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
