@@ -95,6 +95,56 @@ function renderPendingPreview(wrapId, file, label) {
   `;
 }
 
+// Drink preference is stored as one comma-separated TEXT column, but shown as
+// a group of checkboxes (nicer UX than a multi-select, and avoids the
+// same-name-collision problem a <select multiple> would hit against this
+// codebase's `Object.fromEntries(new FormData(form).entries())` serialization
+// pattern, which only keeps the last value for a repeated field name). The
+// checkboxes deliberately carry no `name` attribute so FormData ignores them
+// automatically — the checked values are collected manually into
+// body.drink_preference right before the save request goes out. "No Alcohol"
+// is mutually exclusive with every other option since picking both makes no
+// sense.
+function wireDrinkPrefExclusivity(scope) {
+  const boxes = Array.from(scope.querySelectorAll('.drinkPrefBox'));
+  const noAlcohol = scope.querySelector('.noAlcoholBox');
+  boxes.forEach((box) => {
+    box.addEventListener('change', () => {
+      if (box === noAlcohol && box.checked) {
+        boxes.forEach((b) => { if (b !== noAlcohol) b.checked = false; });
+      } else if (box !== noAlcohol && box.checked && noAlcohol) {
+        noAlcohol.checked = false;
+      }
+    });
+  });
+}
+wireDrinkPrefExclusivity(document.getElementById('editForm'));
+
+// Pre-Tours are limited-seat and first-come-first-served (see the hint text
+// on the page, and the server-side capacity check in publicProfile.js's PUT
+// /participant/:id/pretour) — the dropdown shows live seat counts and
+// disables tours that are already full so a delegate can see availability
+// before picking, instead of only finding out after hitting Save.
+let PRETOURS = [];
+async function loadPretourOptions() {
+  try {
+    const rows = await fetch(`${API}/public/pretours`).then((r) => r.json());
+    PRETOURS = Array.isArray(rows) ? rows : [];
+    const sel = document.getElementById('pretourSelect');
+    if (!sel) return;
+    const opts = PRETOURS.map((t) => {
+      const full = t.capacity !== null && t.capacity !== undefined && Number(t.participant_count) >= Number(t.capacity);
+      const seats = (t.capacity !== null && t.capacity !== undefined) ? `${t.participant_count}/${t.capacity} seats` : `${t.participant_count} signed up`;
+      const dates = t.start_date ? ` (${t.start_date}${t.end_date ? ' – ' + t.end_date : ''})` : '';
+      return `<option value="${t.id}"${full ? ' disabled' : ''}>${t.name}${dates} — ${seats}${full ? ' — FULL' : ''}</option>`;
+    }).join('');
+    sel.innerHTML = '<option value="">No, thank you — not attending a pre-tour</option>' + opts;
+  } catch (e) {
+    // Non-fatal — the dropdown just stays with only the "No thanks" option.
+  }
+}
+loadPretourOptions();
+
 function openRecord(match) {
   current = { id: match.id, name: match.name, phone: match.phone };
   pendingPhoto = null;
@@ -116,6 +166,12 @@ function openRecord(match) {
   form.elements.shirt_size.value = match.shirt_size || '';
   form.elements.tshirt_size.value = match.tshirt_size || '';
   form.elements.waist_size.value = match.waist_size || '';
+  form.elements.dietary_preference.value = match.dietary_preference || '';
+  const drinks = (match.drink_preference || '').split(',').map((s) => s.trim()).filter(Boolean);
+  form.querySelectorAll('.drinkPrefBox').forEach((box) => { box.checked = drinks.includes(box.value); });
+  form.elements.special_requests.value = match.special_requests || '';
+  const pretourSel = document.getElementById('pretourSelect');
+  if (pretourSel) pretourSel.value = match.pre_tour_id ? String(match.pre_tour_id) : '';
   renderPreview('photoPreviewWrap', match.photo_url, 'photo');
   renderPreview('cardPreviewWrap', match.business_card_url, 'business card');
 }
@@ -177,6 +233,16 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
     const body = Object.fromEntries(new FormData(e.target).entries());
     body.name = current.name;
     body.phone = current.phone;
+    // Drink preference is collected manually from the checkbox group (see
+    // wireDrinkPrefExclusivity's comment above) rather than via FormData,
+    // since the checkboxes have no `name` attribute.
+    const checkedDrinks = Array.from(e.target.querySelectorAll('.drinkPrefBox:checked')).map((b) => b.value);
+    body.drink_preference = checkedDrinks.join(', ');
+    // Pre-tour signup is a separate table (pre_tour_participants), not a
+    // participants column — saved via its own request right after this one.
+    const pretourChoice = body.pretour_choice || '';
+    delete body.pretour_choice;
+
     const r = await fetch(`${API}/public-profile/participant/${current.id}/travel`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -196,9 +262,32 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
       pendingCard = null;
     }
 
-    btn.textContent = '✓ Saved';
-    toast('All changes saved — thank you!', 3000);
-    setTimeout(() => { btn.textContent = originalLabel; }, 2000);
+    // Pre-tour signup can fail on its own (e.g. the tour filled up between
+    // page load and Save) without the rest of this page's changes being
+    // lost — everything above already saved, so surface that specific
+    // problem instead of a generic failure.
+    let pretourError = null;
+    try {
+      const ptRes = await fetch(`${API}/public-profile/participant/${current.id}/pretour`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: current.name, phone: current.phone, pre_tour_id: pretourChoice || null })
+      });
+      const ptData = await ptRes.json();
+      if (!ptRes.ok) pretourError = ptData.error || 'Pre-tour signup failed';
+      else loadPretourOptions(); // refresh seat counts now that this signup has changed them
+    } catch (ptErr) {
+      pretourError = ptErr.message;
+    }
+
+    if (pretourError) {
+      toast(pretourError, 6000);
+      btn.textContent = originalLabel;
+    } else {
+      btn.textContent = '✓ Saved';
+      toast('All changes saved — thank you!', 3000);
+      setTimeout(() => { btn.textContent = originalLabel; }, 2000);
+    }
   } catch (err) {
     toast(err.message, 4000);
     btn.textContent = originalLabel;

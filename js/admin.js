@@ -1043,6 +1043,14 @@ async function refreshParts(query) {
       { label: 'SPOC', value: spocDisplay(p) },
       { label: 'Payment', value: paymentPill(p.payment_status) },
       { label: 'Sizes', value: sizesLabel(p) },
+      { label: 'Food preference', value: p.dietary_preference || 'No preference' },
+      { label: 'Drink preference', value: p.drink_preference || '-' },
+      { label: 'Special requests', value: p.special_requests || '-' },
+      { label: 'Pre-Tour', value: (() => {
+        if (!p.pre_tour_id) return '-';
+        const t = PRETOURS_LITE_CACHE.find((r) => r.id === p.pre_tour_id);
+        return t ? t.name : `#${p.pre_tour_id}`;
+      })() },
       { label: 'Photo', value: photoCell('participant', p) },
       { label: 'Card', value: cardCell('participant', p) },
     ];
@@ -1075,11 +1083,61 @@ window.highlightPartCard = (id) => {
 
 const PART_FORM_FIELDS = [
   'name', 'phone', 'whatsapp', 'email', 'address', 'club_id', 'registration_id', 'designation', 'is_primary',
+  'dietary_preference', 'special_requests',
   'travel_mode', 'travel_number', 'travel_datetime', 'arrival_point',
   'departure_mode', 'departure_number', 'departure_datetime', 'departure_point',
   'pickup_by', 'pickup_vehicle', 'pickup_phone', 'spoc_name', 'spoc_phone', 'notes',
   'shirt_size', 'tshirt_size', 'waist_size'
+  // drink_preference (checkbox group) and pretour_choice (separate
+  // pre_tour_participants row) are handled manually below — see editPart's
+  // drink-checkbox/pretour-select prefill and savePartForm's collection of
+  // both right before the save request.
 ];
+
+// Same drink-preference mutual-exclusivity as the Delegate's own My Travel
+// Details self-fill page (public/js/mytravel.js) — "No Alcohol" clears every
+// other checkbox and vice versa. Kept as its own small helper here since
+// admin.js and mytravel.js are separate files/pages with no shared module.
+function wirePartDrinkPrefExclusivity() {
+  const form = document.getElementById('partForm');
+  if (!form) return;
+  const boxes = Array.from(form.querySelectorAll('.drinkPrefBox'));
+  const noAlcohol = form.querySelector('.noAlcoholBox');
+  boxes.forEach((box) => {
+    box.addEventListener('change', () => {
+      if (box === noAlcohol && box.checked) {
+        boxes.forEach((b) => { if (b !== noAlcohol) b.checked = false; });
+      } else if (box !== noAlcohol && box.checked && noAlcohol) {
+        noAlcohol.checked = false;
+      }
+    });
+  });
+}
+wirePartDrinkPrefExclusivity();
+
+// Pre-Tours list for the Delegates form's Pre-Tour select — mirrors the
+// public my-travel.html page's own fetch (there via /api/public/pretours,
+// here via the admin-only /api/pretours since the admin is already
+// authenticated). Seat counts are shown so an admin can see at a glance
+// whether a tour still has room, same reasoning as the public page (pre-tours
+// are limited-seat and first-come-first-served) — though unlike the public
+// self-service signup, an admin CAN still pick a full tour here (deliberate
+// override), so full options aren't disabled, just labeled.
+let PRETOURS_LITE_CACHE = [];
+async function refreshPartPretourOptions() {
+  try {
+    const rows = await jget(`${API}/pretours`);
+    PRETOURS_LITE_CACHE = rows;
+    const sel = document.getElementById('partPretourSelect');
+    if (!sel) return;
+    const opts = rows.map((t) => {
+      const full = t.capacity !== null && t.capacity !== undefined && Number(t.participant_count) >= Number(t.capacity);
+      const seats = (t.capacity !== null && t.capacity !== undefined) ? `${t.participant_count}/${t.capacity}` : `${t.participant_count}`;
+      return `<option value="${t.id}">${t.name} (${seats} seats)${full ? ' — FULL' : ''}</option>`;
+    }).join('');
+    sel.innerHTML = '<option value="">-- none --</option>' + opts;
+  } catch (err) { /* Pre Tours tab not reachable / no tours yet — leave "-- none --" */ }
+}
 
 // Core identity/registration fields — frozen for everyone except super_admin
 // once a delegate already exists (mirrors the server-side check in
@@ -1106,6 +1164,9 @@ window.editPart = async (id) => {
   if (form.elements.spoc_host_member_id) {
     form.elements.spoc_host_member_id.value = p.spoc_host_member_id || '';
   }
+  const drinks = (p.drink_preference || '').split(',').map((s) => s.trim()).filter(Boolean);
+  form.querySelectorAll('.drinkPrefBox').forEach((box) => { box.checked = drinks.includes(box.value); });
+  if (form.elements.pretour_choice) form.elements.pretour_choice.value = p.pre_tour_id ? String(p.pre_tour_id) : '';
   form.dataset.editId = id;
   // Name, phone, club, and registration are frozen once a delegate exists —
   // only a super admin can change them (server-side enforced too, see
@@ -1154,6 +1215,14 @@ async function savePartForm(form, force) {
   // as a delegate_assignments row (role='SPOC') via /api/assignments/spoc/:id.
   const spocHostMemberId = body.spoc_host_member_id || '';
   delete body.spoc_host_member_id;
+  // Drink preference is collected manually from the checkbox group (no
+  // `name` attribute on the checkboxes, so FormData doesn't touch them —
+  // see wirePartDrinkPrefExclusivity's comment). Pre-tour signup is a
+  // separate table (pre_tour_participants), saved via its own request below.
+  const checkedDrinks = Array.from(form.querySelectorAll('.drinkPrefBox:checked')).map((b) => b.value);
+  body.drink_preference = checkedDrinks.join(', ');
+  const pretourChoice = body.pretour_choice || '';
+  delete body.pretour_choice;
   if (!body.club_id) delete body.club_id;
   if (!body.registration_id) delete body.registration_id;
   // travel_mode/departure_mode have a DB check constraint allowing only
@@ -1178,6 +1247,12 @@ async function savePartForm(form, force) {
         await jput(`${API}/assignments/spoc/${participantId}`, { host_member_id: spocHostMemberId || null });
       } catch (spocErr) {
         toast('Delegate saved, but SPOC link failed: ' + spocErr.message);
+      }
+      try {
+        await jput(`${API}/participants/${participantId}/pretour`, { pre_tour_id: pretourChoice || null });
+        refreshPartPretourOptions(); // seat counts changed
+      } catch (ptErr) {
+        toast('Delegate saved, but Pre-Tour signup failed: ' + ptErr.message);
       }
     }
     if (editId) {
@@ -6335,6 +6410,7 @@ function loadAllData() {
   refreshClubs();
   refreshRegs();
   loadNextRegNumber();
+  refreshPartPretourOptions();
   refreshParts();
   refreshMediaAdmin();
   refreshHappeningsAdmin();
