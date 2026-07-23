@@ -88,6 +88,36 @@
       </div>
       <div class="field"><label>Departure point</label><input name="departure_point" placeholder="Airport / Railway Station / Bus Stand..." /></div>
 
+      <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Food &amp; drink preference</div>
+      <div class="form-grid cols-2">
+        <div class="field"><label>Food preference</label>
+          <select name="dietary_preference">
+            <option value="">No preference</option>
+            <option value="Vegetarian">Vegetarian</option>
+            <option value="Non-vegetarian">Non-vegetarian</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Drink preference</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:4px;">
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox" value="Wine" /> Wine</label>
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox" value="Whiskey" /> Whiskey</label>
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox" value="Brandy" /> Brandy</label>
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox" value="Beer" /> Beer</label>
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox" value="Vodka" /> Vodka</label>
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox" value="Rum" /> Rum</label>
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox noAlcoholBox" value="No Alcohol" /> No Alcohol</label>
+        </div>
+      </div>
+      <div class="field"><label>Special requests</label><textarea name="special_requests" rows="3" placeholder="Any dietary allergies, accessibility needs, or other requests..."></textarea></div>
+
+      <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Pre-Tour registration</div>
+      <p class="hint" style="margin-top:-6px;"><strong>Seats are limited</strong> — pre-tours are allotted on a first-come, first-served basis. Sign up early to secure your spot.</p>
+      <div class="field"><label>Would you like to join a pre-tour?</label>
+        <select name="pretour_choice" id="pretourSelect"><option value="">No, thank you — not attending a pre-tour</option></select>
+      </div>
+
       <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Merchandise</div>
       <div class="form-grid cols-3">
         <div class="field"><label>Shirt size</label>
