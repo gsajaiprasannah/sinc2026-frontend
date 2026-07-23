@@ -5969,6 +5969,41 @@ document.getElementById('bulkCreateLoginsBtn').addEventListener('click', async (
   }
 });
 
+document.getElementById('bulkResetHostPasswordsBtn').addEventListener('click', async () => {
+  if (!confirm('This resets EVERY host member\'s login password to "pass123" — including anyone who already changed it — and creates a login for anyone who still doesn\'t have one. Only do this right before sending a credentials email. Continue?')) return;
+  const btn = document.getElementById('bulkResetHostPasswordsBtn');
+  const out = document.getElementById('bulkResetHostPasswordsResult');
+  btn.disabled = true;
+  btn.textContent = 'Resetting passwords...';
+  out.textContent = '';
+  try {
+    const summary = await jpost(`${API}/auth/users/bulk-reset-host-passwords`, {});
+    const lines = [`Password now "${summary.default_password}" for ${summary.created.length} new + ${summary.reset.length} existing login(s).`];
+    if (summary.created.length) {
+      lines.push(`\nNew logins created (${summary.created.length}):`);
+      summary.created.forEach((c) => lines.push(`  • ${c.name} — username ${c.username}`));
+    }
+    if (summary.reset.length) {
+      lines.push(`\nExisting logins reset (${summary.reset.length}):`);
+      summary.reset.forEach((r) => lines.push(`  • ${r.name}`));
+    }
+    if (summary.skipped.length) {
+      lines.push(`\nSkipped ${summary.skipped.length}:`);
+      summary.skipped.forEach((s) => lines.push(`  • ${s.name} — ${s.reason}`));
+    }
+    out.textContent = lines.join('\n');
+    toast(`${summary.created.length + summary.reset.length} host member login(s) now on pass123`);
+    refreshHostMembers();
+    refreshUsersAdmin();
+  } catch (err) {
+    out.textContent = 'Failed: ' + err.message;
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Reset ALL Host Member Passwords to pass123';
+  }
+});
+
 // --- Settings: user management (super_admin only) ---
 function userBadge(status) {
   const cls = status === 'approved' ? 'paid' : status === 'pending' ? 'partial' : 'pending';
