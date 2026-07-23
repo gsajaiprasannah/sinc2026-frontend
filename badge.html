@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>SINC2026 — Badge</title>
+<link rel="stylesheet" href="css/styles.css" />
+<meta name="theme-color" content="#314691" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-left">
+      <div class="brand">
+        <img src="img/skal-logo.png" alt="Skål International" class="logo-mark" />
+        <div>
+          <h1>SINC2026 Badge</h1>
+          <span>Scan &amp; go</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="container" style="max-width:460px;">
+
+  <div id="loadingState" class="card" style="text-align:center;">
+    <p class="hint">Loading badge…</p>
+  </div>
+
+  <div id="errorState" class="card" style="display:none;text-align:center;">
+    <p style="color:var(--red);">This badge link isn't valid, or the record couldn't be found.</p>
+  </div>
+
+  <!-- ============ PUBLIC (no login) — digital visiting card ============ -->
+  <div id="publicCard" class="card" style="display:none;text-align:center;">
+    <img id="pcPhoto" src="" alt="" style="display:none;width:96px;height:96px;border-radius:50%;object-fit:cover;margin:0 auto 12px;border:3px solid var(--lightblue);" />
+    <div id="pcInitial" style="display:none;width:96px;height:96px;border-radius:50%;background:var(--navy);color:#fff;font-size:34px;font-weight:700;align-items:center;justify-content:center;margin:0 auto 12px;"></div>
+    <h2 id="pcName" style="margin:0 0 4px 0;color:var(--navy);"></h2>
+    <p id="pcRole" class="hint" style="margin:0 0 2px 0;"></p>
+    <p id="pcOrg" class="hint" style="margin:0 0 14px 0;"></p>
+    <div style="text-align:left;margin:0 0 16px 0;">
+      <p id="pcPhone" class="field" style="margin:0 0 6px 0;display:none;"></p>
+      <p id="pcEmail" class="field" style="margin:0;display:none;"></p>
+    </div>
+    <button class="btn gold" id="saveContactBtn" style="width:100%;" type="button">📇 Save to Contacts</button>
+    <p class="hint" style="margin-top:14px;">SINC2026 · Skål International National Congress · Coimbatore</p>
+  </div>
+
+  <!-- ============ STAFF (logged in) — extra ops details ============ -->
+  <div id="staffCard" class="card" style="display:none;margin-top:16px;">
+    <div class="section-title" style="margin-top:0;">Staff View</div>
+
+    <div id="staffRegBlock" style="display:none;margin-bottom:12px;">
+      <p class="field"><label>Registration</label><span id="staffReg"></span></p>
+    </div>
+
+    <div id="staffRoomBlock" style="display:none;margin-bottom:12px;">
+      <p class="field" style="margin-bottom:2px;"><label>Room</label></p>
+      <p id="staffRoom" class="hint"></p>
+    </div>
+
+    <div id="staffTripsBlock" style="display:none;margin-bottom:12px;">
+      <p class="field" style="margin-bottom:2px;"><label>Transport</label></p>
+      <div id="staffTrips"></div>
+    </div>
+
+    <div id="staffCheckinBlock" style="margin-top:14px;">
+      <p id="staffLastCheckin" class="hint" style="display:none;margin-bottom:8px;"></p>
+      <button class="btn" id="markAttendanceBtn" style="width:100%;" type="button">✅ Mark Attendance</button>
+    </div>
+  </div>
+
+  <!-- ============ Hotel Check-in / Check-out (hotel_desk module) ============ -->
+  <div id="hotelScanCard" class="card" style="display:none;margin-top:16px;">
+    <div class="section-title" style="margin-top:0;">Hotel Desk</div>
+    <p id="hotelLastScan" class="hint" style="display:none;margin-bottom:10px;"></p>
+    <div style="display:flex;gap:10px;">
+      <button class="btn" id="hotelCheckinBtn" style="flex:1;" type="button">🏨 Check-in</button>
+      <button class="btn" id="hotelCheckoutBtn" style="flex:1;" type="button">🚪 Check-out</button>
+    </div>
+  </div>
+
+  <!-- ============ Transport / Pre-Tours / Airport-Train boarding ============ -->
+  <div id="transportScanCard" class="card" style="display:none;margin-top:16px;">
+    <div class="section-title" style="margin-top:0;">Vehicle Boarding</div>
+    <p class="hint" style="margin-bottom:10px;">Scans this person's trip assignment against the vehicle this login is assigned to.</p>
+    <button class="btn" id="transportScanBtn" style="width:100%;" type="button">🚐 Scan for Boarding</button>
+    <div id="transportScanResult" style="display:none;margin-top:12px;font-size:13.5px;"></div>
+  </div>
+
+  <!-- ============ Food Counter (per meal, per day) ============ -->
+  <div id="foodScanCard" class="card" style="display:none;margin-top:16px;">
+    <div class="section-title" style="margin-top:0;">Food Counter</div>
+    <div class="field"><label>Meal</label>
+      <select id="foodMealSelect">
+        <option value="breakfast">Breakfast</option>
+        <option value="lunch">Lunch</option>
+        <option value="dinner">Dinner</option>
+      </select>
+    </div>
+    <button class="btn" id="foodScanBtn" style="width:100%;margin-top:6px;" type="button">🍽️ Count for Meal</button>
+    <div id="foodScanResult" style="display:none;margin-top:10px;font-size:13.5px;" class="hint"></div>
+  </div>
+
+  <!-- ============ Stalls — log a visit (stall_owner) ============ -->
+  <div id="stallScanCard" class="card" style="display:none;margin-top:16px;">
+    <div class="section-title" style="margin-top:0;">Stall Visit</div>
+    <button class="btn" id="stallVisitBtn" style="width:100%;" type="button">🛍️ Log Visit to My Stall</button>
+    <p id="stallVisitResult" style="display:none;margin-top:10px;" class="hint"></p>
+  </div>
+
+  <!-- ============ Goodies delivery (inventory module) ============ -->
+  <div id="goodiesScanCard" class="card" style="display:none;margin-top:16px;">
+    <div class="section-title" style="margin-top:0;">Goodies Pending Delivery</div>
+    <div id="goodiesList"></div>
+  </div>
+
+  <!-- ============ Inline staff login (shown when not logged in) ============ -->
+  <div id="staffLoginPrompt" style="display:none;text-align:center;margin-top:14px;">
+    <a href="#" id="showStaffLogin" class="hint">Staff login (Transport / Pre-Tours / Gate)</a>
+  </div>
+  <div id="staffLoginCard" class="card" style="display:none;margin-top:16px;">
+    <div class="section-title" style="margin-top:0;">Staff Login</div>
+    <div class="field" id="staffLoginError" style="color:var(--red);font-size:12.5px;display:none;"></div>
+    <form id="staffLoginForm">
+      <div class="field"><label>Username</label><input name="username" required autocomplete="username" /></div>
+      <div class="field"><label>Password</label><input name="password" type="password" required autocomplete="current-password" /></div>
+      <button class="btn gold" type="submit" style="width:100%;">Log in</button>
+    </form>
+  </div>
+
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/badge.js"></script>
+</body>
+</html>
