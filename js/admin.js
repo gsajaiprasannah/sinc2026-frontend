@@ -400,13 +400,13 @@ function sizesLabel(obj) {
 // the card; `fields` is an array of {label, value} pairs (falsy values are
 // skipped so blank fields don't leave an empty gap); `actionsHtml` is a
 // pre-built string of one or more <button> tags.
-function renderRecordCard(headerLeftHtml, headerRightHtml, fields, actionsHtml) {
+function renderRecordCard(headerLeftHtml, headerRightHtml, fields, actionsHtml, cardId) {
   const fieldsHtml = fields
     .filter((f) => f && f.value !== undefined && f.value !== null && f.value !== '')
     .map((f) => `<div class="record-card-field"><label>${f.label}</label><div class="value">${f.value}</div></div>`)
     .join('');
   return `
-    <div class="record-card">
+    <div class="record-card"${cardId ? ` id="${cardId}"` : ''}>
       <div class="record-card-header">
         <div class="record-card-name">${headerLeftHtml}</div>
         ${headerRightHtml ? `<div class="record-card-header-right">${headerRightHtml}</div>` : ''}
@@ -870,8 +870,13 @@ document.getElementById('clubCsvForm').addEventListener('submit', async (e) => {
 
 // --- Registrations ---
 const REG_TYPE_LABEL = { single: 'Single', double: 'Double', congress_only: 'Congress Only' };
+// Cached so the Delegates form's occupancy hint (which registration already
+// has a primary registrant, how many delegates it already holds) can be
+// recomputed without another round trip every time the dropdown changes.
+let REGS_CACHE = [];
 async function refreshRegs() {
   const regs = await jget(`${API}/registrations`);
+  REGS_CACHE = regs;
   document.getElementById('regsTableBody').innerHTML = regs.map((r) => `
     <tr>
       <td>${r.reg_number}</td>
@@ -885,9 +890,49 @@ async function refreshRegs() {
     </tr>
   `).join('') || '<tr><td colspan="8" class="empty">No registrations yet</td></tr>';
 
-  const opts = regs.map((r) => `<option value="${r.id}">${r.reg_number} (${r.club_name || '-'})</option>`).join('');
+  // Each option carries its occupancy in the visible text (so it's obvious
+  // at a glance without opening the dropdown twice) and as data attributes
+  // (so updatePartRegOccupancyHint() can react instantly on change without
+  // re-fetching).
+  const opts = regs.map((r) => {
+    const max = r.reg_type === 'double' ? 2 : 1;
+    const participants = r.participants || [];
+    const filled = participants.length;
+    const hasPrimary = participants.some((p) => Number(p.is_primary) === 1);
+    return `<option value="${r.id}" data-reg-type="${r.reg_type}" data-filled="${filled}" data-max="${max}" data-has-primary="${hasPrimary}">${r.reg_number} (${r.club_name || '-'}) — ${REG_TYPE_LABEL[r.reg_type] || r.reg_type}, ${filled}/${max} filled</option>`;
+  }).join('');
   document.getElementById('partRegSelect').innerHTML = '<option value="">-- none --</option>' + opts;
 }
+
+// Shows a live hint under the Registration field in the Add/Update Delegate
+// form ("this is a Double registration, 1/2 filled, already has a primary")
+// and, for a brand-new delegate, auto-suggests Primary vs. Co-registrant
+// instead of leaving the admin to remember to flip it themselves — that
+// forgetting is exactly how two unlinked "primary" rows happen in the first
+// place. `skipAutoSetPrimary` is passed true when loading an existing
+// delegate into the form for editing, since that delegate's own is_primary
+// value is already correct and shouldn't be silently overwritten.
+function updatePartRegOccupancyHint(skipAutoSetPrimary) {
+  const sel = document.getElementById('partRegSelect');
+  const hintEl = document.getElementById('partRegOccupancyHint');
+  const primarySelect = document.getElementById('partIsPrimarySelect');
+  if (!sel || !hintEl) return;
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value) { hintEl.innerHTML = ''; return; }
+  const filled = Number(opt.dataset.filled || 0);
+  const max = Number(opt.dataset.max || 1);
+  const hasPrimary = opt.dataset.hasPrimary === 'true';
+  const typeLabel = REG_TYPE_LABEL[opt.dataset.regType] || opt.dataset.regType;
+  if (filled >= max) {
+    hintEl.innerHTML = `<strong style="color:var(--red);">This ${typeLabel} registration already has ${filled}/${max} delegate(s) linked — full.</strong> Pick a different registration, or edit one of its existing delegates instead.`;
+  } else {
+    hintEl.innerHTML = `${typeLabel} registration · ${filled}/${max} delegate(s) linked so far${hasPrimary ? ' · already has a primary registrant, so this one will be saved as the co-registrant' : ' · no primary registrant yet, so this one will be saved as primary'}.`;
+  }
+  if (!skipAutoSetPrimary && primarySelect) {
+    primarySelect.value = hasPrimary ? '0' : '1';
+  }
+}
+document.getElementById('partRegSelect').addEventListener('change', () => updatePartRegOccupancyHint(false));
 window.deleteReg = async (id) => { await jdel(`${API}/registrations/${id}`); toast('Registration deleted'); refreshRegs(); };
 
 async function loadNextRegNumber() {
@@ -968,11 +1013,30 @@ async function refreshParts(query) {
   let rows = await jget(url);
   const sortSelect = document.getElementById('partSortSelect');
   rows = sortParts(rows, sortSelect ? sortSelect.value : '');
+
+  // Group every delegate by registration_id so each card can show who else
+  // shares that registration — the primary registrant <-> co-registrant
+  // link the congress team wants to keep track of. A registration only ever
+  // holds 1 (single/congress_only) or 2 (double) delegates, so "siblings"
+  // here is always the other delegate(s) on the same registration.
+  const byReg = {};
+  rows.forEach((p) => {
+    if (!p.registration_id) return;
+    (byReg[p.registration_id] = byReg[p.registration_id] || []).push(p);
+  });
+
   document.getElementById('partsTableBody').innerHTML = rows.map((p) => {
-    const header = `${p.name}${p.designation ? ' <span class="hint">(' + p.designation + ')</span>' : ''}`;
+    const isPrimary = Number(p.is_primary) === 1;
+    const roleBadge = `<span class="pill ${isPrimary ? 'primary-reg' : 'co-reg'}">${isPrimary ? 'Primary' : 'Co-registrant'}</span>`;
+    const header = `${p.name} ${roleBadge}${p.designation ? ' <span class="hint">(' + p.designation + ')</span>' : ''}`;
+    const siblings = (byReg[p.registration_id] || []).filter((s) => s.id !== p.id);
+    const linkedValue = siblings.length
+      ? siblings.map((s) => `<a href="javascript:void(0)" onclick="highlightPartCard(${s.id})">${s.name}</a> <span class="hint">(${Number(s.is_primary) === 1 ? 'Primary' : 'Co-registrant'})</span>`).join('<br>')
+      : '<span class="hint">— none, registered alone</span>';
     const fields = [
       { label: 'Registration ID', value: `<strong>${p.participant_code || '-'}</strong>` },
       { label: 'Reg #', value: p.reg_number || '-' },
+      { label: 'Linked Registrant', value: linkedValue },
       { label: 'Phone', value: p.phone || '-' },
       { label: 'Travel In', value: p.travel_mode ? p.travel_mode + ' ' + (p.travel_number || '') + '<br><span class="hint">' + (p.travel_datetime || '') + '</span>' : '-' },
       { label: 'Pickup', value: (p.pickup_by || '-') + (p.pickup_vehicle ? '<br><span class="hint">' + p.pickup_vehicle + '</span>' : '') },
@@ -988,10 +1052,26 @@ async function refreshParts(query) {
       <button class="btn small" onclick="downloadDelegateDetailPdf(${p.id})">PDF</button>
       ${canDelete() ? `<button class="btn danger small" onclick="deletePart(${p.id})">Delete</button>` : ''}
     `;
-    return renderRecordCard(header, p.club_name || '-', fields, actions);
+    return renderRecordCard(header, p.club_name || '-', fields, actions, `part-card-${p.id}`);
   }).join('') || '<p class="empty">No delegates yet</p>';
 }
 window.deletePart = async (id) => { await jdel(`${API}/participants/${id}`); toast('Delegate deleted'); refreshParts(); };
+
+// Jumps to and briefly highlights a delegate's own card — used by the
+// "Linked Registrant" reference on their paired primary/co-registrant's
+// card, so switching between the two halves of a double registration is a
+// single click instead of scanning the whole list.
+window.highlightPartCard = (id) => {
+  const el = document.getElementById(`part-card-${id}`);
+  if (!el) {
+    toast('That delegate is outside the current search/filter — clear the search box to find them.');
+    return;
+  }
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.remove('linked-highlight');
+  void el.offsetWidth; // force reflow so the animation restarts on repeat clicks
+  el.classList.add('linked-highlight');
+};
 
 const PART_FORM_FIELDS = [
   'name', 'phone', 'whatsapp', 'email', 'address', 'club_id', 'registration_id', 'designation', 'is_primary',
@@ -1041,6 +1121,10 @@ window.editPart = async (id) => {
   document.getElementById('partFormTitle').textContent = `Update delegate — ${p.participant_code || p.name}`;
   document.getElementById('partSubmitBtn').textContent = 'Update Delegate';
   document.getElementById('partCancelEditBtn').style.display = '';
+  // Show the occupancy hint for whichever registration this delegate is
+  // already on, but don't let it silently flip is_primary — that value is
+  // already correct for an existing delegate.
+  updatePartRegOccupancyHint(true);
   form.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
@@ -1048,6 +1132,8 @@ window.cancelEditPart = () => {
   const form = document.getElementById('partForm');
   form.reset();
   delete form.dataset.editId;
+  const occupancyHint = document.getElementById('partRegOccupancyHint');
+  if (occupancyHint) occupancyHint.innerHTML = '';
   // Adding a brand-new delegate is never restricted — re-enable the frozen
   // fields in case the form was left disabled from a previous edit.
   PART_FROZEN_FIELDS.forEach((f) => {
@@ -1094,8 +1180,13 @@ async function savePartForm(form, force) {
         toast('Delegate saved, but SPOC link failed: ' + spocErr.message);
       }
     }
-    if (editId) window.cancelEditPart();
-    else form.reset();
+    if (editId) {
+      window.cancelEditPart();
+    } else {
+      form.reset();
+      const occupancyHint = document.getElementById('partRegOccupancyHint');
+      if (occupancyHint) occupancyHint.innerHTML = '';
+    }
     if (body.arrival_point) ensureTransportPoint(body.arrival_point);
     if (body.departure_point) ensureTransportPoint(body.departure_point);
     refreshParts();
@@ -3544,7 +3635,7 @@ async function pdfAddReceiptBody(doc, reg, delegates, firstPage) {
   y = pdfKeyValues(doc, y, [
     ['Club', reg.club_name || '-'],
     ['Registration Type', REG_TYPE_FULL_LABEL[reg.reg_type] || reg.reg_type],
-    ['Delegate(s)', delegates.map((d) => d.name).join(', ') || '-'],
+    ['Delegate(s)', delegates.map((d) => `${d.name} (${Number(d.is_primary) === 1 ? 'Primary' : 'Co-registrant'})`).join(', ') || '-'],
   ]);
 
   y = pdfSectionLabel(doc, y, 'Payment Details');
@@ -3647,12 +3738,13 @@ window.downloadDelegatesListPdf = async () => {
     const rows = await jget(`${API}/participants`);
     await downloadListReportPdf('Delegates Directory', `${rows.length} delegate(s)`, [
       { label: 'Reg ID', width: 60, get: (r) => r.participant_code },
-      { label: 'Name', width: 115, get: (r) => r.name },
-      { label: 'Club', width: 95, get: (r) => r.club_name },
-      { label: 'Reg #', width: 65, get: (r) => r.reg_number },
-      { label: 'Phone', width: 70, get: (r) => r.phone },
-      { label: 'Shirt', width: 35, get: (r) => r.shirt_size },
-      { label: 'Tee', width: 35, get: (r) => r.tshirt_size },
+      { label: 'Name', width: 95, get: (r) => r.name },
+      { label: 'Role', width: 55, get: (r) => Number(r.is_primary) === 1 ? 'Primary' : 'Co-reg' },
+      { label: 'Club', width: 80, get: (r) => r.club_name },
+      { label: 'Reg #', width: 60, get: (r) => r.reg_number },
+      { label: 'Phone', width: 65, get: (r) => r.phone },
+      { label: 'Shirt', width: 30, get: (r) => r.shirt_size },
+      { label: 'Tee', width: 30, get: (r) => r.tshirt_size },
       { label: 'Payment', width: 40, get: (r) => r.payment_status },
     ], rows, 'delegates-directory.pdf');
   } catch (err) { toast(err.message); }
@@ -3662,9 +3754,15 @@ window.downloadDelegateDetailPdf = async (id) => {
     const rows = await jget(`${API}/participants`);
     const p = rows.find((r) => r.id === id);
     if (!p) { toast('Delegate not found'); return; }
+    const siblings = rows.filter((r) => r.registration_id && r.registration_id === p.registration_id && r.id !== p.id);
+    const roleLabel = Number(p.is_primary) === 1 ? 'Primary registrant' : 'Co-registrant';
+    const linkedLabel = siblings.length
+      ? siblings.map((s) => `${s.name} (${Number(s.is_primary) === 1 ? 'Primary' : 'Co-registrant'})`).join(', ')
+      : '— none, registered alone';
     await downloadDetailPdf(`Delegate — ${p.name}`, p.participant_code ? `Registration ID ${p.participant_code}` : '', [
       { label: 'Delegate Info', pairs: [
         ['Name', p.name], ['Designation', p.designation], ['Club', p.club_name], ['Registration #', p.reg_number],
+        ['Registration Role', roleLabel], ['Linked Registrant', linkedLabel],
         ['Phone', p.phone], ['WhatsApp', p.whatsapp], ['Email', p.email], ['Address', p.address],
       ] },
       { label: 'Arrival', pairs: [['Mode', p.travel_mode], ['Number', p.travel_number], ['Date/Time', p.travel_datetime], ['Arrival point', p.arrival_point]] },
