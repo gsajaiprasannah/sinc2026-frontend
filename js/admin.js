@@ -1043,6 +1043,7 @@ async function refreshParts(query) {
       { label: 'SPOC', value: spocDisplay(p) },
       { label: 'Payment', value: paymentPill(p.payment_status) },
       { label: 'Sizes', value: sizesLabel(p) },
+      { label: 'Business profile', value: p.business_profile || '-' },
       { label: 'Food preference', value: p.dietary_preference || 'No preference' },
       { label: 'Drink preference', value: p.drink_preference || '-' },
       { label: 'Special requests', value: p.special_requests || '-' },
@@ -1083,7 +1084,7 @@ window.highlightPartCard = (id) => {
 
 const PART_FORM_FIELDS = [
   'name', 'phone', 'whatsapp', 'email', 'address', 'club_id', 'registration_id', 'designation', 'is_primary',
-  'dietary_preference', 'special_requests',
+  'business_profile', 'dietary_preference', 'special_requests',
   'travel_mode', 'travel_number', 'travel_datetime', 'arrival_point',
   'departure_mode', 'departure_number', 'departure_datetime', 'departure_point',
   'pickup_by', 'pickup_vehicle', 'pickup_phone', 'spoc_name', 'spoc_phone', 'notes',

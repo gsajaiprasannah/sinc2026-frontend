@@ -166,6 +166,7 @@ function openRecord(match) {
   form.elements.shirt_size.value = match.shirt_size || '';
   form.elements.tshirt_size.value = match.tshirt_size || '';
   form.elements.waist_size.value = match.waist_size || '';
+  if (form.elements.business_profile) form.elements.business_profile.value = match.business_profile || '';
   form.elements.dietary_preference.value = match.dietary_preference || '';
   const drinks = (match.drink_preference || '').split(',').map((s) => s.trim()).filter(Boolean);
   form.querySelectorAll('.drinkPrefBox').forEach((box) => { box.checked = drinks.includes(box.value); });
