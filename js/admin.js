@@ -3672,27 +3672,32 @@ async function getQrDataUrl(token, sizePx) {
 // addImage(w, h) stretches/squashes it to fit the box. This crops a centered
 // square out of the source first (like CSS object-fit:cover), so the photo
 // on the printed badge looks like a normal portrait, not squeezed.
+//
+// Important: photos live on a different origin (Cloudflare R2). Loading a
+// cross-origin image straight into an <img>/<canvas> "taints" the canvas —
+// canvas.toDataURL() then throws a SecurityError, which the caller's
+// try/catch swallows, silently falling back to the initial-letter circle
+// (this is why photos were disappearing even though photo_url was set).
+// Routing through pdfImageToDataUrl() first (a plain fetch+blob, no canvas
+// involved) turns it into a same-origin data: URL — THEN drawing that into
+// a canvas for cropping is safe and toDataURL() works.
 function pdfSquarePhotoDataUrl(path, size) {
-  return fetch(path)
-    .then((res) => res.blob())
-    .then((blob) => new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(blob);
-      const img = new Image();
-      img.onload = () => {
-        try {
-          const side = Math.min(img.naturalWidth, img.naturalHeight);
-          const sx = (img.naturalWidth - side) / 2;
-          const sy = (img.naturalHeight - side) / 2;
-          const canvas = document.createElement('canvas');
-          canvas.width = size; canvas.height = size;
-          canvas.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size);
-          resolve(canvas.toDataURL('image/jpeg', 0.92));
-        } catch (err) { reject(err); }
-        finally { URL.revokeObjectURL(url); }
-      };
-      img.onerror = reject;
-      img.src = url;
-    }));
+  return pdfImageToDataUrl(path).then((rawDataUrl) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const side = Math.min(img.naturalWidth, img.naturalHeight);
+        const sx = (img.naturalWidth - side) / 2;
+        const sy = (img.naturalHeight - side) / 2;
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        canvas.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size);
+        resolve(canvas.toDataURL('image/jpeg', 0.92));
+      } catch (err) { reject(err); }
+    };
+    img.onerror = reject;
+    img.src = rawDataUrl;
+  }));
 }
 window.downloadQrPng = async (token, name) => {
   try {
@@ -3718,8 +3723,8 @@ async function buildBadgePdf(person) {
     const { w, h } = pdfFitImage(logos.coimbatore.ratio, 140, 26);
     doc.addImage(logos.coimbatore.dataUrl, 'PNG', (W - w) / 2, (54 - h) / 2, w, h);
   }
-  let y = 82;
-  const photoSize = 92;
+  let y = 80;
+  const photoSize = 88;
   const photoX = (W - photoSize) / 2;
   let photoPlaced = false;
   if (person.photo_url) {
@@ -3740,39 +3745,52 @@ async function buildBadgePdf(person) {
   pdfSetColor(doc, 'setDrawColor', PDF_BRAND.border);
   doc.setLineWidth(1.2);
   doc.rect(photoX, y, photoSize, photoSize);
-  y += photoSize + 18;
+  y += photoSize + 12;
+  // Long names/designations/company names wrap onto a second line — measure
+  // the actual wrapped line count (via splitTextToSize) and advance y by
+  // that many lines each time, rather than assuming one line, so a wrapped
+  // name never collides with the role/org text drawn right after it. Every
+  // gap below is deliberately tight: this card is only 432pt tall, and a
+  // 2-line name plus a 2-line footnote both need to fit without the footer
+  // ever creeping past the bottom edge.
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.navy);
-  doc.setFont(undefined, 'bold'); doc.setFontSize(15);
-  doc.text(person.name || '', W / 2, y, { align: 'center', maxWidth: W - 30 });
-  y += 16;
-  doc.setFont(undefined, 'normal'); doc.setFontSize(10);
+  doc.setFont(undefined, 'bold'); doc.setFontSize(14);
+  const nameLines = doc.splitTextToSize(person.name || '', W - 30);
+  doc.text(nameLines, W / 2, y, { align: 'center' });
+  y += nameLines.length * 16 + 2;
+  doc.setFont(undefined, 'normal'); doc.setFontSize(9.5);
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.grey);
-  doc.text(person.roleLabel || '', W / 2, y, { align: 'center', maxWidth: W - 30 });
+  if (person.roleLabel) {
+    const roleLines = doc.splitTextToSize(person.roleLabel, W - 30);
+    doc.text(roleLines, W / 2, y, { align: 'center' });
+    y += roleLines.length * 11;
+  }
   if (person.orgLabel) {
-    y += 12;
-    doc.text(person.orgLabel, W / 2, y, { align: 'center', maxWidth: W - 30 });
+    const orgLines = doc.splitTextToSize(person.orgLabel, W - 30);
+    doc.text(orgLines, W / 2, y, { align: 'center' });
+    y += orgLines.length * 11;
   }
   doc.setTextColor(0, 0, 0);
-  y += 16;
+  y += 10;
   // Everything below is positioned relative to the actual content above it
   // (rather than fixed pixel offsets) so the footer/divider never crowd or
   // overlap the QR block — regardless of whether an org label is present or
   // the footnote wraps to a second line.
-  const qrSize = 112;
+  const qrSize = 104;
   try {
     const qrDataUrl = await getQrDataUrl(person.badge_token, 400);
     doc.addImage(qrDataUrl, 'PNG', (W - qrSize) / 2, y, qrSize, qrSize);
-    y += qrSize + 10;
+    y += qrSize + 8;
   } catch (err) { /* skip QR if generation failed — badge is still usable */ }
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
   doc.setFont(undefined, 'normal'); doc.setFontSize(7);
   const footLines = doc.splitTextToSize('Scan for contact card · staff scan for room/transport & check-in', W - 28);
   doc.text(footLines, W / 2, y, { align: 'center' });
-  y += footLines.length * 8.5 + 10;
+  y += footLines.length * 8 + 8;
   pdfSetColor(doc, 'setDrawColor', PDF_BRAND.border);
   doc.setLineWidth(0.75);
   doc.line(20, y, W - 20, y);
-  y += 12;
+  y += 10;
   doc.setFont(undefined, 'bold'); doc.setFontSize(8.5);
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.navy);
   doc.text('SINC2026 · Skål International Coimbatore', W / 2, y, { align: 'center' });
