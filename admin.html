@@ -156,6 +156,7 @@
           <summary class="nav-group-label">Communications <span class="chevron">›</span></summary>
           <div class="admin-nav">
             <button data-tab="communications">Announcements</button>
+            <button data-tab="emailcampaigns">Email Campaigns</button>
           </div>
         </details>
         <details class="nav-group" open>
@@ -848,6 +849,72 @@
       <table>
         <thead><tr><th>Title</th><th>Sent to</th><th>Recipients</th><th>Read</th><th>Sent by</th><th>Date</th><th></th></tr></thead>
         <tbody id="msgHistoryBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- EMAIL CAMPAIGNS TAB (bulk personalized email blasts via Resend, to any -->
+  <!-- audience with an email column — Delegates, Host Members, Volunteers,  -->
+  <!-- Sponsors, Guest Speakers, Guest Visitors. Distinct from Announcements  -->
+  <!-- above: reaches people with no login at all, straight to their inbox.  -->
+  <!-- See server/routes/emailCampaigns.js. -->
+  <section class="tab-panel" id="tab-emailcampaigns">
+    <div class="card">
+      <div class="section-title" style="margin-top:0">New email campaign</div>
+      <form id="ecForm">
+        <div class="form-grid cols-2">
+          <div class="field"><label>Campaign name *</label><input name="name" required placeholder="e.g. Final travel reminder" /></div>
+          <div class="field"><label>From name</label><input name="from_name" value="SINC2026 Congress" /></div>
+        </div>
+
+        <div class="field"><label>Audience *</label>
+          <select id="ecAudienceType" required>
+            <option value="">-- select --</option>
+            <option value="participant">Delegates</option>
+            <option value="host_member">Host Members</option>
+            <option value="volunteer">Volunteers</option>
+            <option value="sponsor">Sponsors</option>
+            <option value="speaker">Guest Speakers</option>
+            <option value="guest_visitor">Guest Visitors</option>
+          </select>
+          <p class="hint" id="ecAudienceCount" style="margin-bottom:0;"></p>
+        </div>
+
+        <div class="field"><label>Recipients</label>
+          <select id="ecRecipientMode">
+            <option value="all">Everyone in this audience with an email on file</option>
+            <option value="pick">Click to pick specific people</option>
+          </select>
+        </div>
+        <div class="field" id="ecIndividualField" style="display:none;">
+          <input id="ecIndividualSearch" placeholder="Search by name..." style="margin-bottom:8px;" />
+          <div style="margin-bottom:8px;">
+            <button type="button" class="btn small" id="ecSelectAllBtn">Select all (with email)</button>
+            <button type="button" class="btn small outline" id="ecClearAllBtn">Clear</button>
+            <span class="hint" id="ecPickedCount"></span>
+          </div>
+          <div class="module-checkbox-grid" id="ecIndividualGrid" style="max-height:260px;overflow-y:auto;"></div>
+        </div>
+
+        <div class="field"><label>Subject *</label><input id="ecSubject" required placeholder="e.g. {{name}}, your SINC2026 travel details" /></div>
+        <div class="field"><label>Body (HTML) *</label>
+          <textarea id="ecBody" rows="8" required placeholder="Dear {{name}},&#10;&#10;..."></textarea>
+          <p class="hint">Merge tokens — filled in per person, left blank if not applicable to that audience: <code>{{name}}</code> <code>{{email}}</code> <code>{{phone}}</code> <code>{{club}}</code> <code>{{designation}}</code> <code>{{company}}</code> <code>{{organization}}</code> <code>{{tier}}</code> <code>{{topic}}</code> <code>{{code}}</code></p>
+        </div>
+
+        <div class="form-grid cols-2">
+          <button class="btn outline" type="button" id="ecPreviewBtn">Preview</button>
+          <button class="btn gold" type="submit">Save campaign (draft)</button>
+        </div>
+        <div id="ecPreviewPanel" style="display:none;margin-top:14px;"></div>
+      </form>
+    </div>
+
+    <div class="section-title">Campaign history</div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Name</th><th>Audience</th><th>Recipients</th><th>Sent / Failed</th><th>Status</th><th>Date</th><th></th></tr></thead>
+        <tbody id="ecHistoryBody"></tbody>
       </table>
     </div>
   </section>
