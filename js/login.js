@@ -281,9 +281,14 @@ const ROLE_TABS = {
   // content is the shared "Badge Scanning" section below (My Visitors),
   // same one any other scan_point holder (hotel desk/transport/food counter/
   // inventory staff, regardless of their base role) also sees.
-  stall_owner: []
+  stall_owner: [],
+  // 'scanner' logins (created from the admin panel's "Scanner Logins"
+  // section) are the same idea, deliberately kept to just one panel: no
+  // delegate data, no finances, no other module — just their station's scan
+  // history. Same empty-array pattern as stall_owner above.
+  scanner: []
 };
-const ROLE_DEFAULT_TAB = { host_member: 'host-profile', media: 'media-upload', driver: 'driver-profile', transporter: 'transporter-profile', volunteer: 'host-modules', vendor: 'vendor-profile', stall_owner: 'my-scans' };
+const ROLE_DEFAULT_TAB = { host_member: 'host-profile', media: 'media-upload', driver: 'driver-profile', transporter: 'transporter-profile', volunteer: 'host-modules', vendor: 'vendor-profile', stall_owner: 'my-scans', scanner: 'my-scans' };
 const ROLE_TITLE = {
   host_member: ['Host Portal', "Your committees, delegates & checklist"],
   media: ['Media Portal', 'Upload the event video reel & posters'],
@@ -291,9 +296,20 @@ const ROLE_TITLE = {
   transporter: ['Transporter Portal', "Your fleet's trip requirements"],
   volunteer: ['Volunteer Portal', 'Your granted modules'],
   vendor: ['Vendor Portal', 'Your product catalog & order deliveries'],
-  stall_owner: ['Stall Owner Portal', 'Visitors who scanned their badge at your stall']
+  stall_owner: ['Stall Owner Portal', 'Visitors who scanned their badge at your stall'],
+  // Subtitle here is a fallback — showApp() below overwrites it with the
+  // actual station name (Registration Desk, Transport, ...) once
+  // CURRENT_USER.scan_point is known.
+  scanner: ['Scanner Login', 'Scan visitor badges for your station']
 };
-const ALLOWED_ROLES = ['host_member', 'media', 'transporter', 'driver', 'volunteer', 'vendor', 'stall_owner'];
+const ALLOWED_ROLES = ['host_member', 'media', 'transporter', 'driver', 'volunteer', 'vendor', 'stall_owner', 'scanner'];
+// Display label for a scanner login's station — same scan_point vocabulary
+// as SCAN_POINT_STATION_LABEL in admin.js (NOT the same as SCAN_POINT_LABEL_SELF
+// below, which labels the ACTION recorded in attendance_log, not the duty).
+const SCANNER_STATION_LABEL = {
+  hotel_desk: 'Hotel Desk', transport: 'Transport', food_counter: 'Food Counter',
+  inventory: 'Goodies / Inventory', registration: 'Registration Desk'
+};
 
 // ================= SIDEBAR + TABS =================
 // Same collapsible-sidebar / tab-panel pattern as admin.js, so the portal
@@ -372,6 +388,12 @@ function showApp() {
     document.getElementById('portalTitle').textContent = titleInfo[0];
     document.getElementById('portalSubtitle').textContent = titleInfo[1];
   }
+  // A scanner login's whole reason for existing is one station — show it
+  // front and center instead of the generic fallback subtitle above.
+  if (role === 'scanner' && CURRENT_USER && CURRENT_USER.scan_point) {
+    document.getElementById('portalSubtitle').textContent =
+      `Station: ${SCANNER_STATION_LABEL[CURRENT_USER.scan_point] || CURRENT_USER.scan_point}`;
+  }
 
   if (role === 'host_member') startHost();
   else if (role === 'media') startMedia();
@@ -389,7 +411,7 @@ function showApp() {
   // counter/inventory) independent of their base role, and stall_owner is
   // a role whose ENTIRE portal is this one panel. See server/routes/badge.js
   // GET /my-scans (self-scoped to this login's own checked_in_by_user_id).
-  const hasScanDuty = !!(CURRENT_USER && (CURRENT_USER.scan_point || role === 'stall_owner'));
+  const hasScanDuty = !!(CURRENT_USER && (CURRENT_USER.scan_point || role === 'stall_owner' || role === 'scanner'));
   const scanGroupLabel = document.getElementById('scanDutyGroupLabel');
   const scanNav = document.getElementById('scanDutyNav');
   if (scanGroupLabel) scanGroupLabel.style.display = hasScanDuty ? '' : 'none';

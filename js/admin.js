@@ -6376,7 +6376,39 @@ async function refreshUsersAdmin() {
       </td>
     </tr>
   `).join('') || '<tr><td colspan="7" class="empty">No logins yet</td></tr>';
+
+  // Scanner Logins — a filtered slice of the same users list: every
+  // dedicated 'scanner' login (Hotel Desk/Transport/Food Counter/Goodies/
+  // Registration) plus every 'stall_owner' login (Stalls duty), since from
+  // the "which scanning point does this person cover" point of view they're
+  // the same category — just two different roles under the hood (stalls
+  // needs a specific stall_id, so it keeps its own role/linked column).
+  const scannerLogins = users.filter((u) => u.role === 'scanner' || u.role === 'stall_owner');
+  const scannerLoginsBody = document.getElementById('scannerLoginsBody');
+  if (scannerLoginsBody) {
+    scannerLoginsBody.innerHTML = scannerLogins.map((u) => {
+      const station = u.role === 'stall_owner'
+        ? `Stall: ${u.stall_company_name || '(unassigned)'}`
+        : (SCAN_POINT_STATION_LABEL[u.scan_point] || '<span class="hint">(none set)</span>');
+      return `
+        <tr>
+          <td>${u.username}</td>
+          <td>${station}</td>
+          <td>${new Date(u.created_at).toLocaleDateString()}</td>
+          <td class="sticky-actions">
+            <button class="btn small" onclick="openChangeRoleModal(${u.id})">Change station</button>
+            <button class="btn small" onclick="resetUserPassword(${u.id}, '${(u.username || '').replace(/'/g, "\\'")}')">Reset password</button>
+            ${u.id === CURRENT_USER.id ? '<span class="hint">(you)</span>' : `<button class="btn danger small" onclick="deleteUser(${u.id})">Delete</button>`}
+          </td>
+        </tr>
+      `;
+    }).join('') || '<tr><td colspan="4" class="empty">No scanner logins yet — create one above.</td></tr>';
+  }
 }
+const SCAN_POINT_STATION_LABEL = {
+  hotel_desk: 'Hotel Desk', transport: 'Transport', food_counter: 'Food Counter',
+  inventory: 'Goodies / Inventory', registration: 'Registration Desk'
+};
 window.approveUser = async (id) => { await jput(`${API}/auth/users/${id}/approve`, {}); toast('Approved'); refreshUsersAdmin(); };
 window.rejectUser = async (id) => { await jput(`${API}/auth/users/${id}/reject`, {}); toast('Rejected'); refreshUsersAdmin(); };
 window.deleteUser = async (id) => { if (!confirm('Delete this login?')) return; await jdel(`${API}/auth/users/${id}`); toast('Login removed'); refreshUsersAdmin(); };
@@ -6393,7 +6425,8 @@ const ROLE_LABEL = {
   transporter: 'Transporter (transport vendor coordinator)', driver: 'Driver',
   volunteer: 'Volunteer (external/non-member data-entry helper)',
   vendor: 'Vendor (goods supplier — manages own products/orders)',
-  stall_owner: 'Stall Owner (exhibitor — scans visitor badges, sees own leads list)'
+  stall_owner: 'Stall Owner (exhibitor — scans visitor badges, sees own leads list)',
+  scanner: 'Scanner (dedicated scan-duty login — no other module access)'
 };
 const LINKED_FIELD_BY_ROLE = { host_member: 'host_member_id', driver: 'driver_id', transporter: 'partner_id', volunteer: 'volunteer_id', vendor: 'vendor_id', stall_owner: 'stall_id' };
 const LINKED_LABEL_BY_ROLE = { host_member: 'host member', driver: 'driver', transporter: 'transport partner', volunteer: 'volunteer', vendor: 'vendor', stall_owner: 'stall' };
@@ -6488,6 +6521,7 @@ window.openChangeRoleModal = async (id) => {
             <option value="transport" ${u.scan_point === 'transport' ? 'selected' : ''}>Transport (boarding)</option>
             <option value="food_counter" ${u.scan_point === 'food_counter' ? 'selected' : ''}>Food Counter</option>
             <option value="inventory" ${u.scan_point === 'inventory' ? 'selected' : ''}>Goodies / Inventory</option>
+            <option value="registration" ${u.scan_point === 'registration' ? 'selected' : ''}>Registration Desk</option>
           </select>
           <span class="hint">Optional, independent of role.</span>
         </div>
@@ -6651,6 +6685,58 @@ document.getElementById('createUserForm').addEventListener('submit', async (e) =
     if (typeof refreshVendors === 'function') refreshVendors();
   } catch (err) { toast(err.message); }
 });
+
+// --- Scanner Logins: a purpose-built create form for scan-duty-only
+// accounts. Internally this is just POST /auth/users with role='scanner' +
+// scan_point=<station> (or role='stall_owner' + stall_id=<pick> when
+// "Stalls" is chosen) — same endpoint as "Generate a Login" above, just
+// packaged as one "Station" picker instead of a separate Role + Scan duty
+// pair, since for this form the station IS the whole point of the account.
+const scannerStationSelect = document.getElementById('scannerStationSelect');
+const scannerStallField = document.getElementById('scannerStallField');
+const scannerStallSelect = document.getElementById('scannerStallSelect');
+async function ensureScannerStallOptsLoaded() {
+  await ensureStallOptsLoaded(); // populates the shared STALL_OPTS_CACHE
+  if (scannerStallSelect) scannerStallSelect.innerHTML = '<option value="">-- select --</option>' + (STALL_OPTS_CACHE || '');
+}
+if (scannerStationSelect) {
+  scannerStationSelect.addEventListener('change', () => {
+    const isStalls = scannerStationSelect.value === 'stalls';
+    if (scannerStallField) scannerStallField.style.display = isStalls ? '' : 'none';
+    if (scannerStallSelect) scannerStallSelect.required = isStalls;
+    if (isStalls) ensureScannerStallOptsLoaded();
+  });
+}
+const scannerCreateForm = document.getElementById('scannerCreateForm');
+if (scannerCreateForm) {
+  scannerCreateForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = Object.fromEntries(fd.entries());
+    const station = body.station;
+    delete body.station;
+    if (!station) { toast('Choose which station this login is for.'); return; }
+    if (station === 'stalls') {
+      if (!body.stall_id) { toast('Choose which stall this login belongs to.'); return; }
+      body.role = 'stall_owner';
+    } else {
+      body.role = 'scanner';
+      body.scan_point = station;
+      delete body.stall_id;
+    }
+    try {
+      await jpost(`${API}/auth/users`, body);
+      e.target.reset();
+      if (scannerStallField) scannerStallField.style.display = 'none';
+      toast('Scanner login created');
+      refreshUsersAdmin();
+    } catch (err) { toast(err.message); }
+  });
+}
+const viewScanActivityBtn = document.getElementById('viewScanActivityBtn');
+if (viewScanActivityBtn) {
+  viewScanActivityBtn.addEventListener('click', () => switchAdminTab('activitylog'));
+}
 
 document.getElementById('changePasswordForm').addEventListener('submit', async (e) => {
   e.preventDefault();
