@@ -2322,6 +2322,7 @@
                 <option value="volunteer">Volunteer (external/non-member data-entry helper)</option>
                 <option value="vendor">Vendor (goods supplier — manages own products/orders)</option>
                 <option value="stall_owner">Stall Owner (exhibitor — scans visitor badges, sees own leads list)</option>
+                <option value="scanner">Scanner (dedicated scan-duty login — see "Scanner Logins" below)</option>
               </select>
             </div>
             <div class="field" id="createUserHmField" style="display:none;">
@@ -2366,6 +2367,7 @@
                 <option value="transport">Transport (boarding)</option>
                 <option value="food_counter">Food Counter</option>
                 <option value="inventory">Goodies / Inventory</option>
+                <option value="registration">Registration Desk</option>
               </select>
               <span class="hint">Optional, independent of role. Lets any login scan visitor badges at that station and see their own scan history.</span>
             </div>
@@ -2413,6 +2415,48 @@
           <button class="btn gold" type="submit">Send notification</button>
         </form>
       </div>
+    </div>
+
+    <div class="section-title">Scanner Logins — dedicated scan-duty accounts</div>
+    <div class="two-col">
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Create a scanner login</div>
+        <p class="hint" style="margin-top:-6px;">A focused login for someone who only needs to scan QR badges at one station — no access to delegate data, finances, or any other module. Share the <strong>Scanner</strong> link on the public homepage; after logging in there they see just their station and their own scan history.</p>
+        <form id="scannerCreateForm">
+          <div class="form-grid cols-2">
+            <div class="field"><label>Username *</label><input name="username" required /></div>
+            <div class="field"><label>Password *</label><input name="password" type="password" required minlength="6" /></div>
+            <div class="field">
+              <label>Station *</label>
+              <select name="station" id="scannerStationSelect" required>
+                <option value="">-- select --</option>
+                <option value="registration">Registration Desk</option>
+                <option value="hotel_desk">Hotel Desk (check-in/out)</option>
+                <option value="transport">Transport (boarding)</option>
+                <option value="food_counter">Food Counter</option>
+                <option value="inventory">Goodies / Inventory Deliveries</option>
+                <option value="stalls">Stalls (exhibitor booth scanning)</option>
+              </select>
+            </div>
+            <div class="field" id="scannerStallField" style="display:none;">
+              <label>Stall *</label>
+              <select name="stall_id" id="scannerStallSelect"><option value="">-- select --</option></select>
+            </div>
+          </div>
+          <button class="btn gold" type="submit">Create scanner login</button>
+        </form>
+      </div>
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Scan activity</div>
+        <p class="hint" style="margin-top:-6px;">Every scan any scanner login makes — who scanned whom, at which station, and when — is tracked automatically.</p>
+        <button class="btn small" type="button" id="viewScanActivityBtn">View Scan Activity Log &rarr;</button>
+      </div>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Username</th><th>Station</th><th>Created</th><th></th></tr></thead>
+        <tbody id="scannerLoginsBody"></tbody>
+      </table>
     </div>
 
     <div class="section-title">All logins</div>
