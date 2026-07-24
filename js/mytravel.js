@@ -42,14 +42,22 @@ let current = null;
 let pendingPhoto = null;
 let pendingCard = null;
 let pendingAadhaar = null;
-let currentAadhaarUrl = null; // Aadhaar is mandatory — tracks whether a document is already on file
+let pendingPassport = null;
+// A Delegate needs a complete identity document — either Aadhaar or
+// Passport, not necessarily both (international delegates don't hold an
+// Aadhaar). These track whether each document is already on file so the
+// required-check can tell "already have one" apart from "none yet".
+let currentAadhaarUrl = null;
+let currentPassportUrl = null;
 
 function showLookup() {
   current = null;
   pendingPhoto = null;
   pendingCard = null;
   pendingAadhaar = null;
+  pendingPassport = null;
   currentAadhaarUrl = null;
+  currentPassportUrl = null;
   document.getElementById('lookupCard').style.display = '';
   document.getElementById('pickCard').style.display = 'none';
   document.getElementById('editCard').style.display = 'none';
@@ -188,7 +196,9 @@ function openRecord(match) {
   pendingPhoto = null;
   pendingCard = null;
   pendingAadhaar = null;
+  pendingPassport = null;
   currentAadhaarUrl = match.aadhaar_url || null;
+  currentPassportUrl = match.passport_url || null;
   document.getElementById('lookupCard').style.display = 'none';
   document.getElementById('pickCard').style.display = 'none';
   document.getElementById('editCard').style.display = '';
@@ -213,25 +223,51 @@ function openRecord(match) {
   form.querySelectorAll('.drinkPrefBox').forEach((box) => { box.checked = drinks.includes(box.value); });
   form.elements.special_requests.value = match.special_requests || '';
   if (form.elements.aadhaar_number) form.elements.aadhaar_number.value = match.aadhaar_number || '';
+  if (form.elements.passport_number) form.elements.passport_number.value = match.passport_number || '';
   const pretourSel = document.getElementById('pretourSelect');
   if (pretourSel) pretourSel.value = match.pre_tour_id ? String(match.pre_tour_id) : '';
   renderPreview('photoPreviewWrap', match.photo_url, 'photo');
   renderPreview('cardPreviewWrap', match.business_card_url, 'business card');
   renderDocPreview('aadhaarPreviewWrap', match.aadhaar_url, 'Aadhaar scan');
-  updateAadhaarDocHint();
+  renderDocPreview('passportPreviewWrap', match.passport_url, 'Passport scan');
+  // Default the visible block to whichever document this Delegate already
+  // has something on — Passport if that's the only one with data, Aadhaar
+  // otherwise (the more common case). Purely a UI convenience: the actual
+  // required-check below considers BOTH blocks, not just the visible one,
+  // so switching this dropdown never blocks a save that's already complete.
+  const idDocTypeSel = document.getElementById('idDocType');
+  if (idDocTypeSel) {
+    idDocTypeSel.value = (!match.aadhaar_number && !match.aadhaar_url && (match.passport_number || match.passport_url))
+      ? 'passport' : 'aadhaar';
+    applyIdDocTypeVisibility();
+  }
+  updateIdDocHint();
 }
 
-// Aadhaar number + document are both mandatory (see publicProfile.js's
-// PUT /participant/:id/travel, which enforces this server-side too) — this
-// just keeps the person informed of what's still missing before they hit
-// Save, rather than only finding out after a failed submit.
-function updateAadhaarDocHint() {
-  const el = document.getElementById('aadhaarDocHint');
+function applyIdDocTypeVisibility() {
+  const type = document.getElementById('idDocType').value;
+  document.getElementById('aadhaarBlock').style.display = type === 'aadhaar' ? '' : 'none';
+  document.getElementById('passportBlock').style.display = type === 'passport' ? '' : 'none';
+}
+
+// A Delegate needs ONE complete identity document — Aadhaar (number + scan)
+// or Passport (number + scan), not necessarily both (international
+// delegates don't hold an Aadhaar) — enforced server-side too (see
+// publicProfile.js). This just keeps the person informed of what's still
+// missing before they hit Save, rather than only finding out after a failed
+// submit.
+function updateIdDocHint() {
+  const el = document.getElementById('idDocHint');
   if (!el) return;
-  if (currentAadhaarUrl || pendingAadhaar) {
+  const form = document.getElementById('editForm');
+  const aadhaarNum = (form.elements.aadhaar_number.value || '').replace(/\D/g, '');
+  const passportNum = (form.elements.passport_number.value || '').trim();
+  const aadhaarComplete = aadhaarNum.length === 12 && (currentAadhaarUrl || pendingAadhaar);
+  const passportComplete = passportNum.length >= 5 && (currentPassportUrl || pendingPassport);
+  if (aadhaarComplete || passportComplete) {
     el.textContent = '';
   } else {
-    el.textContent = 'Required — please upload a photo or PDF scan of your Aadhaar.';
+    el.textContent = 'Required — provide either a complete Aadhaar (number + scan) or a complete Passport (number + scan).';
     el.style.color = 'var(--red)';
   }
 }
@@ -286,19 +322,28 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!current) return;
 
-  // Aadhaar (number + document) is mandatory — checked client-side first so
-  // people get an immediate, specific message instead of a generic failed
-  // save. The server enforces the exact same two conditions independently
-  // (see publicProfile.js), since this is a public unauthenticated route.
+  // A complete identity document (Aadhaar OR Passport, number + scan) is
+  // mandatory — checked client-side first so people get an immediate,
+  // specific message instead of a generic failed save. The server enforces
+  // the same "at least one complete" condition independently (see
+  // publicProfile.js), since this is a public unauthenticated route.
   const aadhaarNumberVal = (e.target.elements.aadhaar_number.value || '').replace(/\D/g, '');
-  if (aadhaarNumberVal.length !== 12) {
-    toast('Please enter your 12-digit Aadhaar number.', 4000);
+  const passportNumberVal = (e.target.elements.passport_number.value || '').trim();
+  if (aadhaarNumberVal && aadhaarNumberVal.length !== 12) {
+    toast('Aadhaar number must be exactly 12 digits — or clear it and use Passport instead.', 4500);
     e.target.elements.aadhaar_number.focus();
     return;
   }
-  if (!currentAadhaarUrl && !pendingAadhaar) {
-    toast('Please upload your Aadhaar document (photo or PDF scan).', 4000);
-    updateAadhaarDocHint();
+  if (passportNumberVal && passportNumberVal.length < 5) {
+    toast('Passport number looks too short — please double-check it.', 4000);
+    e.target.elements.passport_number.focus();
+    return;
+  }
+  const aadhaarWillBeComplete = aadhaarNumberVal.length === 12 && (currentAadhaarUrl || pendingAadhaar);
+  const passportWillBeComplete = passportNumberVal.length >= 5 && (currentPassportUrl || pendingPassport);
+  if (!aadhaarWillBeComplete && !passportWillBeComplete) {
+    toast('Please provide a complete identity document — Aadhaar (number + scan) or Passport (number + scan).', 5000);
+    updateIdDocHint();
     return;
   }
 
@@ -307,16 +352,24 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
   btn.disabled = true;
   btn.textContent = 'Saving…';
   try {
-    // Upload the Aadhaar document BEFORE saving the travel/JSON fields below
-    // — the server's travel PUT checks that aadhaar_url is already set on
-    // the row, so the document has to land first for that check to pass on
-    // this same "Save changes" click (see publicProfile.js for why).
+    // Upload whichever identity document file is pending BEFORE saving the
+    // travel/JSON fields below — the server's travel PUT checks that
+    // aadhaar_url/passport_url is already set on the row, so the document
+    // has to land first for that check to pass on this same "Save changes"
+    // click (see publicProfile.js for why).
     if (pendingAadhaar) {
       const ad = await uploadImage('aadhaar', pendingAadhaar);
       renderDocPreview('aadhaarPreviewWrap', ad.aadhaar_url, 'Aadhaar scan');
       currentAadhaarUrl = ad.aadhaar_url;
       pendingAadhaar = null;
-      updateAadhaarDocHint();
+      updateIdDocHint();
+    }
+    if (pendingPassport) {
+      const pd = await uploadImage('passport', pendingPassport);
+      renderDocPreview('passportPreviewWrap', pd.passport_url, 'Passport scan');
+      currentPassportUrl = pd.passport_url;
+      pendingPassport = null;
+      updateIdDocHint();
     }
 
     const body = Object.fromEntries(new FormData(e.target).entries());
@@ -403,6 +456,8 @@ document.getElementById('cardInput').addEventListener('change', (e) => {
   renderPendingPreview('cardPreviewWrap', file, 'business card');
 });
 
+document.getElementById('idDocType').addEventListener('change', applyIdDocTypeVisibility);
+
 document.getElementById('aadhaarUploadBtn').addEventListener('click', () => document.getElementById('aadhaarInput').click());
 document.getElementById('aadhaarInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
@@ -410,7 +465,17 @@ document.getElementById('aadhaarInput').addEventListener('change', (e) => {
   if (!file) return;
   pendingAadhaar = file;
   renderPendingDocPreview('aadhaarPreviewWrap', file, 'Aadhaar scan');
-  updateAadhaarDocHint();
+  updateIdDocHint();
+});
+
+document.getElementById('passportUploadBtn').addEventListener('click', () => document.getElementById('passportInput').click());
+document.getElementById('passportInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  pendingPassport = file;
+  renderPendingDocPreview('passportPreviewWrap', file, 'Passport scan');
+  updateIdDocHint();
 });
 
 document.getElementById('startOverBtn').addEventListener('click', showLookup);

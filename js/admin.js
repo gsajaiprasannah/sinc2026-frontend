@@ -370,6 +370,34 @@ function aadhaarCell(p) {
   return `${numberLine}${view}<button type="button" class="btn small" onclick="triggerParticipantAadhaarUpload(${p.id})">${p.aadhaar_url ? 'Replace' : 'Upload'}</button>${p.aadhaar_url ? ` <button type="button" class="btn small" onclick="removeParticipantAadhaar(${p.id})">Remove</button>` : ''}`;
 }
 
+// Passport — the alternate identity document for international Delegates
+// who don't hold an Aadhaar (see publicProfile.js's PUT /participant/:id/travel
+// for the "at least one of the two" rule). Same super_admin-only visibility
+// model and cell shape as Aadhaar above.
+let passportUploadTarget = null; // participants.id
+document.getElementById('passportUploadInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  const id = passportUploadTarget;
+  e.target.value = '';
+  passportUploadTarget = null;
+  if (!file || !id) return;
+  try {
+    await uploadFileBlob(`${API}/participants/${id}/passport`, file);
+    toast('Passport document attached');
+    refreshParts();
+  } catch (err) { toast(err.message); }
+});
+window.triggerParticipantPassportUpload = (id) => { passportUploadTarget = id; document.getElementById('passportUploadInput').click(); };
+window.removeParticipantPassport = async (id) => {
+  try { await jdel(`${API}/participants/${id}/passport`); toast('Passport document removed'); refreshParts(); }
+  catch (err) { toast(err.message); }
+};
+function passportCell(p) {
+  const view = p.passport_url ? `<a href="${mediaUrl(p.passport_url)}" target="_blank" rel="noopener" class="btn small" style="text-decoration:none;">View</a> ` : '';
+  const numberLine = p.passport_number ? `<div>${p.passport_number}</div>` : '<div class="hint">No number on file</div>';
+  return `${numberLine}${view}<button type="button" class="btn small" onclick="triggerParticipantPassportUpload(${p.id})">${p.passport_url ? 'Replace' : 'Upload'}</button>${p.passport_url ? ` <button type="button" class="btn small" onclick="removeParticipantPassport(${p.id})">Remove</button>` : ''}`;
+}
+
 // --- Congress-wide member Photo / Business Card uploads (Delegates, Host
 // Members, Volunteers) — same shared imgUploadInput mechanism as the
 // sponsor logo / speaker photo uploads above, just with 6 more "kinds"
@@ -1092,7 +1120,7 @@ async function refreshParts(query) {
       })() },
       { label: 'Photo', value: photoCell('participant', p) },
       { label: 'Card', value: cardCell('participant', p) },
-      ...(CURRENT_USER && CURRENT_USER.role === 'super_admin' ? [{ label: 'Aadhaar', value: aadhaarCell(p) }] : []),
+      ...(CURRENT_USER && CURRENT_USER.role === 'super_admin' ? [{ label: 'Aadhaar', value: aadhaarCell(p) }, { label: 'Passport', value: passportCell(p) }] : []),
     ];
     const actions = `
       <button class="btn small" onclick="editPart(${p.id})">Update</button>

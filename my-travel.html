@@ -16,7 +16,7 @@
         <img src="img/skal-logo.png" alt="Skål International" class="logo-mark" />
         <div>
           <h1>My Travel Details</h1>
-          <span class="hint">Address, travel, shirt/tee size, photo, business card &amp; Aadhaar — Delegates only, no login needed</span>
+          <span class="hint">Address, travel, shirt/tee size, photo, business card &amp; ID document — Delegates only, no login needed</span>
         </div>
       </div>
     </div>
@@ -158,13 +158,30 @@
       <input type="file" id="cardInput" accept="image/*" style="display:none;" />
       <button type="button" class="btn" id="cardUploadBtn">Choose / replace business card</button>
 
-      <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Aadhaar <span style="color:var(--red);">*</span> required</div>
-      <p class="hint" style="margin-top:-6px;">Required for identity verification and hotel/police check-in — it is kept strictly confidential and visible only to the congress's senior administrators. Please enter your number and upload a photo/scan below.</p>
-      <div class="field"><label>Aadhaar number <span style="color:var(--red);">*</span></label><input name="aadhaar_number" inputmode="numeric" maxlength="14" placeholder="1234 5678 9012" required /></div>
-      <div id="aadhaarPreviewWrap" style="margin-bottom:8px;"></div>
-      <input type="file" id="aadhaarInput" accept="image/*,application/pdf" style="display:none;" />
-      <button type="button" class="btn" id="aadhaarUploadBtn">Choose / replace Aadhaar scan</button>
-      <p class="hint" id="aadhaarDocHint" style="margin-top:6px;"></p>
+      <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Identity Document <span style="color:var(--red);">*</span> required</div>
+      <p class="hint" style="margin-top:-6px;">Required for identity verification and hotel/police check-in — Aadhaar for Indian delegates, Passport for international delegates. Kept strictly confidential, visible only to the congress's senior administrators.</p>
+      <div class="field"><label>Which do you have?</label>
+        <select id="idDocType">
+          <option value="aadhaar">Aadhaar (Indian delegates)</option>
+          <option value="passport">Passport (international delegates)</option>
+        </select>
+      </div>
+
+      <div id="aadhaarBlock">
+        <div class="field"><label>Aadhaar number</label><input name="aadhaar_number" inputmode="numeric" maxlength="14" placeholder="1234 5678 9012" /></div>
+        <div id="aadhaarPreviewWrap" style="margin-bottom:8px;"></div>
+        <input type="file" id="aadhaarInput" accept="image/*,application/pdf" style="display:none;" />
+        <button type="button" class="btn" id="aadhaarUploadBtn">Choose / replace Aadhaar scan</button>
+      </div>
+
+      <div id="passportBlock" style="display:none;">
+        <div class="field"><label>Passport number</label><input name="passport_number" maxlength="20" placeholder="e.g. N1234567" /></div>
+        <div id="passportPreviewWrap" style="margin-bottom:8px;"></div>
+        <input type="file" id="passportInput" accept="image/*,application/pdf" style="display:none;" />
+        <button type="button" class="btn" id="passportUploadBtn">Choose / replace Passport scan</button>
+      </div>
+
+      <p class="hint" id="idDocHint" style="margin-top:6px;"></p>
 
       <button class="btn gold" type="submit" id="saveAllBtn" style="width:100%;margin-top:20px;">Save changes</button>
     </form>
