@@ -3703,7 +3703,15 @@ function pdfSquarePhotoDataUrl(path, size) {
       try {
         const side = Math.min(img.naturalWidth, img.naturalHeight);
         const sx = (img.naturalWidth - side) / 2;
-        const sy = (img.naturalHeight - side) / 2;
+        // A dead-center vertical crop chops off the top of the head on most
+        // headshots — portrait photos typically have some headroom above the
+        // face and noticeably more empty chest/shoulder space below it, so
+        // splitting the removed height 50/50 removes too much from the top.
+        // Biasing the crop window upward (only 20% of the excess height comes
+        // off the top, 80% off the bottom) keeps the whole head in frame and
+        // trims the safe-to-lose space below the chin/shoulders instead.
+        const excessHeight = img.naturalHeight - side;
+        const sy = excessHeight > 0 ? excessHeight * 0.2 : 0;
         const canvas = document.createElement('canvas');
         canvas.width = size; canvas.height = size;
         canvas.getContext('2d').drawImage(img, sx, sy, side, side, 0, 0, size, size);
