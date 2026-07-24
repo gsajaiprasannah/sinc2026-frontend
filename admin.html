@@ -2237,6 +2237,32 @@
         <button class="btn" type="button" id="alNextPageBtn">Next ›</button>
       </div>
     </div>
+
+    <div class="section-title">Scan Activity — QR badge stations</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">Who scanned whom at each badge station (hotel desk, transport, food counter, stalls, goodies) — separate from the general activity log above since these are visitor check-ins/deliveries, not admin-panel edits.</p>
+      <div class="two-col" style="flex-wrap:wrap;gap:10px;">
+        <select id="saFilterScanPoint">
+          <option value="">All stations</option>
+          <option value="gate">Gate</option>
+          <option value="hotel_checkin">Hotel Check-in</option>
+          <option value="hotel_checkout">Hotel Check-out</option>
+          <option value="transport">Transport</option>
+          <option value="food_counter">Food Counter</option>
+          <option value="stall">Stall Visit</option>
+          <option value="goodies">Goodies Delivery</option>
+        </select>
+        <input type="date" id="saFilterDateFrom" title="From date">
+        <input type="date" id="saFilterDateTo" title="To date">
+        <button class="btn" type="button" id="saClearFiltersBtn">Clear filters</button>
+      </div>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>When</th><th>Station</th><th>Scanned by</th><th>Visitor</th><th>Details</th></tr></thead>
+        <tbody id="saTableBody"></tbody>
+      </table>
+    </div>
   </section>
 
   <!-- SETTINGS TAB (super_admin only) -->
@@ -2325,6 +2351,17 @@
               <label>Assigned vehicle</label>
               <select name="vehicle_id" id="createUserVehicleSelect"><option value="">-- none yet --</option></select>
               <span class="hint">Lets this login scan for Transport/Pre-Tours/Airport-Train boarding — can also be set later under Settings &gt; All Logins.</span>
+            </div>
+            <div class="field">
+              <label>Scan duty (QR badge station)</label>
+              <select name="scan_point" id="createUserScanPointSelect">
+                <option value="">-- none --</option>
+                <option value="hotel_desk">Hotel Desk (check-in/out)</option>
+                <option value="transport">Transport (boarding)</option>
+                <option value="food_counter">Food Counter</option>
+                <option value="inventory">Goodies / Inventory</option>
+              </select>
+              <span class="hint">Optional, independent of role. Lets any login scan visitor badges at that station and see their own scan history.</span>
             </div>
           </div>
           <button class="btn gold" type="submit">Create login</button>

@@ -148,6 +148,15 @@
           </div>
         </div>
 
+        <!-- ===== BADGE SCANNING (any login with a scan_point duty, or ===== -->
+        <!-- stall_owner whose whole portal is this one panel) — hidden      -->
+        <!-- entirely unless CURRENT_USER.scan_point is set or role is       -->
+        <!-- stall_owner (see showApp() in login.js). -->
+        <div class="nav-group-label" id="scanDutyGroupLabel" style="cursor:default;display:none;">Badge Scanning</div>
+        <div class="admin-nav" id="scanDutyNav" style="display:none;">
+          <button data-tab="my-scans" id="navBtnMyScans">My Scans</button>
+        </div>
+
         <!-- ===== SHARED (any logged-in role) ===== -->
         <div class="nav-group-label" style="cursor:default;">Settings</div>
         <div class="admin-nav">
@@ -430,6 +439,26 @@
         <div class="section-title" style="margin-top:0">Announcements</div>
         <p class="hint" style="margin-top:-6px;">One-way messages from the admin team. If a message has an action attached, mark it done once you've handled it.</p>
         <div id="announcementsBody"></div>
+      </div>
+    </section>
+
+    <!-- ===== SHARED: Badge scanning history ("My Scans" / stall owner's ===== -->
+    <!-- "My Visitors") — see refreshMyScans() in login.js. -->
+    <section class="tab-panel" id="tab-my-scans">
+      <div class="card">
+        <div class="section-title" style="margin-top:0">Who you've scanned</div>
+        <p class="hint" style="margin-top:-6px;">To scan someone, open their badge (scan the QR code printed on it, or the link shared with them) — every scan you make here shows up automatically. This list is just your own history; nobody else's scans are visible here.</p>
+        <select id="myScansFilter" style="margin-bottom:10px;">
+          <option value="">All my scans</option>
+          <option value="gate">Gate</option>
+          <option value="hotel_checkin">Hotel Check-in</option>
+          <option value="hotel_checkout">Hotel Check-out</option>
+          <option value="transport">Transport</option>
+          <option value="food_counter">Food Counter</option>
+          <option value="stall">Stall Visit</option>
+          <option value="goodies">Goodies Delivery</option>
+        </select>
+        <div id="myScansBody"></div>
       </div>
     </section>
 
