@@ -3848,6 +3848,56 @@ window.downloadHostMemberBadge = async (id) => {
   } catch (err) { toast(err.message); }
 };
 
+// --- Bulk badge ZIP export ---
+// Hands the full set of generated badges (as individual print-ready PDFs,
+// one per delegate/host member) to Ajai as a single ZIP, so it can be sent
+// straight to an outside print vendor without giving the vendor any login
+// or system access. Only records that already have a badge_token are
+// included — anyone without one is silently skipped.
+async function buildBadgesZip(records, kind, zipNamePrefix) {
+  if (typeof JSZip === 'undefined') { toast('ZIP library did not load — refresh the page and try again.'); return; }
+  const withToken = records.filter((r) => r.badge_token);
+  if (!withToken.length) { toast('No badges have been generated for these records yet.'); return; }
+  toast(`Generating ${withToken.length} badge(s) for ZIP — this can take a little while, please wait...`, 6000);
+  const zip = new JSZip();
+  let ok = 0, failed = 0;
+  for (const r of withToken) {
+    try {
+      const doc = await buildBadgePdf({
+        name: r.name, photo_url: r.photo_url, badge_token: r.badge_token,
+        roleLabel: kind === 'delegate' ? ('Delegate' + (r.designation ? ' · ' + r.designation : '')) : (r.designation || 'Host Member'),
+        orgLabel: kind === 'delegate' ? (r.club_name || '') : (r.company || '')
+      });
+      const blob = doc.output('blob');
+      const safeName = (r.name || 'badge').replace(/[^a-z0-9]+/gi, '_');
+      zip.file(`badge-${safeName}-${r.id}.pdf`, blob);
+      ok++;
+    } catch (err) { failed++; }
+  }
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(zipBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${zipNamePrefix}-badges-${new Date().toISOString().slice(0, 10)}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  toast(`Done — ${ok} badge(s) zipped${failed ? `, ${failed} failed` : ''}. Check your Downloads folder.`, 6000);
+}
+window.downloadAllDelegateBadgesZip = async () => {
+  try {
+    const rows = await jget(`${API}/participants`);
+    await buildBadgesZip(rows, 'delegate', 'sinc2026-delegate');
+  } catch (err) { toast(err.message); }
+};
+window.downloadAllHostMemberBadgesZip = async () => {
+  try {
+    const rows = await jget(`${API}/hostmembers`);
+    await buildBadgesZip(rows, 'host-member', 'sinc2026-hostmember');
+  } catch (err) { toast(err.message); }
+};
+
 function pdfSectionLabel(doc, y, label) {
   y = pdfMaybeNewPage(doc, y, 26);
   pdfSetColor(doc, 'setFillColor', PDF_BRAND.lightblue);
