@@ -16,7 +16,7 @@
         <img src="img/skal-logo.png" alt="Skål International" class="logo-mark" />
         <div>
           <h1>My Travel Details</h1>
-          <span class="hint">Address, travel, shirt/tee size, photo &amp; business card — Delegates only, no login needed</span>
+          <span class="hint">Address, travel, shirt/tee size, photo, business card &amp; Aadhaar — Delegates only, no login needed</span>
         </div>
       </div>
     </div>
@@ -157,6 +157,14 @@
       <div id="cardPreviewWrap" style="margin-bottom:8px;"></div>
       <input type="file" id="cardInput" accept="image/*" style="display:none;" />
       <button type="button" class="btn" id="cardUploadBtn">Choose / replace business card</button>
+
+      <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Aadhaar <span style="color:var(--red);">*</span> required</div>
+      <p class="hint" style="margin-top:-6px;">Required for identity verification and hotel/police check-in — it is kept strictly confidential and visible only to the congress's senior administrators. Please enter your number and upload a photo/scan below.</p>
+      <div class="field"><label>Aadhaar number <span style="color:var(--red);">*</span></label><input name="aadhaar_number" inputmode="numeric" maxlength="14" placeholder="1234 5678 9012" required /></div>
+      <div id="aadhaarPreviewWrap" style="margin-bottom:8px;"></div>
+      <input type="file" id="aadhaarInput" accept="image/*,application/pdf" style="display:none;" />
+      <button type="button" class="btn" id="aadhaarUploadBtn">Choose / replace Aadhaar scan</button>
+      <p class="hint" id="aadhaarDocHint" style="margin-top:6px;"></p>
 
       <button class="btn gold" type="submit" id="saveAllBtn" style="width:100%;margin-top:20px;">Save changes</button>
     </form>

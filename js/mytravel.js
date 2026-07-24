@@ -41,11 +41,15 @@ let current = null;
 // pattern as my-profile.html, so one button saves everything on the page.
 let pendingPhoto = null;
 let pendingCard = null;
+let pendingAadhaar = null;
+let currentAadhaarUrl = null; // Aadhaar is mandatory — tracks whether a document is already on file
 
 function showLookup() {
   current = null;
   pendingPhoto = null;
   pendingCard = null;
+  pendingAadhaar = null;
+  currentAadhaarUrl = null;
   document.getElementById('lookupCard').style.display = '';
   document.getElementById('pickCard').style.display = 'none';
   document.getElementById('editCard').style.display = 'none';
@@ -88,6 +92,40 @@ function renderPreview(wrapId, url, label) {
 // saved to the server yet — that only happens when "Save changes" is hit.
 function renderPendingPreview(wrapId, file, label) {
   const wrap = document.getElementById(wrapId);
+  const url = URL.createObjectURL(file);
+  wrap.innerHTML = `
+    <img src="${url}" alt="Selected ${label}" style="max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--border,#ddd);display:block;" />
+    <p class="hint" style="margin:6px 0 0;color:var(--gold,#b8860b);">New ${label} selected — not saved yet. Click "Save changes" below.</p>
+  `;
+}
+
+// Aadhaar accepts an image OR a PDF scan (unlike the photo/business-card
+// fields, which are image-only) — an <img> tag can't render a PDF, so this
+// checks the file extension on the stored URL and falls back to a plain
+// "View document" link, the same approach admin.js uses for finance bills.
+function isPdfUrl(url) {
+  return /\.pdf($|\?)/i.test(url || '');
+}
+function renderDocPreview(wrapId, url, label) {
+  const wrap = document.getElementById(wrapId);
+  if (!url) {
+    wrap.innerHTML = `<p class="hint" style="margin:0;">No ${label} on file yet.</p>`;
+    return;
+  }
+  wrap.innerHTML = isPdfUrl(url)
+    ? `<a href="${mediaUrl(url)}" target="_blank" rel="noopener" class="btn outline" style="display:inline-block;">View ${label} (PDF)</a>`
+    : `<img src="${mediaUrl(url)}" alt="Your ${label}" style="max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--border,#ddd);display:block;" />`;
+}
+function renderPendingDocPreview(wrapId, file, label) {
+  const wrap = document.getElementById(wrapId);
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+  if (isPdf) {
+    wrap.innerHTML = `
+      <p class="hint" style="margin:0;">PDF selected: ${file.name}</p>
+      <p class="hint" style="margin:6px 0 0;color:var(--gold,#b8860b);">New ${label} selected — not saved yet. Click "Save changes" below.</p>
+    `;
+    return;
+  }
   const url = URL.createObjectURL(file);
   wrap.innerHTML = `
     <img src="${url}" alt="Selected ${label}" style="max-width:100%;max-height:220px;border-radius:8px;border:1px solid var(--border,#ddd);display:block;" />
@@ -149,6 +187,8 @@ function openRecord(match) {
   current = { id: match.id, name: match.name, phone: match.phone };
   pendingPhoto = null;
   pendingCard = null;
+  pendingAadhaar = null;
+  currentAadhaarUrl = match.aadhaar_url || null;
   document.getElementById('lookupCard').style.display = 'none';
   document.getElementById('pickCard').style.display = 'none';
   document.getElementById('editCard').style.display = '';
@@ -172,10 +212,28 @@ function openRecord(match) {
   const drinks = (match.drink_preference || '').split(',').map((s) => s.trim()).filter(Boolean);
   form.querySelectorAll('.drinkPrefBox').forEach((box) => { box.checked = drinks.includes(box.value); });
   form.elements.special_requests.value = match.special_requests || '';
+  if (form.elements.aadhaar_number) form.elements.aadhaar_number.value = match.aadhaar_number || '';
   const pretourSel = document.getElementById('pretourSelect');
   if (pretourSel) pretourSel.value = match.pre_tour_id ? String(match.pre_tour_id) : '';
   renderPreview('photoPreviewWrap', match.photo_url, 'photo');
   renderPreview('cardPreviewWrap', match.business_card_url, 'business card');
+  renderDocPreview('aadhaarPreviewWrap', match.aadhaar_url, 'Aadhaar scan');
+  updateAadhaarDocHint();
+}
+
+// Aadhaar number + document are both mandatory (see publicProfile.js's
+// PUT /participant/:id/travel, which enforces this server-side too) — this
+// just keeps the person informed of what's still missing before they hit
+// Save, rather than only finding out after a failed submit.
+function updateAadhaarDocHint() {
+  const el = document.getElementById('aadhaarDocHint');
+  if (!el) return;
+  if (currentAadhaarUrl || pendingAadhaar) {
+    el.textContent = '';
+  } else {
+    el.textContent = 'Required — please upload a photo or PDF scan of your Aadhaar.';
+    el.style.color = 'var(--red)';
+  }
 }
 
 document.getElementById('lookupForm').addEventListener('submit', async (e) => {
@@ -227,11 +285,40 @@ async function uploadImage(field, file) {
 document.getElementById('editForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!current) return;
+
+  // Aadhaar (number + document) is mandatory — checked client-side first so
+  // people get an immediate, specific message instead of a generic failed
+  // save. The server enforces the exact same two conditions independently
+  // (see publicProfile.js), since this is a public unauthenticated route.
+  const aadhaarNumberVal = (e.target.elements.aadhaar_number.value || '').replace(/\D/g, '');
+  if (aadhaarNumberVal.length !== 12) {
+    toast('Please enter your 12-digit Aadhaar number.', 4000);
+    e.target.elements.aadhaar_number.focus();
+    return;
+  }
+  if (!currentAadhaarUrl && !pendingAadhaar) {
+    toast('Please upload your Aadhaar document (photo or PDF scan).', 4000);
+    updateAadhaarDocHint();
+    return;
+  }
+
   const btn = document.getElementById('saveAllBtn');
   const originalLabel = btn.textContent;
   btn.disabled = true;
   btn.textContent = 'Saving…';
   try {
+    // Upload the Aadhaar document BEFORE saving the travel/JSON fields below
+    // — the server's travel PUT checks that aadhaar_url is already set on
+    // the row, so the document has to land first for that check to pass on
+    // this same "Save changes" click (see publicProfile.js for why).
+    if (pendingAadhaar) {
+      const ad = await uploadImage('aadhaar', pendingAadhaar);
+      renderDocPreview('aadhaarPreviewWrap', ad.aadhaar_url, 'Aadhaar scan');
+      currentAadhaarUrl = ad.aadhaar_url;
+      pendingAadhaar = null;
+      updateAadhaarDocHint();
+    }
+
     const body = Object.fromEntries(new FormData(e.target).entries());
     body.name = current.name;
     body.phone = current.phone;
@@ -314,6 +401,16 @@ document.getElementById('cardInput').addEventListener('change', (e) => {
   if (!file) return;
   pendingCard = file;
   renderPendingPreview('cardPreviewWrap', file, 'business card');
+});
+
+document.getElementById('aadhaarUploadBtn').addEventListener('click', () => document.getElementById('aadhaarInput').click());
+document.getElementById('aadhaarInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  pendingAadhaar = file;
+  renderPendingDocPreview('aadhaarPreviewWrap', file, 'Aadhaar scan');
+  updateAadhaarDocHint();
 });
 
 document.getElementById('startOverBtn').addEventListener('click', showLookup);

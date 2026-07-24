@@ -332,6 +332,44 @@ function financeBillCell(id, billUrl) {
   return `${view}<button type="button" class="btn small" onclick="triggerFinanceBillUpload(${id})">${billUrl ? 'Replace' : 'Upload'}</button>${billUrl ? ` <button type="button" class="btn small" onclick="removeFinanceBill(${id})">Remove</button>` : ''}`;
 }
 
+// Shared hidden <input type="file"> (see admin.html) for a Delegate's
+// Aadhaar scan — Aadhaar is government ID data, so this whole feature
+// (this input, the endpoint it hits, and the cell renderer below) is only
+// ever surfaced when the logged-in admin is a super_admin; refreshParts()
+// simply omits the "Aadhaar" field from a regular admin's card list, and
+// the backend independently strips aadhaar_number/aadhaar_url from the
+// GET /participants response for any non-super_admin caller regardless of
+// what the UI does, so there's no way to see this data by inspecting
+// network traffic as a plain admin either. Kept separate from
+// #imgUploadInput since an Aadhaar scan is often a PDF, not an image.
+let aadhaarUploadTarget = null; // participants.id
+document.getElementById('aadhaarUploadInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  const id = aadhaarUploadTarget;
+  e.target.value = '';
+  aadhaarUploadTarget = null;
+  if (!file || !id) return;
+  try {
+    await uploadFileBlob(`${API}/participants/${id}/aadhaar`, file);
+    toast('Aadhaar document attached');
+    refreshParts();
+  } catch (err) { toast(err.message); }
+});
+window.triggerParticipantAadhaarUpload = (id) => { aadhaarUploadTarget = id; document.getElementById('aadhaarUploadInput').click(); };
+window.removeParticipantAadhaar = async (id) => {
+  try { await jdel(`${API}/participants/${id}/aadhaar`); toast('Aadhaar document removed'); refreshParts(); }
+  catch (err) { toast(err.message); }
+};
+// "View" link (image or PDF, opened in a new tab) + Upload/Replace/Remove,
+// same shape as financeBillCell — plus the masked/full Aadhaar number, since
+// this cell is only ever rendered for a super_admin viewer in the first
+// place (see refreshParts()).
+function aadhaarCell(p) {
+  const view = p.aadhaar_url ? `<a href="${mediaUrl(p.aadhaar_url)}" target="_blank" rel="noopener" class="btn small" style="text-decoration:none;">View</a> ` : '';
+  const numberLine = p.aadhaar_number ? `<div>${p.aadhaar_number}</div>` : '<div class="hint">No number on file</div>';
+  return `${numberLine}${view}<button type="button" class="btn small" onclick="triggerParticipantAadhaarUpload(${p.id})">${p.aadhaar_url ? 'Replace' : 'Upload'}</button>${p.aadhaar_url ? ` <button type="button" class="btn small" onclick="removeParticipantAadhaar(${p.id})">Remove</button>` : ''}`;
+}
+
 // --- Congress-wide member Photo / Business Card uploads (Delegates, Host
 // Members, Volunteers) — same shared imgUploadInput mechanism as the
 // sponsor logo / speaker photo uploads above, just with 6 more "kinds"
@@ -1054,6 +1092,7 @@ async function refreshParts(query) {
       })() },
       { label: 'Photo', value: photoCell('participant', p) },
       { label: 'Card', value: cardCell('participant', p) },
+      ...(CURRENT_USER && CURRENT_USER.role === 'super_admin' ? [{ label: 'Aadhaar', value: aadhaarCell(p) }] : []),
     ];
     const actions = `
       <button class="btn small" onclick="editPart(${p.id})">Update</button>
