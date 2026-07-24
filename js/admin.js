@@ -3803,8 +3803,16 @@ async function buildBadgePdf(person) {
   try {
     const qrDataUrl = await getQrDataUrl(person.badge_token, 400);
     doc.addImage(qrDataUrl, 'PNG', (W - qrSize) / 2, y, qrSize, qrSize);
-    y += qrSize + 8;
+    y += qrSize + 6;
   } catch (err) { /* skip QR if generation failed — badge is still usable */ }
+  // Tiny name caption right under the QR — lets anyone glancing at the badge
+  // (or a phone camera that can't open the link) confirm whose code this is,
+  // without competing with the large name printed above the photo.
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.grey);
+  doc.setFont(undefined, 'normal'); doc.setFontSize(6.5);
+  const qrNameLines = doc.splitTextToSize((person.name || '').toUpperCase(), W - 28);
+  doc.text(qrNameLines, W / 2, y, { align: 'center' });
+  y += qrNameLines.length * 7.5 + 6;
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
   doc.setFont(undefined, 'normal'); doc.setFontSize(7);
   const footLines = doc.splitTextToSize('Scan for contact card · staff scan for room/transport & check-in', W - 28);
