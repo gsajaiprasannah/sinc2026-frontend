@@ -3722,11 +3722,60 @@ function pdfSquarePhotoDataUrl(path, size) {
     img.src = rawDataUrl;
   }));
 }
+// Draws the raw QR code onto a taller canvas with the person's name printed
+// underneath in small text — same idea as the tiny caption under the QR on
+// the printed badge, but for the standalone QR PNG download so it's still
+// identifiable on its own without the rest of the badge around it.
 window.downloadQrPng = async (token, name) => {
   try {
-    const dataUrl = await getQrDataUrl(token, 480);
+    const qrDataUrl = await getQrDataUrl(token, 480);
+    const composedDataUrl = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const qrSize = img.naturalWidth;
+          const fontSize = 20;
+          const lineHeight = fontSize * 1.35;
+          const padTop = 18;
+          const padBottom = 14;
+          const measureCtx = document.createElement('canvas').getContext('2d');
+          measureCtx.font = `600 ${fontSize}px Arial, sans-serif`;
+          const words = (name || '').trim().toUpperCase().split(/\s+/).filter(Boolean);
+          const maxTextWidth = qrSize - 32;
+          const lines = [];
+          let line = '';
+          words.forEach((w) => {
+            const test = line ? line + ' ' + w : w;
+            if (line && measureCtx.measureText(test).width > maxTextWidth) {
+              lines.push(line);
+              line = w;
+            } else {
+              line = test;
+            }
+          });
+          if (line) lines.push(line);
+          const captionH = lines.length ? padTop + lines.length * lineHeight + padBottom : 0;
+          const canvas = document.createElement('canvas');
+          canvas.width = qrSize;
+          canvas.height = qrSize + captionH;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, qrSize, qrSize);
+          ctx.fillStyle = '#4b5563';
+          ctx.font = `600 ${fontSize}px Arial, sans-serif`;
+          ctx.textAlign = 'center';
+          lines.forEach((ln, i) => {
+            ctx.fillText(ln, qrSize / 2, qrSize + padTop + fontSize * 0.85 + i * lineHeight);
+          });
+          resolve(canvas.toDataURL('image/png'));
+        } catch (err) { reject(err); }
+      };
+      img.onerror = reject;
+      img.src = qrDataUrl;
+    });
     const a = document.createElement('a');
-    a.href = dataUrl;
+    a.href = composedDataUrl;
     a.download = `qr-${(name || 'badge').replace(/[^a-z0-9]+/gi, '_')}.png`;
     document.body.appendChild(a);
     a.click();
