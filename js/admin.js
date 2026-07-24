@@ -819,7 +819,7 @@ function switchAdminTab(tab) {
   btn.classList.add('active');
   panel.classList.add('active');
   if (tab === 'settings') refreshUsersAdmin();
-  if (tab === 'activitylog') refreshActivityLog();
+  if (tab === 'activitylog') { refreshActivityLog(); refreshScanActivity(); }
   // On phone/tablet widths the sidebar overlays the content, so tuck it away
   // again once a section has been picked (matches the standard mobile pattern).
   if (window.innerWidth < 860 && adminShell) {
@@ -6185,6 +6185,61 @@ document.getElementById('alNextPageBtn')?.addEventListener('click', () => {
   if (alPage < alTotalPages) { alPage++; refreshActivityLog(); }
 });
 
+// --- Scan Activity (badge stations — who scanned whom) ---
+// Reads server/routes/badge.js's GET /scan-history (admin-only). Separate
+// from the general Activity Log above: this is visitor check-ins/deliveries
+// at hotel desk/transport/food counter/stalls/goodies, not admin CRUD edits.
+const SCAN_POINT_LABEL = {
+  gate: 'Gate', hotel_checkin: 'Hotel Check-in', hotel_checkout: 'Hotel Check-out',
+  transport: 'Transport', food_counter: 'Food Counter', stall: 'Stall Visit', goodies: 'Goodies Delivery'
+};
+function scanMetaSummary(row) {
+  let meta = row.meta;
+  if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (e) { meta = null; } }
+  if (!meta) return '-';
+  const parts = [];
+  if (meta.meal_slot) parts.push('Meal: ' + meta.meal_slot);
+  if (meta.trip_id) parts.push('Trip #' + meta.trip_id);
+  if (meta.stall_id) parts.push('Stall #' + meta.stall_id);
+  if (meta.distribution_id) parts.push('Item #' + meta.distribution_id);
+  return parts.join(', ') || '-';
+}
+async function refreshScanActivity() {
+  if (!document.getElementById('saTableBody')) return;
+  const params = new URLSearchParams();
+  const scanPoint = document.getElementById('saFilterScanPoint').value;
+  const dateFrom = document.getElementById('saFilterDateFrom').value;
+  const dateTo = document.getElementById('saFilterDateTo').value;
+  if (scanPoint) params.set('scan_point', scanPoint);
+  if (dateFrom) params.set('from_date', dateFrom);
+  if (dateTo) params.set('to_date', dateTo);
+  let rows;
+  try {
+    rows = await jget(`${API}/badge/scan-history?${params.toString()}`);
+  } catch (e) {
+    document.getElementById('saTableBody').innerHTML = `<tr><td colspan="5" class="empty">${e.message}</td></tr>`;
+    return;
+  }
+  document.getElementById('saTableBody').innerHTML = rows.map((r) => `
+    <tr>
+      <td>${new Date(r.checked_in_at).toLocaleString()}</td>
+      <td>${SCAN_POINT_LABEL[r.scan_point] || r.scan_point}</td>
+      <td>${r.scanner_username || '-'}${r.scanner_role ? ' (' + r.scanner_role + ')' : ''}</td>
+      <td>${r.entity_name || '-'}</td>
+      <td>${scanMetaSummary(r)}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">No scans match this filter.</td></tr>';
+}
+['saFilterScanPoint', 'saFilterDateFrom', 'saFilterDateTo'].forEach((id) => {
+  document.getElementById(id)?.addEventListener('change', refreshScanActivity);
+});
+document.getElementById('saClearFiltersBtn')?.addEventListener('click', () => {
+  document.getElementById('saFilterScanPoint').value = '';
+  document.getElementById('saFilterDateFrom').value = '';
+  document.getElementById('saFilterDateTo').value = '';
+  refreshScanActivity();
+});
+
 // --- Export ---
 document.getElementById('exportBtn').addEventListener('click', async () => {
   const data = await jget(`${API}/export/voice-agent`);
@@ -6428,6 +6483,17 @@ window.openChangeRoleModal = async (id) => {
           <label>Assigned vehicle</label>
           <select name="vehicle_id" id="changeRoleVehicleSelect"><option value="">-- none --</option>${vehicleOpts}</select>
           <span class="hint">For Transport/Pre-Tours/Airport-Train boarding scans.</span>
+        </div>
+        <div class="field">
+          <label>Scan duty (QR badge station)</label>
+          <select name="scan_point" id="changeRoleScanPointSelect">
+            <option value="">-- none --</option>
+            <option value="hotel_desk" ${u.scan_point === 'hotel_desk' ? 'selected' : ''}>Hotel Desk (check-in/out)</option>
+            <option value="transport" ${u.scan_point === 'transport' ? 'selected' : ''}>Transport (boarding)</option>
+            <option value="food_counter" ${u.scan_point === 'food_counter' ? 'selected' : ''}>Food Counter</option>
+            <option value="inventory" ${u.scan_point === 'inventory' ? 'selected' : ''}>Goodies / Inventory</option>
+          </select>
+          <span class="hint">Optional, independent of role.</span>
         </div>
       </div>
       <button class="btn gold" type="submit">Save role</button>

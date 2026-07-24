@@ -276,18 +276,24 @@ const ROLE_TABS = {
   driver: ['driver-profile', 'driver-trips'],
   transporter: ['transporter-profile', 'transporter-drivers', 'transporter-trips'],
   volunteer: ['host-modules'],
-  vendor: ['vendor-profile', 'vendor-products', 'vendor-orders']
+  vendor: ['vendor-profile', 'vendor-products', 'vendor-orders'],
+  // Stall owners have no role-specific nav group of their own — their only
+  // content is the shared "Badge Scanning" section below (My Visitors),
+  // same one any other scan_point holder (hotel desk/transport/food counter/
+  // inventory staff, regardless of their base role) also sees.
+  stall_owner: []
 };
-const ROLE_DEFAULT_TAB = { host_member: 'host-profile', media: 'media-upload', driver: 'driver-profile', transporter: 'transporter-profile', volunteer: 'host-modules', vendor: 'vendor-profile' };
+const ROLE_DEFAULT_TAB = { host_member: 'host-profile', media: 'media-upload', driver: 'driver-profile', transporter: 'transporter-profile', volunteer: 'host-modules', vendor: 'vendor-profile', stall_owner: 'my-scans' };
 const ROLE_TITLE = {
   host_member: ['Host Portal', "Your committees, delegates & checklist"],
   media: ['Media Portal', 'Upload the event video reel & posters'],
   driver: ['Driver Portal', 'Your assigned trips'],
   transporter: ['Transporter Portal', "Your fleet's trip requirements"],
   volunteer: ['Volunteer Portal', 'Your granted modules'],
-  vendor: ['Vendor Portal', 'Your product catalog & order deliveries']
+  vendor: ['Vendor Portal', 'Your product catalog & order deliveries'],
+  stall_owner: ['Stall Owner Portal', 'Visitors who scanned their badge at your stall']
 };
-const ALLOWED_ROLES = ['host_member', 'media', 'transporter', 'driver', 'volunteer', 'vendor'];
+const ALLOWED_ROLES = ['host_member', 'media', 'transporter', 'driver', 'volunteer', 'vendor', 'stall_owner'];
 
 // ================= SIDEBAR + TABS =================
 // Same collapsible-sidebar / tab-panel pattern as admin.js, so the portal
@@ -377,6 +383,20 @@ function showApp() {
   // Announcements inbox is shared across every role (see tab-announcements) —
   // unlike the role-specific start*() calls above, this always runs.
   refreshAnnouncements();
+
+  // Badge scanning ("My Scans" / "My Visitors") is orthogonal to role — any
+  // login can be handed a scan_point duty (hotel desk/transport/food
+  // counter/inventory) independent of their base role, and stall_owner is
+  // a role whose ENTIRE portal is this one panel. See server/routes/badge.js
+  // GET /my-scans (self-scoped to this login's own checked_in_by_user_id).
+  const hasScanDuty = !!(CURRENT_USER && (CURRENT_USER.scan_point || role === 'stall_owner'));
+  const scanGroupLabel = document.getElementById('scanDutyGroupLabel');
+  const scanNav = document.getElementById('scanDutyNav');
+  if (scanGroupLabel) scanGroupLabel.style.display = hasScanDuty ? '' : 'none';
+  if (scanNav) scanNav.style.display = hasScanDuty ? '' : 'none';
+  const myScansBtn = document.getElementById('navBtnMyScans');
+  if (myScansBtn) myScansBtn.firstChild.textContent = role === 'stall_owner' ? 'My Visitors' : 'My Scans';
+  if (hasScanDuty) refreshMyScans();
 
   refreshPushButton();
 }
@@ -3163,6 +3183,46 @@ window.decideFinanceApproval = async (approvalId, decision) => {
     if (!(err instanceof UnauthorizedError)) toast(err.message);
   }
 };
+
+// ================= BADGE SCANNING: "My Scans" / "My Visitors" =================
+// Any login can be handed a scan_point duty (hotel_desk/transport/food_counter/
+// inventory) independent of its base role, and stall_owner is a role whose
+// entire portal is this one panel. This reads server/routes/badge.js's
+// GET /my-scans — self-scoped to this login's own checked_in_by_user_id, so
+// one scanner never sees another's activity. The actual scanning itself
+// happens on the badge page (open a delegate/host member's badge_token URL,
+// e.g. by scanning their printed/QR badge) — this panel is just the history
+// of who's already been scanned.
+const SCAN_POINT_LABEL_SELF = {
+  gate: 'Gate', hotel_checkin: 'Hotel Check-in', hotel_checkout: 'Hotel Check-out',
+  transport: 'Transport', food_counter: 'Food Counter', stall: 'Stall Visit', goodies: 'Goodies Delivery'
+};
+async function refreshMyScans() {
+  const body = document.getElementById('myScansBody');
+  if (!body) return;
+  const params = new URLSearchParams();
+  const filterSel = document.getElementById('myScansFilter');
+  if (filterSel && filterSel.value) params.set('scan_point', filterSel.value);
+  let rows;
+  try {
+    rows = await jget(`${API}/badge/my-scans?${params.toString()}`);
+  } catch (e) {
+    if (!(e instanceof UnauthorizedError)) body.innerHTML = `<p class="hint">${e.message}</p>`;
+    return;
+  }
+  body.innerHTML = rows.map((r) => `
+    <div class="card" style="margin-bottom:8px;padding:10px 14px;">
+      <strong>${r.entity_name || 'Unknown'}</strong>
+      <span class="pill">${SCAN_POINT_LABEL_SELF[r.scan_point] || r.scan_point}</span>
+      <div class="hint" style="margin-top:2px;">
+        ${new Date(r.checked_in_at).toLocaleString()}
+        ${r.entity_phone ? ' · ' + r.entity_phone : ''}
+        ${r.entity_email ? ' · ' + r.entity_email : ''}
+      </div>
+    </div>
+  `).join('') || '<p class="hint">No one scanned yet.</p>';
+}
+document.getElementById('myScansFilter')?.addEventListener('change', refreshMyScans);
 
 // ================= BOOT =================
 tryResumeSession();
