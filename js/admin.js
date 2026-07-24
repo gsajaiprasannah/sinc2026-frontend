@@ -3782,99 +3782,45 @@ window.downloadQrPng = async (token, name) => {
     document.body.removeChild(a);
   } catch (err) { toast('Could not generate QR code: ' + err.message); }
 };
+// Simplified badge layout (per Ajai's request): no header banner/logo, no
+// photo, no footer/divider — just a bold name, role/org, and a larger QR.
+// Kept as its own function (rather than deleting the richer version above)
+// so the photo/banner styling is easy to restore later if wanted; this is
+// just what buildBadgePdf renders now.
 async function buildBadgePdf(person) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'pt', format: [288, 432] });
   const W = 288;
-  const logos = await getPdfLogos();
-  pdfSetColor(doc, 'setFillColor', PDF_BRAND.navy);
-  doc.rect(0, 0, W, 54, 'F');
-  pdfSetColor(doc, 'setFillColor', PDF_BRAND.lightblue);
-  doc.rect(0, 54, W, 3, 'F');
-  if (logos.coimbatore) {
-    const { w, h } = pdfFitImage(logos.coimbatore.ratio, 140, 26);
-    doc.addImage(logos.coimbatore.dataUrl, 'PNG', (W - w) / 2, (54 - h) / 2, w, h);
-  }
-  let y = 80;
-  const photoSize = 88;
-  const photoX = (W - photoSize) / 2;
-  let photoPlaced = false;
-  if (person.photo_url) {
-    try {
-      const dataUrl = await pdfSquarePhotoDataUrl(mediaUrl(person.photo_url), 300);
-      doc.addImage(dataUrl, 'JPEG', photoX, y, photoSize, photoSize);
-      photoPlaced = true;
-    } catch (err) { /* fall through to initial */ }
-  }
-  if (!photoPlaced) {
-    pdfSetColor(doc, 'setFillColor', PDF_BRAND.navy);
-    doc.circle(W / 2, y + photoSize / 2, photoSize / 2, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFont(undefined, 'bold'); doc.setFontSize(36);
-    doc.text((person.name || '?').trim().charAt(0).toUpperCase(), W / 2, y + photoSize / 2 + 13, { align: 'center' });
-    doc.setTextColor(0, 0, 0);
-  }
-  pdfSetColor(doc, 'setDrawColor', PDF_BRAND.border);
-  doc.setLineWidth(1.2);
-  doc.rect(photoX, y, photoSize, photoSize);
-  y += photoSize + 12;
-  // Long names/designations/company names wrap onto a second line — measure
-  // the actual wrapped line count (via splitTextToSize) and advance y by
-  // that many lines each time, rather than assuming one line, so a wrapped
-  // name never collides with the role/org text drawn right after it. Every
-  // gap below is deliberately tight: this card is only 432pt tall, and a
-  // 2-line name plus a 2-line footnote both need to fit without the footer
-  // ever creeping past the bottom edge.
+  let y = 56;
+  // Bolder, bigger name than before (was 14pt) — the sample layout wants the
+  // name to read clearly from a distance with nothing else competing for
+  // attention above it.
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.navy);
-  doc.setFont(undefined, 'bold'); doc.setFontSize(14);
-  const nameLines = doc.splitTextToSize(person.name || '', W - 30);
+  doc.setFont(undefined, 'bold'); doc.setFontSize(20);
+  const nameLines = doc.splitTextToSize((person.name || '').toUpperCase(), W - 24);
   doc.text(nameLines, W / 2, y, { align: 'center' });
-  y += nameLines.length * 16 + 2;
-  doc.setFont(undefined, 'normal'); doc.setFontSize(9.5);
+  y += nameLines.length * 24 + 10;
+  doc.setFont(undefined, 'normal'); doc.setFontSize(11);
   pdfSetColor(doc, 'setTextColor', PDF_BRAND.grey);
   if (person.roleLabel) {
     const roleLines = doc.splitTextToSize(person.roleLabel, W - 30);
     doc.text(roleLines, W / 2, y, { align: 'center' });
-    y += roleLines.length * 11;
+    y += roleLines.length * 14;
   }
   if (person.orgLabel) {
     const orgLines = doc.splitTextToSize(person.orgLabel, W - 30);
     doc.text(orgLines, W / 2, y, { align: 'center' });
-    y += orgLines.length * 11;
+    y += orgLines.length * 14;
   }
   doc.setTextColor(0, 0, 0);
-  y += 10;
-  // Everything below is positioned relative to the actual content above it
-  // (rather than fixed pixel offsets) so the footer/divider never crowd or
-  // overlap the QR block — regardless of whether an org label is present or
-  // the footnote wraps to a second line.
-  const qrSize = 104;
+  y += 40;
+  // Bigger QR than before (was 104pt) — nothing else on the card now, so it
+  // can take up most of the remaining width/height.
+  const qrSize = 172;
   try {
-    const qrDataUrl = await getQrDataUrl(person.badge_token, 400);
+    const qrDataUrl = await getQrDataUrl(person.badge_token, 500);
     doc.addImage(qrDataUrl, 'PNG', (W - qrSize) / 2, y, qrSize, qrSize);
-    y += qrSize + 6;
   } catch (err) { /* skip QR if generation failed — badge is still usable */ }
-  // Tiny name caption right under the QR — lets anyone glancing at the badge
-  // (or a phone camera that can't open the link) confirm whose code this is,
-  // without competing with the large name printed above the photo.
-  pdfSetColor(doc, 'setTextColor', PDF_BRAND.grey);
-  doc.setFont(undefined, 'normal'); doc.setFontSize(6.5);
-  const qrNameLines = doc.splitTextToSize((person.name || '').toUpperCase(), W - 28);
-  doc.text(qrNameLines, W / 2, y, { align: 'center' });
-  y += qrNameLines.length * 7.5 + 6;
-  pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
-  doc.setFont(undefined, 'normal'); doc.setFontSize(7);
-  const footLines = doc.splitTextToSize('Scan for contact card · staff scan for room/transport & check-in', W - 28);
-  doc.text(footLines, W / 2, y, { align: 'center' });
-  y += footLines.length * 8 + 8;
-  pdfSetColor(doc, 'setDrawColor', PDF_BRAND.border);
-  doc.setLineWidth(0.75);
-  doc.line(20, y, W - 20, y);
-  y += 10;
-  doc.setFont(undefined, 'bold'); doc.setFontSize(8.5);
-  pdfSetColor(doc, 'setTextColor', PDF_BRAND.navy);
-  doc.text('SINC2026 · Skål International Coimbatore', W / 2, y, { align: 'center' });
-  doc.setTextColor(0, 0, 0);
   return doc;
 };
 window.downloadParticipantBadge = async (id) => {
