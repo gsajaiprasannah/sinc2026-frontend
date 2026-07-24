@@ -338,6 +338,10 @@ function activateTab(tabKey) {
   const panel = document.getElementById('tab-' + tabKey);
   if (btn) btn.classList.add('active');
   if (panel) panel.classList.add('active');
+  // Release the camera the moment the scanner panel isn't visible anymore
+  // (switching tabs, navigating away) — leaving it running in the
+  // background would keep the device's camera indicator lit for no reason.
+  if (tabKey !== 'my-scans' && typeof stopQrScanner === 'function') stopQrScanner();
 }
 
 document.getElementById('tabNav').addEventListener('click', (e) => {
@@ -3205,6 +3209,251 @@ window.decideFinanceApproval = async (approvalId, decision) => {
     if (!(err instanceof UnauthorizedError)) toast(err.message);
   }
 };
+
+// ================= IN-PAGE CAMERA QR SCANNER =================
+// Lets any scan-duty login (scanner/stall_owner, or host_member/volunteer/
+// driver/transporter deputised for a scan_point, or admin/super_admin) scan
+// a badge's QR code with the device camera right here in the portal —
+// no more handing off to the phone's own camera app to open badge.html.
+// Decodes the QR (or a manually pasted link/token), looks the person up via
+// the same GET /badge/staff/:token badge.html uses, and renders the same
+// cap-gated action buttons (Mark Attendance, Hotel Check-in/out, Transport
+// Scan, Food Counter Scan, Stall Visit, Goodies Delivery) inline — nothing
+// here duplicates server logic, it's just badgeclient.js's rendering ported
+// into one panel of this portal. Uses the html5-qrcode library (loaded via
+// CDN in login.html) for the actual camera decode.
+let qrScannerInstance = null;
+let qrScannerRunning = false;
+
+function extractBadgeToken(raw) {
+  const text = (raw || '').trim();
+  if (!text) return '';
+  try {
+    const url = new URL(text);
+    const t = url.searchParams.get('token');
+    if (t) return t;
+  } catch (e) { /* not a full URL — fall through to the patterns below */ }
+  const m = text.match(/token=([a-zA-Z0-9]+)/);
+  if (m) return m[1];
+  // Looks like a bare token (no spaces, a reasonably long alphanumeric string)
+  if (/^[a-zA-Z0-9]{8,}$/.test(text)) return text;
+  return '';
+}
+
+async function stopQrScanner() {
+  if (qrScannerInstance && qrScannerRunning) {
+    try { await qrScannerInstance.stop(); } catch (e) { /* already stopped/torn down */ }
+    qrScannerRunning = false;
+  }
+  const startBtn = document.getElementById('startScanBtn');
+  const stopBtn = document.getElementById('stopScanBtn');
+  if (startBtn) startBtn.style.display = '';
+  if (stopBtn) stopBtn.style.display = 'none';
+}
+
+async function startQrScanner() {
+  const errEl = document.getElementById('qrCameraError');
+  if (errEl) errEl.style.display = 'none';
+  if (typeof Html5Qrcode === 'undefined') {
+    if (errEl) { errEl.textContent = 'Camera scanner failed to load — use the paste-a-link box below instead.'; errEl.style.display = 'block'; }
+    return;
+  }
+  try {
+    if (!qrScannerInstance) qrScannerInstance = new Html5Qrcode('qrReader');
+    await qrScannerInstance.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: 250 },
+      async (decodedText) => {
+        const token = extractBadgeToken(decodedText);
+        if (!token) return; // not a badge QR — keep scanning
+        await stopQrScanner();
+        loadScanResult(token);
+      },
+      () => { /* per-frame "no QR found yet" noise — ignore */ }
+    );
+    qrScannerRunning = true;
+    document.getElementById('startScanBtn').style.display = 'none';
+    document.getElementById('stopScanBtn').style.display = '';
+  } catch (err) {
+    if (errEl) { errEl.textContent = 'Could not access the camera (' + (err.message || err) + '). Use the paste-a-link box below instead.'; errEl.style.display = 'block'; }
+  }
+}
+
+document.getElementById('startScanBtn')?.addEventListener('click', startQrScanner);
+document.getElementById('stopScanBtn')?.addEventListener('click', stopQrScanner);
+
+document.getElementById('manualTokenForm')?.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const input = document.getElementById('manualTokenInput');
+  const token = extractBadgeToken(input.value);
+  if (!token) { toast('Could not find a badge token in that text.'); return; }
+  loadScanResult(token);
+});
+
+async function loadScanResult(token) {
+  const resultCard = document.getElementById('scanResultCard');
+  const body = document.getElementById('scanResultBody');
+  if (!resultCard || !body) return;
+  body.innerHTML = '<p class="hint">Looking up badge…</p>';
+  resultCard.style.display = 'block';
+  resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  let d;
+  try {
+    d = await jget(`${API}/badge/staff/${encodeURIComponent(token)}`);
+  } catch (e) {
+    if (e instanceof UnauthorizedError) return;
+    body.innerHTML = `<p class="hint" style="color:var(--red);">${e.message}</p>`;
+    return;
+  }
+  renderScanResult(d, token);
+}
+
+function renderScanResult(d, token) {
+  const body = document.getElementById('scanResultBody');
+  const caps = d.caps || {};
+  const initial = (d.name || '?').trim().charAt(0).toUpperCase();
+  let html = `
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:10px;">
+      ${d.photo_url
+        ? `<img src="${mediaUrl(d.photo_url)}" style="width:56px;height:56px;border-radius:50%;object-fit:cover;" />`
+        : `<div style="width:56px;height:56px;border-radius:50%;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:600;">${initial}</div>`}
+      <div>
+        <strong style="font-size:16px;">${d.name || 'Unknown'}</strong>
+        <div class="hint" style="margin:0;">${d.role_label || ''}${d.org ? ' · ' + d.org : ''}</div>
+      </div>
+    </div>
+  `;
+  if (d.registration) {
+    const r = d.registration;
+    const bits = [r.reg_number, r.reg_type, r.payment_status ? `Payment: ${String(r.payment_status).toUpperCase()}` : (r.payment_amount ? `₹${r.payment_amount}` : null)].filter(Boolean);
+    if (bits.length) html += `<p class="hint">${bits.join(' · ')}</p>`;
+  }
+  if (d.room) {
+    html += `<p class="hint">${d.room.hotel_name} · Room ${d.room.room_number}${d.room.room_type ? ' (' + d.room.room_type + ')' : ''}</p>`;
+  }
+  if (d.last_checked_in_at) {
+    html += `<p class="hint">Last checked in: ${new Date(d.last_checked_in_at).toLocaleString('en-IN')}</p>`;
+  }
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;" id="scanActionButtons"></div>';
+  html += '<div id="scanActionResult" class="hint" style="margin-top:8px;display:none;"></div>';
+  html += '<div id="scanGoodiesList"></div>';
+  html += '<button class="btn secondary small" id="scanAnotherBtn" type="button" style="margin-top:12px;">Scan another</button>';
+  body.innerHTML = html;
+
+  const actionsEl = document.getElementById('scanActionButtons');
+  const resultEl = document.getElementById('scanActionResult');
+
+  function addButton(label, onClick) {
+    const btn = document.createElement('button');
+    btn.className = 'btn small';
+    btn.type = 'button';
+    btn.textContent = label;
+    btn.addEventListener('click', onClick);
+    actionsEl.appendChild(btn);
+    return btn;
+  }
+  function showResult(text, isError) {
+    resultEl.textContent = text;
+    resultEl.style.color = isError ? 'var(--red)' : 'var(--navy)';
+    resultEl.style.display = 'block';
+  }
+  async function postAction(path, body2) {
+    return jpost(`${API}/badge/staff/${encodeURIComponent(token)}${path}`, body2 || {});
+  }
+
+  if (Object.values(caps).some(Boolean)) {
+    addButton('Mark Attendance', async (e) => {
+      e.target.disabled = true;
+      try {
+        const r = await postAction('/checkin');
+        showResult(`Checked in: ${new Date(r.checked_in_at).toLocaleString('en-IN')}`);
+      } catch (err) { if (!(err instanceof UnauthorizedError)) showResult(err.message, true); }
+      finally { e.target.disabled = false; }
+    });
+  }
+  if (caps.hotel_desk) {
+    addButton('Hotel Check-in', async (e) => {
+      e.target.disabled = true;
+      try { const r = await postAction('/hotel-checkin'); showResult(`Checked in: ${new Date(r.checked_in_at).toLocaleString('en-IN')}`); }
+      catch (err) { if (!(err instanceof UnauthorizedError)) showResult(err.message, true); }
+      finally { e.target.disabled = false; }
+    });
+    addButton('Hotel Check-out', async (e) => {
+      e.target.disabled = true;
+      try { const r = await postAction('/hotel-checkout'); showResult(`Checked out: ${new Date(r.checked_in_at).toLocaleString('en-IN')}`); }
+      catch (err) { if (!(err instanceof UnauthorizedError)) showResult(err.message, true); }
+      finally { e.target.disabled = false; }
+    });
+  }
+  if (caps.transport) {
+    addButton('Transport Scan', async (e) => {
+      e.target.disabled = true;
+      try {
+        const r = await postAction('/transport-scan');
+        if (r.match) showResult(`✅ Correct vehicle. ${r.trip.from_location} → ${r.trip.to_location}${r.trip.depart_time ? ' · ' + r.trip.depart_time : ''}`);
+        else if (r.assigned === false) showResult(r.message || 'No transport assignment found for this person today.', true);
+        else {
+          const t = r.correctTrip;
+          showResult(`⚠️ Wrong vehicle. Should board ${t.vehicle_code || '?'}${t.driver_name ? ' (driver: ' + t.driver_name + ')' : ''} — ${t.from_location} → ${t.to_location}`, true);
+        }
+      } catch (err) { if (!(err instanceof UnauthorizedError)) showResult(err.message, true); }
+      finally { e.target.disabled = false; }
+    });
+  }
+  if (caps.food_counter) {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;gap:6px;align-items:center;';
+    wrap.innerHTML = `<select id="scanFoodMealSelect" style="max-width:160px;">
+      <option value="breakfast">Breakfast</option><option value="lunch">Lunch</option>
+      <option value="hi-tea">Hi-Tea</option><option value="dinner">Dinner</option><option value="snacks">Snacks</option>
+    </select>`;
+    const btn = document.createElement('button');
+    btn.className = 'btn small'; btn.type = 'button'; btn.textContent = 'Food Counter Scan';
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try {
+        const mealSlot = document.getElementById('scanFoodMealSelect').value;
+        const r = await postAction('/food-scan', { meal_slot: mealSlot });
+        showResult(r.already ? `Already counted for ${mealSlot} today.` : `Counted for ${mealSlot} — ${r.todayCount} people so far today.`);
+      } catch (err) { if (!(err instanceof UnauthorizedError)) showResult(err.message, true); }
+      finally { btn.disabled = false; }
+    });
+    wrap.appendChild(btn);
+    actionsEl.appendChild(wrap);
+  }
+  if (caps.stall_owner) {
+    addButton('Log Stall Visit', async (e) => {
+      e.target.disabled = true;
+      try { await postAction('/stall-visit'); showResult("✅ Visit logged — this contact is now in your stall's visitor list."); }
+      catch (err) { if (!(err instanceof UnauthorizedError)) showResult(err.message, true); }
+      finally { e.target.disabled = false; }
+    });
+  }
+  if (caps.inventory && d.pending_goodies && d.pending_goodies.length) {
+    const list = document.getElementById('scanGoodiesList');
+    list.style.marginTop = '10px';
+    list.innerHTML = d.pending_goodies.map((g) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);">
+        <span>${g.name}${g.quantity > 1 ? ' × ' + g.quantity : ''}</span>
+        <button class="btn small" data-dist-id="${g.distribution_id}" type="button">Mark Delivered</button>
+      </div>
+    `).join('');
+    list.querySelectorAll('button[data-dist-id]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+          await jpost(`${API}/badge/staff/${encodeURIComponent(token)}/goodies/${btn.dataset.distId}/deliver`, {});
+          btn.closest('div').remove();
+        } catch (err) { if (!(err instanceof UnauthorizedError)) { toast(err.message); btn.disabled = false; } }
+      });
+    });
+  }
+
+  document.getElementById('scanAnotherBtn').addEventListener('click', () => {
+    document.getElementById('scanResultCard').style.display = 'none';
+    refreshMyScans();
+  });
+}
 
 // ================= BADGE SCANNING: "My Scans" / "My Visitors" =================
 // Any login can be handed a scan_point duty (hotel_desk/transport/food_counter/
