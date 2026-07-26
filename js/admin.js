@@ -4443,6 +4443,202 @@ function pdfTravelLeg(mode, number, datetime, point) {
   ]);
 }
 
+// --- Delegates summary report ----------------------------------------
+// Counts how many delegates fall into each bucket and returns pdfTable rows
+// of [bucket, count, share] sorted by count desc. `multi` splits a
+// comma-separated cell (drink_preference is a multi-select, so one delegate
+// can land in several buckets — shares then total more than 100%).
+function tallyRows(rows, getter, { multi = false, blankLabel = null, order = null } = {}) {
+  const counts = {};
+  rows.forEach((r) => {
+    const raw = getter(r);
+    const values = multi
+      ? String(raw || '').split(',').map((s) => s.trim()).filter(Boolean)
+      : [String(raw == null ? '' : raw).trim()];
+    values.forEach((v) => {
+      const key = v || blankLabel;
+      if (!key) return;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+  });
+  const keys = Object.keys(counts);
+  keys.sort((a, b) => {
+    if (order) {
+      const ia = order.indexOf(a), ib = order.indexOf(b);
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib);
+    }
+    return counts[b] - counts[a] || a.localeCompare(b);
+  });
+  const denom = rows.length || 1;
+  return keys.map((k) => [k, String(counts[k]), `${Math.round((counts[k] / denom) * 1000) / 10}%`]);
+}
+const TALLY_COLUMNS = [{ label: 'Value', width: 300 }, { label: 'Delegates', width: 90, align: 'right' }, { label: 'Share', width: 125, align: 'right' }];
+function tallyBlock(label, rows, getter, opts) {
+  return { label, columns: [{ ...TALLY_COLUMNS[0], label: label || 'Value' }, TALLY_COLUMNS[1], TALLY_COLUMNS[2]], rows: tallyRows(rows, getter, opts) };
+}
+
+// Each section returns an array of blocks: { label?, columns, rows }.
+const DELEGATE_REPORT_SECTIONS = [
+  {
+    key: 'overview', label: 'Congress at a glance', default: true,
+    build: (rows) => {
+      const clubs = new Set(rows.map((r) => (r.club_name || '').trim()).filter(Boolean));
+      const denom = rows.length || 1;
+      // Share is "% of all delegates", so it's only meaningful for rows that
+      // count delegates — "Clubs represented" counts clubs, and gets a blank.
+      const share = (count) => `${Math.round((count / denom) * 1000) / 10}%`;
+      const measure = (label, fn) => { const c = rows.filter(fn).length; return [label, String(c), share(c)]; };
+      return [{
+        columns: [{ label: 'Measure', width: 300 }, { label: 'Count', width: 90, align: 'right' }, { label: 'Share', width: 125, align: 'right' }],
+        rows: [
+          ['Total delegates', String(rows.length), '100%'],
+          ['Clubs represented', String(clubs.size), ''],
+          measure('Primary registrants', (r) => Number(r.is_primary) === 1),
+          measure('Co-registrants', (r) => Number(r.is_primary) !== 1),
+          measure('Phone on file', (r) => r.phone),
+          measure('Email on file', (r) => r.email),
+          measure('Travel details submitted', (r) => r.travel_mode),
+          measure('Pre-Tour signups', (r) => r.pre_tour_id),
+        ],
+      }];
+    }
+  },
+  {
+    key: 'by_club', label: 'Registrations by club', default: true,
+    build: (rows) => {
+      const groups = groupPartsByClub(rows);
+      const denom = rows.length || 1;
+      return [{
+        columns: [
+          { label: 'Club', width: 175 }, { label: 'Delegates', width: 80, align: 'right' },
+          { label: 'Primary', width: 80, align: 'right' }, { label: 'Co-reg', width: 80, align: 'right' },
+          { label: 'Share', width: 100, align: 'right' },
+        ],
+        rows: [
+          ...groups.map((g) => [
+            g.club, String(g.rows.length),
+            String(g.rows.filter((r) => Number(r.is_primary) === 1).length),
+            String(g.rows.filter((r) => Number(r.is_primary) !== 1).length),
+            `${Math.round((g.rows.length / denom) * 1000) / 10}%`,
+          ]),
+          ['TOTAL', String(rows.length),
+            String(rows.filter((r) => Number(r.is_primary) === 1).length),
+            String(rows.filter((r) => Number(r.is_primary) !== 1).length), '100%'],
+        ],
+      }];
+    }
+  },
+  {
+    key: 'food', label: 'Meal preferences', default: true,
+    build: (rows) => [tallyBlock('Food preference', rows, (r) => r.dietary_preference, {
+      blankLabel: 'No preference', order: ['Vegetarian', 'Non-vegetarian', 'No preference'],
+    })]
+  },
+  {
+    key: 'food_by_club', label: 'Meal preferences by club', default: false,
+    build: (rows) => {
+      const groups = groupPartsByClub(rows);
+      const buckets = ['Vegetarian', 'Non-vegetarian', 'No preference'];
+      const cell = (list, b) => String(list.filter((r) => (r.dietary_preference || 'No preference') === b).length);
+      return [{
+        columns: [
+          { label: 'Club', width: 175 }, { label: 'Veg', width: 80, align: 'right' },
+          { label: 'Non-veg', width: 85, align: 'right' }, { label: 'No pref', width: 85, align: 'right' },
+          { label: 'Total', width: 90, align: 'right' },
+        ],
+        rows: [
+          ...groups.map((g) => [g.club, ...buckets.map((b) => cell(g.rows, b)), String(g.rows.length)]),
+          ['TOTAL', ...buckets.map((b) => cell(rows, b)), String(rows.length)],
+        ],
+      }];
+    }
+  },
+  {
+    key: 'drink', label: 'Drink preferences', default: true,
+    // Multi-select: one delegate can tick several drinks, so shares are of
+    // all delegates and will add up to more than 100%.
+    build: (rows) => [tallyBlock('Drink preference', rows, (r) => r.drink_preference, { multi: true, blankLabel: 'Not specified' })]
+  },
+  {
+    key: 'sizes', label: 'Merchandise sizes', default: true,
+    build: (rows) => [
+      tallyBlock('Shirt size', rows, (r) => r.shirt_size, { blankLabel: 'Not given' }),
+      tallyBlock('T-shirt size', rows, (r) => r.tshirt_size, { blankLabel: 'Not given' }),
+      tallyBlock('Waist size', rows, (r) => r.waist_size, { blankLabel: 'Not given' }),
+    ]
+  },
+  {
+    key: 'payment', label: 'Payment status', default: true,
+    build: (rows) => [tallyBlock('Payment status', rows, (r) => r.payment_status, { blankLabel: 'Not set' })]
+  },
+  {
+    key: 'pretour', label: 'Pre-Tour signups', default: true,
+    build: (rows) => [tallyBlock('Pre-Tour', rows, (r) => pdfPreTourName(r), { blankLabel: 'Not attending' })]
+  },
+  {
+    key: 'business', label: 'Business profiles', default: false,
+    build: (rows) => [tallyBlock('Business profile', rows, (r) => r.business_profile, { blankLabel: 'Not given' })]
+  },
+  {
+    key: 'travel_mode', label: 'Travel modes', default: false,
+    build: (rows) => [
+      tallyBlock('Arrival mode', rows, (r) => r.travel_mode, { blankLabel: 'Not submitted' }),
+      tallyBlock('Departure mode', rows, (r) => r.departure_mode, { blankLabel: 'Not submitted' }),
+    ]
+  },
+  {
+    key: 'travel_points', label: 'Arrival / departure points', default: false,
+    build: (rows) => [
+      tallyBlock('Arrival point', rows, (r) => r.arrival_point, { blankLabel: 'Not submitted' }),
+      tallyBlock('Departure point', rows, (r) => r.departure_point, { blankLabel: 'Not submitted' }),
+    ]
+  },
+];
+let DELEGATE_REPORT_SELECTED = DELEGATE_REPORT_SECTIONS.filter((s) => s.default).map((s) => s.key);
+
+function renderDelegateReportModal() {
+  document.getElementById('delegateReportSectionGrid').innerHTML = DELEGATE_REPORT_SECTIONS.map((s) => `
+    <label style="display:flex;align-items:center;gap:6px;">
+      <input type="checkbox" class="delegate-report-section" value="${s.key}" ${DELEGATE_REPORT_SELECTED.includes(s.key) ? 'checked' : ''} />
+      ${s.label}
+    </label>
+  `).join('');
+}
+window.openDelegateReportModal = () => {
+  renderDelegateReportModal();
+  document.getElementById('delegateReportModal').style.display = '';
+};
+window.closeDelegateReportModal = () => { document.getElementById('delegateReportModal').style.display = 'none'; };
+window.setAllDelegateReportSections = (checked) => {
+  document.querySelectorAll('.delegate-report-section').forEach((el) => { el.checked = checked; });
+};
+
+window.downloadDelegatesReportPdf = async () => {
+  try {
+    const keys = [...document.querySelectorAll('.delegate-report-section:checked')].map((el) => el.value);
+    if (!keys.length) { toast('Tick at least one report section to include.'); return; }
+    DELEGATE_REPORT_SELECTED = keys;
+    closeDelegateReportModal();
+
+    const rows = await jget(`${API}/participants`);
+    const sections = DELEGATE_REPORT_SECTIONS.filter((s) => keys.includes(s.key));
+    const doc = pdfDoc();
+    let y = await pdfLetterhead(doc, 'Delegates Report', `${rows.length} delegate(s) · generated from live registration data`);
+    sections.forEach((section) => {
+      y = pdfMaybeNewPage(doc, y, 90);
+      y = pdfSectionLabel(doc, y, section.label);
+      section.build(rows).forEach((block) => {
+        y = pdfMaybeNewPage(doc, y, 60);
+        y = pdfTable(doc, y, block.columns, block.rows);
+        y += 6;
+      });
+      y += 8;
+    });
+    pdfFinalize(doc);
+    doc.save('delegates-report.pdf');
+  } catch (err) { toast(err.message); }
+};
+
 // Every column the Delegates PDF can include, in the order they'd appear.
 // `width` is a *preferred* width in points — the export scales the ticked
 // ones proportionally to exactly fill the page, so a two-field list gets two
