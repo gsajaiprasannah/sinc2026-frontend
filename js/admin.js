@@ -4443,53 +4443,129 @@ function pdfTravelLeg(mode, number, datetime, point) {
   ]);
 }
 
+// Every column the Delegates PDF can include, in the order they'd appear.
+// `width` is a *preferred* width in points — the export scales the ticked
+// ones proportionally to exactly fill the page, so a two-field list gets two
+// wide, readable columns rather than two narrow ones stranded on the left.
+// `group` only drives the checkbox grid's headings in the modal.
+const DELEGATE_PDF_FIELDS = [
+  { key: 'participant_code', label: 'Reg ID', group: 'Identity', width: 62, get: (r) => r.participant_code },
+  { key: 'name', label: 'Name', group: 'Identity', width: 110, get: (r) => r.name },
+  { key: 'designation', label: 'Designation', group: 'Identity', width: 90, get: (r) => r.designation },
+  { key: 'club_name', label: 'Club', group: 'Identity', width: 85, get: (r) => r.club_name },
+  { key: 'role', label: 'Role', group: 'Identity', width: 55, get: (r) => (Number(r.is_primary) === 1 ? 'Primary' : 'Co-reg') },
+  { key: 'reg_number', label: 'Reg #', group: 'Identity', width: 62, get: (r) => r.reg_number },
+
+  { key: 'phone', label: 'Phone', group: 'Contact', width: 70, get: (r) => r.phone },
+  { key: 'whatsapp', label: 'WhatsApp', group: 'Contact', width: 70, get: (r) => r.whatsapp },
+  { key: 'email', label: 'Email', group: 'Contact', width: 120, get: (r) => r.email },
+  { key: 'address', label: 'Address', group: 'Contact', width: 130, get: (r) => r.address },
+
+  { key: 'dietary_preference', label: 'Food', group: 'Preferences', width: 66, get: (r) => r.dietary_preference || 'No preference' },
+  { key: 'drink_preference', label: 'Drink', group: 'Preferences', width: 66, get: (r) => r.drink_preference },
+  { key: 'sizes', label: 'Sizes', group: 'Preferences', width: 80, get: (r) => pdfSizesText(r) },
+  { key: 'business_profile', label: 'Business profile', group: 'Preferences', width: 85, get: (r) => r.business_profile },
+  { key: 'pre_tour', label: 'Pre-Tour', group: 'Preferences', width: 85, get: (r) => pdfPreTourName(r) },
+  { key: 'special_requests', label: 'Special requests', group: 'Preferences', width: 115, get: (r) => r.special_requests },
+
+  { key: 'arrival', label: 'Arrival', group: 'Travel', width: 125,
+    get: (r) => pdfTravelLeg(r.travel_mode, r.travel_number, r.travel_datetime, r.arrival_point) },
+  { key: 'departure', label: 'Departure', group: 'Travel', width: 125,
+    get: (r) => pdfTravelLeg(r.departure_mode, r.departure_number, r.departure_datetime, r.departure_point) },
+  { key: 'pickup', label: 'Pickup', group: 'Travel', width: 95,
+    get: (r) => pdfLines([['By', r.pickup_by], ['Vehicle', r.pickup_vehicle], ['Contact', r.pickup_phone]]) },
+  { key: 'spoc', label: 'SPOC', group: 'Travel', width: 95,
+    get: (r) => pdfLines([['', r.spoc_host_member_name || r.spoc_name], ['Ph', r.spoc_host_member_phone || r.spoc_phone]]) },
+
+  { key: 'payment_status', label: 'Payment', group: 'Other', width: 55, get: (r) => r.payment_status },
+];
+const DELEGATE_PDF_DEFAULT_KEYS = ['participant_code', 'name', 'role', 'phone', 'dietary_preference', 'sizes', 'arrival', 'departure'];
+// Remembers the last ticked set for this page session, so repeat exports of
+// the same kind of list don't have to be re-ticked every time.
+let DELEGATE_PDF_SELECTED = [...DELEGATE_PDF_DEFAULT_KEYS];
+
+function renderDelegatePdfModal() {
+  const grid = document.getElementById('delegatePdfFieldGrid');
+  const groups = [];
+  DELEGATE_PDF_FIELDS.forEach((f) => {
+    let g = groups.find((x) => x.name === f.group);
+    if (!g) { g = { name: f.group, fields: [] }; groups.push(g); }
+    g.fields.push(f);
+  });
+  grid.innerHTML = groups.map((g) => `
+    <div style="grid-column:1/-1;font-weight:700;font-size:12px;color:#314691;margin-top:6px;">${g.name}</div>
+    ${g.fields.map((f) => `
+      <label style="display:flex;align-items:center;gap:6px;">
+        <input type="checkbox" class="delegate-pdf-field" value="${f.key}" ${DELEGATE_PDF_SELECTED.includes(f.key) ? 'checked' : ''} />
+        ${f.label}
+      </label>
+    `).join('')}
+  `).join('');
+}
+function selectedDelegatePdfKeys() {
+  return [...document.querySelectorAll('.delegate-pdf-field:checked')].map((el) => el.value);
+}
+window.openDelegatePdfModal = () => {
+  renderDelegatePdfModal();
+  // '' (not 'flex') so .modal-overlay's own display rule applies, matching
+  // how every other modal in this file is opened.
+  document.getElementById('delegatePdfModal').style.display = '';
+};
+window.closeDelegatePdfModal = () => { document.getElementById('delegatePdfModal').style.display = 'none'; };
+window.setAllDelegatePdfFields = (checked) => {
+  document.querySelectorAll('.delegate-pdf-field').forEach((el) => { el.checked = checked; });
+};
+window.resetDelegatePdfFields = () => {
+  DELEGATE_PDF_SELECTED = [...DELEGATE_PDF_DEFAULT_KEYS];
+  renderDelegatePdfModal();
+};
+
 // Exported club by club — one heading + table per club — since the congress
-// team works club-wise (kits, seating, transport). Each delegate is one row
-// whose cells stack several labelled values; pdfTable wraps them and sizes
-// the row to the tallest cell, which fits far more per page than one column
-// per field would on portrait A4.
+// team works club-wise (kits, seating, transport). Which columns appear is
+// whatever was ticked in the field-picker modal; multi-value cells (Arrival,
+// Pickup, SPOC) stack their labelled lines and pdfTable wraps them, sizing
+// each row to its tallest cell.
 window.downloadDelegatesListPdf = async () => {
   try {
+    const keys = selectedDelegatePdfKeys();
+    if (!keys.length) { toast('Tick at least one field to include in the PDF.'); return; }
+    DELEGATE_PDF_SELECTED = keys;
+    const groupByClub = document.getElementById('delegatePdfGroupByClub').checked;
+    const fields = DELEGATE_PDF_FIELDS.filter((f) => keys.includes(f.key));
+
+    // Scale the chosen columns' preferred widths to exactly fill the content
+    // area — shrinking them when a lot is ticked, widening them when little
+    // is, so the table always spans the page instead of hugging the margin.
+    const usable = PDF_CONTENT_RIGHT - PDF_MARGIN;
+    const totalPref = fields.reduce((sum, f) => sum + f.width, 0);
+    const scale = usable / totalPref;
+    const columns = fields.map((f) => ({ label: f.label, width: f.width * scale }));
+
+    closeDelegatePdfModal();
     const rows = await jget(`${API}/participants`);
-    const groups = groupPartsByClub(rows);
-    const columns = [
-      { label: 'Delegate', width: 128 },
-      { label: 'Preferences', width: 118 },
-      { label: 'Arrival', width: 134 },
-      { label: 'Departure', width: 135 },
-    ];
+    const toRow = (r) => fields.map((f) => f.get(r));
+
     const doc = pdfDoc();
+    const groups = groupByClub ? groupPartsByClub(rows) : null;
     let y = await pdfLetterhead(
       doc,
       'Delegates Directory',
-      `${rows.length} delegate(s) across ${groups.length} club(s)`
+      groups
+        ? `${rows.length} delegate(s) across ${groups.length} club(s)`
+        : `${rows.length} delegate(s)`
     );
-    groups.forEach((g) => {
-      // Keep a club heading with at least its header row + one delegate so a
-      // club name never strands alone at the bottom of a page.
-      y = pdfMaybeNewPage(doc, y, 90);
-      y = pdfSectionLabel(doc, y, `${g.club} — ${g.rows.length} delegate(s)`);
-      y = pdfTable(doc, y, columns, g.rows.map((r) => [
-        pdfLines([
-          ['', r.name],
-          ['', r.designation],
-          ['', r.participant_code],
-          ['', Number(r.is_primary) === 1 ? 'Primary' : 'Co-registrant'],
-          ['Ph', r.phone],
-          ['Payment', r.payment_status],
-        ]),
-        pdfLines([
-          ['Food', r.dietary_preference || 'No preference'],
-          ['Drink', r.drink_preference],
-          ['Sizes', pdfSizesText(r)],
-          ['Pre-Tour', pdfPreTourName(r)],
-          ['Requests', r.special_requests],
-        ]),
-        pdfTravelLeg(r.travel_mode, r.travel_number, r.travel_datetime, r.arrival_point),
-        pdfTravelLeg(r.departure_mode, r.departure_number, r.departure_datetime, r.departure_point),
-      ]));
-      y += 10;
-    });
+    if (groups) {
+      groups.forEach((g) => {
+        // Keep a club heading with at least its header row + one delegate so
+        // a club name never strands alone at the bottom of a page.
+        y = pdfMaybeNewPage(doc, y, 90);
+        y = pdfSectionLabel(doc, y, `${g.club} — ${g.rows.length} delegate(s)`);
+        y = pdfTable(doc, y, columns, g.rows.map(toRow));
+        y += 10;
+      });
+    } else {
+      y = pdfTable(doc, y, columns, rows.map(toRow));
+    }
     pdfFinalize(doc);
     doc.save('delegates-directory.pdf');
   } catch (err) { toast(err.message); }
