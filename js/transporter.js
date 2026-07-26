@@ -24,6 +24,14 @@ function toast(msg, durationMs) {
   toastTimer = setTimeout(() => t.classList.remove('show'), durationMs || 2200);
 }
 
+// Mirrors admin.js's vehicleTypeLabel — the Vehicles master stores type as
+// a snake_case key (sedan/suv/force_traveller/bus/van/others, plus legacy
+// van/car values), this turns it into the display label shown here.
+const VEHICLE_TYPE_LABELS = { sedan: 'Sedan', suv: 'SUV', force_traveller: 'Force Traveller', bus: 'Bus', van: 'Van', others: 'Others', car: 'Car' };
+function vehicleTypeLabel(type) {
+  return VEHICLE_TYPE_LABELS[type] || (type ? type.charAt(0).toUpperCase() + type.slice(1) : '-');
+}
+
 function handleUnauthorized() {
   setToken('');
   CURRENT_USER = null;
@@ -71,7 +79,7 @@ function renderDrivers(drivers) {
     <tr>
       <td>${escapeHtml(d.name)}</td>
       <td>${escapeHtml(d.phone || '-')}</td>
-      <td>${d.vehicle_code ? escapeHtml(d.vehicle_code) + ` (${escapeHtml(d.vehicle_master_type || '')})` : escapeHtml(`${d.vehicle_type || ''} ${d.vehicle_number || ''}`.trim() || '-')}</td>
+      <td>${d.vehicle_code ? escapeHtml(d.vehicle_code) + ` (${escapeHtml(vehicleTypeLabel(d.vehicle_master_type))})` : escapeHtml(`${d.vehicle_type || ''} ${d.vehicle_number || ''}`.trim() || '-')}</td>
     </tr>
   `).join('') || '<tr><td colspan="3" class="empty">No drivers linked to your company yet — ask the admin team to add them.</td></tr>';
 }
@@ -93,7 +101,7 @@ function renderTrips(trips) {
         </div>
         <span class="pill ${STATUS_PILL[t.status] || 'not_started'}">${STATUS_LABEL[t.status] || t.status}</span>
       </div>
-      <p class="hint" style="margin:8px 0 4px;">Vehicle: ${t.vehicle_code ? escapeHtml(t.vehicle_code) + ` (${escapeHtml(t.vehicle_type || '')}, ${t.seating_capacity || 0} seats)` : 'Not set'} &middot; ${t.passenger_count} passenger(s)</p>
+      <p class="hint" style="margin:8px 0 4px;">Vehicle: ${t.vehicle_code ? escapeHtml(t.vehicle_code) + ` (${escapeHtml(vehicleTypeLabel(t.vehicle_type))}, ${t.seating_capacity || 0} seats)` : 'Not set'} &middot; ${t.passenger_count} passenger(s)</p>
       <div class="form-grid cols-2" style="margin-top:10px;">
         <div class="field">
           <label>Assigned driver</label>

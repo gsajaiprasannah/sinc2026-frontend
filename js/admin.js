@@ -3021,12 +3021,22 @@ document.getElementById('driverForm').addEventListener('submit', async (e) => {
 });
 
 // --- Operations: Vehicles (masters) ---
+// vehicle_type is stored as a snake_case key (sedan/suv/force_traveller/
+// bus/van/others, plus legacy 'van'/'car' values from before this list
+// existed) — this turns it into the display label shown everywhere a
+// vehicle's type is surfaced (table rows, dropdown option text, PDFs),
+// rather than leaving e.g. "force_traveller" printed raw with an underscore.
+const VEHICLE_TYPE_LABELS = { sedan: 'Sedan', suv: 'SUV', force_traveller: 'Force Traveller', bus: 'Bus', van: 'Van', others: 'Others', car: 'Car' };
+function vehicleTypeLabel(type) {
+  return VEHICLE_TYPE_LABELS[type] || (type ? type.charAt(0).toUpperCase() + type.slice(1) : '-');
+}
+
 async function refreshVehicles() {
   const rows = await jget(`${API}/vehicles`);
   document.getElementById('vehicleTableBody').innerHTML = rows.map((v) => `
     <tr>
       <td><strong>${v.vehicle_code}</strong></td>
-      <td style="text-transform:capitalize;">${v.vehicle_type}</td>
+      <td>${vehicleTypeLabel(v.vehicle_type)}</td>
       <td>${v.model || '-'}</td>
       <td>${v.seating_capacity}</td>
       <td>${v.registration_number || '-'}</td>
@@ -3039,7 +3049,7 @@ async function refreshVehicles() {
     </tr>
   `).join('') || '<tr><td colspan="7" class="empty">No vehicles yet</td></tr>';
 
-  const opts = rows.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join('');
+  const opts = rows.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${vehicleTypeLabel(v.vehicle_type)} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join('');
   document.getElementById('driverVehicleSelect').innerHTML = '<option value="">-- none --</option>' + opts;
   ['tripVehicleSelect', 'tourTripVehicleSelect'].forEach((id) => {
     const el = document.getElementById(id);
@@ -3131,7 +3141,7 @@ async function refreshTransportTrips() {
       <td>${t.depart_time || '-'}</td>
       <td>${t.from_location} → ${t.to_location}</td>
       <td>${t.purpose || '-'}</td>
-      <td>${t.vehicle_code ? `${t.vehicle_code} <span class="hint">(${t.vehicle_type})</span>` : '<span class="hint">unassigned</span>'}</td>
+      <td>${t.vehicle_code ? `${t.vehicle_code} <span class="hint">(${vehicleTypeLabel(t.vehicle_type)})</span>` : '<span class="hint">unassigned</span>'}</td>
       <td>${t.driver_name || '-'}</td>
       <td>${capacityBadge(Number(t.passenger_count), t.seating_capacity)}</td>
       <td>${tripStatusPill(t.status)}</td>
@@ -4105,7 +4115,7 @@ function pdfAddTripBlock(doc, y, trip) {
     ['Route', `${trip.from_location} → ${trip.to_location}`],
     ['Date / Time', `${trip.trip_date || '-'} ${trip.depart_time || ''}`.trim()],
     ['Purpose', trip.purpose],
-    ['Vehicle', trip.vehicle_code ? `${trip.vehicle_code} — ${trip.vehicle_type}${trip.vehicle_model ? ' (' + trip.vehicle_model + ')' : ''}` : 'Unassigned'],
+    ['Vehicle', trip.vehicle_code ? `${trip.vehicle_code} — ${vehicleTypeLabel(trip.vehicle_type)}${trip.vehicle_model ? ' (' + trip.vehicle_model + ')' : ''}` : 'Unassigned'],
     ['Driver', trip.driver_name ? `${trip.driver_name} — ${trip.driver_phone || 'no phone on file'}` : 'Unassigned']
   ]);
   const passengerRows = (trip.passengers || []).map((p, i) => [
@@ -4628,7 +4638,7 @@ window.downloadVehiclesListPdf = async () => {
     const rows = await jget(`${API}/vehicles`);
     await downloadListReportPdf('Vehicles', `${rows.length} vehicle(s)`, [
       { label: 'Code', width: 65, get: (r) => r.vehicle_code },
-      { label: 'Type', width: 75, get: (r) => r.vehicle_type },
+      { label: 'Type', width: 75, get: (r) => vehicleTypeLabel(r.vehicle_type) },
       { label: 'Model', width: 110, get: (r) => r.model },
       { label: 'Capacity', width: 60, get: (r) => r.seating_capacity, align: 'right' },
       { label: 'Reg. Number', width: 100, get: (r) => r.registration_number },
@@ -4642,7 +4652,7 @@ window.downloadVehicleDetailPdf = async (id) => {
     const v = rows.find((r) => r.id === id);
     if (!v) { toast('Vehicle not found'); return; }
     await downloadDetailPdf(`Vehicle — ${v.vehicle_code}`, v.model || '', [
-      { label: 'Vehicle Details', pairs: [['Code', v.vehicle_code], ['Type', v.vehicle_type], ['Model', v.model], ['Seating capacity', v.seating_capacity], ['Registration number', v.registration_number], ['Partner', v.partner_name], ['Notes', v.notes]] },
+      { label: 'Vehicle Details', pairs: [['Code', v.vehicle_code], ['Type', vehicleTypeLabel(v.vehicle_type)], ['Model', v.model], ['Seating capacity', v.seating_capacity], ['Registration number', v.registration_number], ['Partner', v.partner_name], ['Notes', v.notes]] },
     ], `vehicle-${v.vehicle_code}.pdf`);
   } catch (err) { toast(err.message); }
 };
@@ -6539,7 +6549,7 @@ window.openChangeRoleModal = async (id) => {
   const volOpts = volRows.map((v) => `<option value="${v.id}">${v.name}${v.organization ? ' (' + v.organization + ')' : ''}</option>`).join('');
   const vendorOpts = vendorRows.map((v) => `<option value="${v.id}">${v.name}${v.category ? ' (' + v.category + ')' : ''}</option>`).join('');
   const stallOpts = stallRows.map((s) => `<option value="${s.id}">${s.hall_name} — ${s.stall_number}${s.booked_company_name ? ' (' + s.booked_company_name + ')' : ''}</option>`).join('');
-  const vehicleOpts = vehicleRows.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${v.vehicle_type}${v.model ? ' — ' + v.model : ''}</option>`).join('');
+  const vehicleOpts = vehicleRows.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${vehicleTypeLabel(v.vehicle_type)}${v.model ? ' — ' + v.model : ''}</option>`).join('');
 
   document.getElementById('changeRoleModalTitle').textContent = `Change role — ${u.username}`;
   document.getElementById('changeRoleModalBody').innerHTML = `
@@ -6684,7 +6694,7 @@ async function ensureVehicleOptsLoaded() {
   if (VEHICLE_OPTS_CACHE !== null) return;
   try {
     const rows = await jget(`${API}/vehicles`);
-    VEHICLE_OPTS_CACHE = rows.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${v.vehicle_type}${v.model ? ' — ' + v.model : ''}</option>`).join('');
+    VEHICLE_OPTS_CACHE = rows.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${vehicleTypeLabel(v.vehicle_type)}${v.model ? ' — ' + v.model : ''}</option>`).join('');
   } catch (e) { VEHICLE_OPTS_CACHE = ''; }
   if (createUserVehicleSelect) createUserVehicleSelect.innerHTML = '<option value="">-- none yet --</option>' + VEHICLE_OPTS_CACHE;
 }

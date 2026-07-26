@@ -6,6 +6,14 @@ const MEDIA_ORIGIN = API.replace(/\/api\/?$/, '');
 const TOKEN_KEY = 'sinc_portal_token';
 let CURRENT_USER = null;
 
+// Mirrors admin.js's vehicleTypeLabel — the Vehicles master stores type as
+// a snake_case key (sedan/suv/force_traveller/bus/van/others, plus legacy
+// van/car values), this turns it into the display label shown here.
+const VEHICLE_TYPE_LABELS = { sedan: 'Sedan', suv: 'SUV', force_traveller: 'Force Traveller', bus: 'Bus', van: 'Van', others: 'Others', car: 'Car' };
+function vehicleTypeLabel(type) {
+  return VEHICLE_TYPE_LABELS[type] || (type ? type.charAt(0).toUpperCase() + type.slice(1) : '-');
+}
+
 // One-time migration: if someone was already signed in via the old
 // separate host.html/media.html/driver.html/transporter.html pages,
 // pick up their still-valid token so this consolidation doesn't log
@@ -847,18 +855,20 @@ const MODULE_CONFIG = {
         { name: 'partner_id', label: 'Transport partner', type: 'select', optionsFrom: 'partners',
           optionLabel: (p) => `${p.name}${p.category ? ' (' + p.category + ')' : ''}` },
         { name: 'vehicle_id', label: 'Assigned vehicle', type: 'select', optionsFrom: 'drivers/vehicles-lite',
-          optionLabel: (v) => `${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}` },
+          optionLabel: (v) => `${v.vehicle_code} · ${vehicleTypeLabel(v.vehicle_type)} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}` },
         { name: 'notes', label: 'Notes', type: 'textarea' },
       ] },
   ] },
   vehicles: { label: 'Vehicles', path: 'vehicles', editable: true,
     columns: [['vehicle_code', 'Code'], ['vehicle_type', 'Type'], ['model', 'Model'], ['seating_capacity', 'Seats']],
     fields: [
-      { name: 'vehicle_type', label: 'Type (van/car/bus)', required: true }, { name: 'model', label: 'Model' },
+      { name: 'vehicle_type', label: 'Type', type: 'select', required: true,
+        options: [['sedan', 'Sedan'], ['suv', 'SUV'], ['force_traveller', 'Force Traveller'], ['bus', 'Bus'], ['van', 'Van'], ['others', 'Others']] },
+      { name: 'model', label: 'Model' },
       { name: 'seating_capacity', label: 'Seating capacity', type: 'number' }, { name: 'registration_number', label: 'Registration number' },
       { name: 'partner_id', label: 'Transport partner', type: 'select', optionsFrom: 'vehicles/partners-lite',
         optionLabel: (p) => `${p.name}${p.category ? ' (' + p.category + ')' : ''}` },
-      { name: '_vehicle_code_note', type: 'note', label: 'Vehicle code is auto-assigned when saved — S=van, C=car, A=bus, plus a sequence number.' },
+      { name: '_vehicle_code_note', type: 'note', label: 'Vehicle code is auto-assigned when saved — C=Sedan, U=SUV, F=Force Traveller, A=Bus, S=Van, O=Others, plus a sequence number.' },
       { name: 'notes', label: 'Notes', type: 'textarea' },
     ] },
   transport_planning: { label: 'Transport Planning', path: 'transport', hasArrivalsQueue: true, editable: true,
@@ -882,7 +892,7 @@ const MODULE_CONFIG = {
       // falls back to showing the full fleet, so this never blocks entry
       // for data that predates the Transport partner field.
       { name: 'vehicle_id', label: 'Vehicle', type: 'select', required: true, optionsFrom: 'transport/vehicles-lite',
-        optionLabel: (v) => `${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}`,
+        optionLabel: (v) => `${v.vehicle_code} · ${vehicleTypeLabel(v.vehicle_type)} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}`,
         filterBy: { field: 'partner_id', match: 'partner_id' } },
       { name: 'driver_id', label: 'Driver', type: 'select', optionsFrom: 'transport/drivers-lite',
         optionLabel: (d) => `${d.name}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}`,
@@ -1733,7 +1743,7 @@ function applyTourTripPartnerFilter() {
   const keepV = vSelect.value, keepD = dSelect.value;
   const vRows = partnerVal ? tourTripVehicles.filter((v) => String(v.partner_id ?? '') === String(partnerVal)) : tourTripVehicles;
   const dRows = partnerVal ? tourTripDrivers.filter((d) => String(d.partner_id ?? '') === String(partnerVal)) : tourTripDrivers;
-  vSelect.innerHTML = '<option value="">-- select vehicle --</option>' + vRows.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join('');
+  vSelect.innerHTML = '<option value="">-- select vehicle --</option>' + vRows.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${vehicleTypeLabel(v.vehicle_type)} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join('');
   dSelect.innerHTML = '<option value="">-- none --</option>' + dRows.map((d) => `<option value="${d.id}">${escapeHtml(d.name)}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}</option>`).join('');
   if (vRows.some((v) => String(v.id) === String(keepV))) vSelect.value = keepV;
   if (dRows.some((d) => String(d.id) === String(keepD))) dSelect.value = keepD;
@@ -2377,7 +2387,7 @@ async function renderTransportQueue() {
       jget(`${API}/portal-modules/transport/vehicles-lite`).catch(() => []),
       jget(`${API}/portal-modules/transport/drivers-lite`).catch(() => []),
     ]);
-    const vehicleOpts = '<option value="">-- select vehicle --</option>' + vehicles.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${v.vehicle_type} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join('');
+    const vehicleOpts = '<option value="">-- select vehicle --</option>' + vehicles.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${vehicleTypeLabel(v.vehicle_type)} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join('');
     const driverOpts = '<option value="">-- none --</option>' + drivers.map((d) => `<option value="${d.id}">${d.name}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}</option>`).join('');
     window.hostDriverVehicleMap = Object.fromEntries(drivers.filter((d) => d.vehicle_id).map((d) => [String(d.id), d.vehicle_id]));
     el.innerHTML = `
@@ -2736,7 +2746,7 @@ function renderDriverProfile(p) {
     <div class="form-grid cols-3">
       <div><strong>${escapeHtml(p.name)}</strong><div class="hint">Name</div></div>
       <div>${escapeHtml(p.phone || '-')}<div class="hint">Phone</div></div>
-      <div>${p.vehicle_code ? `${escapeHtml(p.vehicle_code)} <span class="hint">(${escapeHtml(p.vehicle_master_type || '')}, ${p.seating_capacity || 0} seats)</span>` : escapeHtml(`${p.vehicle_type || ''} ${p.vehicle_number || ''}`.trim() || 'No vehicle on file')}<div class="hint">Vehicle</div></div>
+      <div>${p.vehicle_code ? `${escapeHtml(p.vehicle_code)} <span class="hint">(${escapeHtml(vehicleTypeLabel(p.vehicle_master_type))}, ${p.seating_capacity || 0} seats)</span>` : escapeHtml(`${p.vehicle_type || ''} ${p.vehicle_number || ''}`.trim() || 'No vehicle on file')}<div class="hint">Vehicle</div></div>
     </div>
     ${p.partner_name ? `<p class="hint" style="margin:8px 0 0;">Transport partner: ${escapeHtml(p.partner_name)}</p>` : ''}
   `;
@@ -2754,7 +2764,7 @@ function renderDriverTrips(trips) {
         </div>
         <span class="pill ${STATUS_PILL[t.status] || 'not_started'}">${STATUS_LABEL[t.status] || t.status}</span>
       </div>
-      <p class="hint" style="margin:8px 0 4px;">Vehicle: ${t.vehicle_code ? escapeHtml(t.vehicle_code) + ` (${escapeHtml(t.vehicle_type || '')}, ${t.seating_capacity || 0} seats)` : 'Not set'} &middot; ${t.passenger_count} passenger(s)</p>
+      <p class="hint" style="margin:8px 0 4px;">Vehicle: ${t.vehicle_code ? escapeHtml(t.vehicle_code) + ` (${escapeHtml(vehicleTypeLabel(t.vehicle_type))}, ${t.seating_capacity || 0} seats)` : 'Not set'} &middot; ${t.passenger_count} passenger(s)</p>
       ${t.passengers && t.passengers.length ? `
         <table>
           <thead><tr><th>Passenger</th><th>Phone</th><th>Pickup point</th></tr></thead>
@@ -2823,7 +2833,7 @@ function renderTransporterDrivers(drivers) {
     <tr>
       <td>${escapeHtml(d.name)}</td>
       <td>${escapeHtml(d.phone || '-')}</td>
-      <td>${d.vehicle_code ? escapeHtml(d.vehicle_code) + ` (${escapeHtml(d.vehicle_master_type || '')})` : escapeHtml(`${d.vehicle_type || ''} ${d.vehicle_number || ''}`.trim() || '-')}</td>
+      <td>${d.vehicle_code ? escapeHtml(d.vehicle_code) + ` (${escapeHtml(vehicleTypeLabel(d.vehicle_master_type))})` : escapeHtml(`${d.vehicle_type || ''} ${d.vehicle_number || ''}`.trim() || '-')}</td>
     </tr>
   `).join('') || '<tr><td colspan="3" class="empty">No drivers linked to your company yet — ask the admin team to add them.</td></tr>';
 }
@@ -2845,7 +2855,7 @@ function renderTransporterTrips(trips) {
         </div>
         <span class="pill ${STATUS_PILL[t.status] || 'not_started'}">${STATUS_LABEL[t.status] || t.status}</span>
       </div>
-      <p class="hint" style="margin:8px 0 4px;">Vehicle: ${t.vehicle_code ? escapeHtml(t.vehicle_code) + ` (${escapeHtml(t.vehicle_type || '')}, ${t.seating_capacity || 0} seats)` : 'Not set'} &middot; ${t.passenger_count} passenger(s)</p>
+      <p class="hint" style="margin:8px 0 4px;">Vehicle: ${t.vehicle_code ? escapeHtml(t.vehicle_code) + ` (${escapeHtml(vehicleTypeLabel(t.vehicle_type))}, ${t.seating_capacity || 0} seats)` : 'Not set'} &middot; ${t.passenger_count} passenger(s)</p>
       <div class="form-grid cols-2" style="margin-top:10px;">
         <div class="field">
           <label>Assigned driver</label>
