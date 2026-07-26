@@ -4611,23 +4611,77 @@ window.downloadHostPaymentsListPdf = async () => {
 };
 
 // Committees
+// Shared member-table shape for both committee PDFs below, so the roster
+// looks identical whether you export one committee or all of them. The
+// /committees API already returns each member's company and phone alongside
+// name + is_lead, so no extra fetch is needed to show them.
+const COMMITTEE_MEMBER_COLUMNS = [
+  { label: '#', width: 24, align: 'right' },
+  { label: 'Name', width: 150 },
+  { label: 'Role', width: 55 },
+  { label: 'Company', width: 150 },
+  { label: 'Phone', width: 90 },
+];
+function committeeMemberRows(members) {
+  const list = members || [];
+  if (!list.length) return [['-', 'No members assigned yet', '-', '-', '-']];
+  return list.map((m, i) => [
+    String(i + 1),
+    m.name || '-',
+    m.is_lead ? 'Lead' : 'Member',
+    m.company || '-',
+    m.phone || '-',
+  ]);
+}
+
+// The list report previously showed only a member *count* per committee.
+// It now prints the full roster for each committee underneath the summary
+// table, so a single export is enough to see who is on which committee.
+// Built directly from the pdf* primitives rather than downloadListReportPdf
+// because that generic helper renders exactly one flat table.
 window.downloadCommitteesListPdf = async () => {
   try {
-    await downloadListReportPdf('Committees', `${ALL_COMMITTEES_CACHE.length} committee(s)`, [
-      { label: 'Name', width: 140, get: (c) => c.name },
-      { label: 'Lead', width: 110, get: (c) => (c.members || []).find((m) => m.is_lead)?.name || '-' },
-      { label: 'Members', width: 65, get: (c) => (c.members || []).length, align: 'right' },
-      { label: 'Checklist', width: 90, get: (c) => `${c.tasks_completed || 0}/${c.task_count || 0}` },
-      { label: 'Description', width: 105, get: (c) => c.description },
-    ], ALL_COMMITTEES_CACHE, 'committees.pdf');
+    const committees = ALL_COMMITTEES_CACHE;
+    const doc = pdfDoc();
+    let y = await pdfLetterhead(doc, 'Committees', `${committees.length} committee(s)`);
+    y = pdfTable(doc, y, [
+      { label: 'Name', width: 140 },
+      { label: 'Lead', width: 110 },
+      { label: 'Members', width: 65, align: 'right' },
+      { label: 'Checklist', width: 90 },
+      { label: 'Description', width: 105 },
+    ], committees.map((c) => [
+      c.name,
+      (c.members || []).find((m) => m.is_lead)?.name || '-',
+      String((c.members || []).length),
+      `${c.tasks_completed || 0}/${c.task_count || 0}`,
+      c.description || '',
+    ]));
+
+    y += 10;
+    committees.forEach((c) => {
+      // Keep the heading with at least the header row + one member row so a
+      // committee name never sits alone at the foot of a page.
+      y = pdfMaybeNewPage(doc, y, 70);
+      y = pdfSectionLabel(doc, y, `${c.name} — ${(c.members || []).length} member(s)`);
+      y = pdfTable(doc, y, COMMITTEE_MEMBER_COLUMNS, committeeMemberRows(c.members));
+      y += 10;
+    });
+
+    pdfFinalize(doc);
+    doc.save('committees.pdf');
   } catch (err) { toast(err.message); }
 };
 window.downloadCommitteeDetailPdf = async (id) => {
   try {
     const c = ALL_COMMITTEES_CACHE.find((r) => r.id === id);
     if (!c) { toast('Committee not found'); return; }
+    const members = c.members || [];
     await downloadDetailPdf(`Committee — ${c.name}`, c.description || '', [
-      { label: 'Members', table: { columns: [{ label: 'Name', width: 250 }, { label: 'Role', width: 100 }], rows: (c.members || []).map((m) => [m.name, m.is_lead ? 'Lead' : 'Member']) } },
+      {
+        label: `Members (${members.length})`,
+        table: { columns: COMMITTEE_MEMBER_COLUMNS, rows: committeeMemberRows(members) }
+      },
     ], `committee-${c.name}.pdf`);
   } catch (err) { toast(err.message); }
 };
