@@ -1059,8 +1059,36 @@ function spocDisplay(p) {
 // "Sort by" dropdown. "Title" here means each delegate's designation
 // (President / Secretary / Member / Spouse / ...), the label shown next to
 // their name in the table.
+// Delegates with no club on file are bucketed under this label rather than a
+// blank heading, and sorted to the very end so the real clubs read cleanly.
+const NO_CLUB_LABEL = 'No club assigned';
+
+// Groups delegates by club into [{ club, rows }], clubs A–Z with the
+// unassigned bucket last, and members sorted by name within each club.
+// Shared by the on-screen "Group by club" view and the Delegates PDF.
+function groupPartsByClub(rows) {
+  const collator = new Intl.Collator('en', { sensitivity: 'base' });
+  const byClub = new Map();
+  rows.forEach((p) => {
+    const club = (p.club_name || '').trim() || NO_CLUB_LABEL;
+    if (!byClub.has(club)) byClub.set(club, []);
+    byClub.get(club).push(p);
+  });
+  return [...byClub.entries()]
+    .map(([club, list]) => ({ club, rows: [...list].sort((a, b) => collator.compare(a.name || '', b.name || '')) }))
+    .sort((a, b) => {
+      if (a.club === NO_CLUB_LABEL) return 1;
+      if (b.club === NO_CLUB_LABEL) return -1;
+      return collator.compare(a.club, b.club);
+    });
+}
+
 function sortParts(rows, sortValue) {
   if (!sortValue) return rows;
+  // 'club_group' isn't a plain sort — refreshParts renders it with club
+  // heading rows — but flattening the groups here keeps the row order
+  // identical to what's displayed for anything that just reads the list.
+  if (sortValue === 'club_group') return groupPartsByClub(rows).flatMap((g) => g.rows);
   const collator = new Intl.Collator('en', { sensitivity: 'base' });
   const [field, dir] = sortValue.split('_');
   const getters = {
@@ -1091,7 +1119,7 @@ async function refreshParts(query) {
     (byReg[p.registration_id] = byReg[p.registration_id] || []).push(p);
   });
 
-  document.getElementById('partsTableBody').innerHTML = rows.map((p) => {
+  const renderPartCard = (p) => {
     const isPrimary = Number(p.is_primary) === 1;
     const roleBadge = `<span class="pill ${isPrimary ? 'primary-reg' : 'co-reg'}">${isPrimary ? 'Primary' : 'Co-registrant'}</span>`;
     const header = `${p.name} ${roleBadge}${p.designation ? ' <span class="hint">(' + p.designation + ')</span>' : ''}`;
@@ -1131,7 +1159,22 @@ async function refreshParts(query) {
       ${canDelete() ? `<button class="btn danger small" onclick="deletePart(${p.id})">Delete</button>` : ''}
     `;
     return renderRecordCard(header, p.club_name || '-', fields, actions, `part-card-${p.id}`);
-  }).join('') || '<p class="empty">No delegates yet</p>';
+  };
+
+  // "Group by club" breaks the flat card list into club sections with a
+  // heading + per-club count; every other sort keeps the plain list.
+  const grouped = (sortSelect ? sortSelect.value : '') === 'club_group';
+  const html = grouped
+    ? groupPartsByClub(rows).map((g) => `
+        <div class="record-group-heading">
+          <span class="record-group-title">${g.club}</span>
+          <span class="hint">${g.rows.length} delegate(s)</span>
+        </div>
+        ${g.rows.map(renderPartCard).join('')}
+      `).join('')
+    : rows.map(renderPartCard).join('');
+
+  document.getElementById('partsTableBody').innerHTML = html || '<p class="empty">No delegates yet</p>';
 }
 window.deletePart = async (id) => { await jdel(`${API}/participants/${id}`); toast('Delegate deleted'); refreshParts(); };
 
@@ -4370,20 +4413,49 @@ window.downloadClubDetailPdf = async (id) => {
 };
 
 // Delegates (Participants)
+// Delegates are exported club by club — one heading + table per club — since
+// the congress team works club-wise (kits, seating, transport). The Club
+// column is dropped from the table itself because the heading already says
+// it; Reg # widens to take up the freed space.
 window.downloadDelegatesListPdf = async () => {
   try {
     const rows = await jget(`${API}/participants`);
-    await downloadListReportPdf('Delegates Directory', `${rows.length} delegate(s)`, [
-      { label: 'Reg ID', width: 60, get: (r) => r.participant_code },
-      { label: 'Name', width: 95, get: (r) => r.name },
-      { label: 'Role', width: 55, get: (r) => Number(r.is_primary) === 1 ? 'Primary' : 'Co-reg' },
-      { label: 'Club', width: 80, get: (r) => r.club_name },
-      { label: 'Reg #', width: 60, get: (r) => r.reg_number },
-      { label: 'Phone', width: 65, get: (r) => r.phone },
-      { label: 'Shirt', width: 30, get: (r) => r.shirt_size },
-      { label: 'Tee', width: 30, get: (r) => r.tshirt_size },
-      { label: 'Payment', width: 40, get: (r) => r.payment_status },
-    ], rows, 'delegates-directory.pdf');
+    const groups = groupPartsByClub(rows);
+    const columns = [
+      { label: 'Reg ID', width: 60 },
+      { label: 'Name', width: 130 },
+      { label: 'Role', width: 55 },
+      { label: 'Reg #', width: 60 },
+      { label: 'Phone', width: 70 },
+      { label: 'Shirt', width: 32 },
+      { label: 'Tee', width: 32 },
+      { label: 'Payment', width: 45 },
+    ];
+    const doc = pdfDoc();
+    let y = await pdfLetterhead(
+      doc,
+      'Delegates Directory',
+      `${rows.length} delegate(s) across ${groups.length} club(s)`
+    );
+    groups.forEach((g) => {
+      // Keep a club heading with at least its header row + one delegate so a
+      // club name never strands alone at the bottom of a page.
+      y = pdfMaybeNewPage(doc, y, 70);
+      y = pdfSectionLabel(doc, y, `${g.club} — ${g.rows.length} delegate(s)`);
+      y = pdfTable(doc, y, columns, g.rows.map((r) => [
+        r.participant_code,
+        r.name,
+        Number(r.is_primary) === 1 ? 'Primary' : 'Co-reg',
+        r.reg_number,
+        r.phone,
+        r.shirt_size,
+        r.tshirt_size,
+        r.payment_status,
+      ]));
+      y += 10;
+    });
+    pdfFinalize(doc);
+    doc.save('delegates-directory.pdf');
   } catch (err) { toast(err.message); }
 };
 window.downloadDelegateDetailPdf = async (id) => {

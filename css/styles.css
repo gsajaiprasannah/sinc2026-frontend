@@ -510,6 +510,24 @@ tr:nth-child(even) .sticky-col-left { background: #fff; }
   padding: 14px 16px;
   background: #fff;
 }
+/* Section heading that separates record cards when a list is grouped
+   (e.g. the Delegates tab's "Group by club" view). */
+.record-group-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 18px 0 2px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--navy, #314691);
+}
+.record-group-heading:first-child { margin-top: 0; }
+.record-group-title {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--navy, #314691);
+}
 .record-card-header {
   display: flex;
   justify-content: space-between;
