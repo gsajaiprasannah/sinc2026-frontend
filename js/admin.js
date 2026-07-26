@@ -4484,6 +4484,55 @@ const DELEGATE_PDF_DEFAULT_KEYS = ['participant_code', 'name', 'role', 'phone', 
 // the same kind of list don't have to be re-ticked every time.
 let DELEGATE_PDF_SELECTED = [...DELEGATE_PDF_DEFAULT_KEYS];
 
+// Tallies one delegate list into "Label N" chunks for the summary line that
+// sits under a club heading (and under the report title). Only breakdowns
+// whose underlying column was actually ticked are included, so a names-only
+// export doesn't sprout a food breakdown nobody asked for. Buckets with a
+// zero count are dropped to keep the line short.
+function delegateCountSummary(rows, keys) {
+  const parts = [`Total ${rows.length}`];
+  const countBy = (fn) => rows.reduce((acc, r) => {
+    const k = fn(r);
+    if (k) acc[k] = (acc[k] || 0) + 1;
+    return acc;
+  }, {});
+  const push = (counts, order) => {
+    const seen = order ? order.filter((k) => counts[k]) : [];
+    const rest = Object.keys(counts).filter((k) => !seen.includes(k)).sort();
+    const chunk = [...seen, ...rest].map((k) => `${k} ${counts[k]}`).join(' · ');
+    if (chunk) parts.push(chunk);
+  };
+  if (keys.includes('role')) {
+    const c = countBy((r) => (Number(r.is_primary) === 1 ? 'Primary' : 'Co-reg'));
+    push(c, ['Primary', 'Co-reg']);
+  }
+  if (keys.includes('dietary_preference')) {
+    const c = countBy((r) => r.dietary_preference || 'No preference');
+    push(c, ['Vegetarian', 'Non-vegetarian', 'No preference']);
+  }
+  if (keys.includes('payment_status')) push(countBy((r) => r.payment_status));
+  if (keys.includes('pre_tour')) {
+    const n = rows.filter((r) => r.pre_tour_id).length;
+    if (n) parts.push(`Pre-Tour ${n}`);
+  }
+  return parts.join('   |   ');
+}
+// Small grey summary line, wrapped to the content width, drawn under a
+// heading. Returns the new y cursor.
+function pdfSummaryLine(doc, y, text) {
+  const usable = PDF_CONTENT_RIGHT - PDF_MARGIN;
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
+  pdfSetColor(doc, 'setTextColor', PDF_BRAND.grey || PDF_BRAND.greyLight);
+  const lines = doc.splitTextToSize(text, usable);
+  lines.forEach((line) => {
+    y = pdfMaybeNewPage(doc, y, 12);
+    doc.text(line, PDF_MARGIN, y);
+    y += 11;
+  });
+  doc.setTextColor(0, 0, 0);
+  return y + 3;
+}
+
 function renderDelegatePdfModal() {
   const grid = document.getElementById('delegatePdfFieldGrid');
   const groups = [];
@@ -4554,12 +4603,15 @@ window.downloadDelegatesListPdf = async () => {
         ? `${rows.length} delegate(s) across ${groups.length} club(s)`
         : `${rows.length} delegate(s)`
     );
+    // Overall tallies for the whole report, directly under the title.
+    y = pdfSummaryLine(doc, y, delegateCountSummary(rows, keys));
     if (groups) {
       groups.forEach((g) => {
-        // Keep a club heading with at least its header row + one delegate so
-        // a club name never strands alone at the bottom of a page.
-        y = pdfMaybeNewPage(doc, y, 90);
+        // Keep a club heading with its summary line, the table header and at
+        // least one delegate, so a club never strands alone at a page foot.
+        y = pdfMaybeNewPage(doc, y, 105);
         y = pdfSectionLabel(doc, y, `${g.club} — ${g.rows.length} delegate(s)`);
+        y = pdfSummaryLine(doc, y, delegateCountSummary(g.rows, keys));
         y = pdfTable(doc, y, columns, g.rows.map(toRow));
         y += 10;
       });
