@@ -4413,23 +4413,50 @@ window.downloadClubDetailPdf = async (id) => {
 };
 
 // Delegates (Participants)
-// Delegates are exported club by club — one heading + table per club — since
-// the congress team works club-wise (kits, seating, transport). The Club
-// column is dropped from the table itself because the heading already says
-// it; Reg # widens to take up the freed space.
+// --- Delegates directory PDF -----------------------------------------
+// Plain-text (no <br>) counterpart of sizesLabel, for PDF cells.
+function pdfSizesText(p) {
+  const parts = [];
+  if (p.shirt_size) parts.push(`Shirt ${p.shirt_size}`);
+  if (p.tshirt_size) parts.push(`Tee ${p.tshirt_size}`);
+  if (p.waist_size) parts.push(`Waist ${p.waist_size}`);
+  return parts.join(', ');
+}
+function pdfPreTourName(p) {
+  if (!p.pre_tour_id) return '';
+  const t = (typeof PRETOURS_LITE_CACHE !== 'undefined' ? PRETOURS_LITE_CACHE : []).find((r) => r.id === p.pre_tour_id);
+  return t ? t.name : `#${p.pre_tour_id}`;
+}
+// Joins "Label: value" lines, dropping any whose value is blank, so a cell
+// never shows a dangling label for data the delegate hasn't filled in yet.
+function pdfLines(pairs) {
+  const lines = pairs
+    .filter(([, v]) => v !== null && v !== undefined && String(v).trim() !== '')
+    .map(([k, v]) => (k ? `${k}: ${v}` : String(v)));
+  return lines.length ? lines.join('\n') : '-';
+}
+function pdfTravelLeg(mode, number, datetime, point) {
+  return pdfLines([
+    ['', [mode, number].filter(Boolean).join(' ')],
+    ['When', datetime],
+    ['Point', point],
+  ]);
+}
+
+// Exported club by club — one heading + table per club — since the congress
+// team works club-wise (kits, seating, transport). Each delegate is one row
+// whose cells stack several labelled values; pdfTable wraps them and sizes
+// the row to the tallest cell, which fits far more per page than one column
+// per field would on portrait A4.
 window.downloadDelegatesListPdf = async () => {
   try {
     const rows = await jget(`${API}/participants`);
     const groups = groupPartsByClub(rows);
     const columns = [
-      { label: 'Reg ID', width: 60 },
-      { label: 'Name', width: 130 },
-      { label: 'Role', width: 55 },
-      { label: 'Reg #', width: 60 },
-      { label: 'Phone', width: 70 },
-      { label: 'Shirt', width: 32 },
-      { label: 'Tee', width: 32 },
-      { label: 'Payment', width: 45 },
+      { label: 'Delegate', width: 128 },
+      { label: 'Preferences', width: 118 },
+      { label: 'Arrival', width: 134 },
+      { label: 'Departure', width: 135 },
     ];
     const doc = pdfDoc();
     let y = await pdfLetterhead(
@@ -4440,17 +4467,26 @@ window.downloadDelegatesListPdf = async () => {
     groups.forEach((g) => {
       // Keep a club heading with at least its header row + one delegate so a
       // club name never strands alone at the bottom of a page.
-      y = pdfMaybeNewPage(doc, y, 70);
+      y = pdfMaybeNewPage(doc, y, 90);
       y = pdfSectionLabel(doc, y, `${g.club} — ${g.rows.length} delegate(s)`);
       y = pdfTable(doc, y, columns, g.rows.map((r) => [
-        r.participant_code,
-        r.name,
-        Number(r.is_primary) === 1 ? 'Primary' : 'Co-reg',
-        r.reg_number,
-        r.phone,
-        r.shirt_size,
-        r.tshirt_size,
-        r.payment_status,
+        pdfLines([
+          ['', r.name],
+          ['', r.designation],
+          ['', r.participant_code],
+          ['', Number(r.is_primary) === 1 ? 'Primary' : 'Co-registrant'],
+          ['Ph', r.phone],
+          ['Payment', r.payment_status],
+        ]),
+        pdfLines([
+          ['Food', r.dietary_preference || 'No preference'],
+          ['Drink', r.drink_preference],
+          ['Sizes', pdfSizesText(r)],
+          ['Pre-Tour', pdfPreTourName(r)],
+          ['Requests', r.special_requests],
+        ]),
+        pdfTravelLeg(r.travel_mode, r.travel_number, r.travel_datetime, r.arrival_point),
+        pdfTravelLeg(r.departure_mode, r.departure_number, r.departure_datetime, r.departure_point),
       ]));
       y += 10;
     });
@@ -4475,7 +4511,12 @@ window.downloadDelegateDetailPdf = async (id) => {
         ['Phone', p.phone], ['WhatsApp', p.whatsapp], ['Email', p.email], ['Address', p.address],
       ] },
       { label: 'Arrival', pairs: [['Mode', p.travel_mode], ['Number', p.travel_number], ['Date/Time', p.travel_datetime], ['Arrival point', p.arrival_point]] },
-      { label: 'Departure', pairs: [['Mode', p.departure_mode], ['Number', p.departure_number], ['Date/Time', p.departure_datetime]] },
+      { label: 'Departure', pairs: [['Mode', p.departure_mode], ['Number', p.departure_number], ['Date/Time', p.departure_datetime], ['Departure point', p.departure_point]] },
+      { label: 'Preferences', pairs: [
+        ['Food preference', p.dietary_preference || 'No preference'], ['Drink preference', p.drink_preference],
+        ['Business profile', p.business_profile], ['Pre-Tour', pdfPreTourName(p)],
+        ['Sizes', pdfSizesText(p)], ['Special requests', p.special_requests],
+      ] },
       { label: 'Pickup & SPOC', pairs: [
         ['Picked up by', p.pickup_by], ['Vehicle', p.pickup_vehicle], ['Pickup contact', p.pickup_phone],
         ['SPOC', p.spoc_host_member_name || p.spoc_name], ['SPOC phone', p.spoc_host_member_phone || p.spoc_phone],
