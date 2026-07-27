@@ -330,6 +330,14 @@
           <div class="field"><label>Email</label><input name="email" type="email" /></div>
           <div class="field"><label>Club</label><select name="club_id" id="partClubSelect"></select></div>
           <div class="field"><label>Registration</label><select name="registration_id" id="partRegSelect"></select></div>
+          <!-- Lives on the registration, not the delegate — editable here for
+               convenience. Prefilled when a registration is picked, and saved
+               back to that registration. See partRegCategorySelect in admin.js. -->
+          <div class="field"><label>Registration type</label>
+            <select name="registration_category" id="partRegCategorySelect" disabled>
+              <option value="">-- pick a registration first --</option>
+            </select>
+          </div>
           <div class="field"><label>Designation</label><input name="designation" placeholder="President / Member / Spouse" /></div>
           <div class="field"><label>Primary registrant?</label>
             <select name="is_primary" id="partIsPrimarySelect"><option value="1">Yes</option><option value="0">No (co-registrant)</option></select>

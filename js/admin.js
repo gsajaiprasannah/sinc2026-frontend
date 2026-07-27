@@ -1001,7 +1001,7 @@ async function refreshRegs() {
     const participants = r.participants || [];
     const filled = participants.length;
     const hasPrimary = participants.some((p) => Number(p.is_primary) === 1);
-    return `<option value="${r.id}" data-reg-type="${r.reg_type}" data-filled="${filled}" data-max="${max}" data-has-primary="${hasPrimary}">${r.reg_number} (${r.club_name || '-'}) — ${REG_TYPE_LABEL[r.reg_type] || r.reg_type}, ${filled}/${max} filled</option>`;
+    return `<option value="${r.id}" data-reg-type="${r.reg_type}" data-category="${r.registration_category || ''}" data-filled="${filled}" data-max="${max}" data-has-primary="${hasPrimary}">${r.reg_number} (${r.club_name || '-'}) — ${REG_TYPE_LABEL[r.reg_type] || r.reg_type}, ${filled}/${max} filled</option>`;
   }).join('');
   document.getElementById('partRegSelect').innerHTML = '<option value="">-- none --</option>' + opts;
 }
@@ -1014,6 +1014,30 @@ async function refreshRegs() {
 // place. `skipAutoSetPrimary` is passed true when loading an existing
 // delegate into the form for editing, since that delegate's own is_primary
 // value is already correct and shouldn't be silently overwritten.
+
+// The Registration type belongs to the *registration*, not the delegate, but
+// it's offered on the delegate form because that's where the office is
+// working when the information arrives. Picking a registration loads its
+// current type; saving writes any change back to that registration — which
+// means both delegates on a double booking share one value, as they should.
+function syncPartRegCategory() {
+  const regSel = document.getElementById('partRegSelect');
+  const catSel = document.getElementById('partRegCategorySelect');
+  if (!regSel || !catSel) return;
+  const opt = regSel.options[regSel.selectedIndex];
+  const regId = opt && opt.value;
+  if (!regId) {
+    catSel.innerHTML = '<option value="">-- pick a registration first --</option>';
+    catSel.disabled = true;
+    return;
+  }
+  const current = opt.dataset.category || '';
+  catSel.disabled = false;
+  catSel.innerHTML = '<option value="">-- not recorded --</option>'
+    + Object.entries(REG_CATEGORY_LABEL).map(([k, label]) =>
+        `<option value="${k}" ${k === current ? 'selected' : ''}>${label}</option>`).join('');
+}
+
 function updatePartRegOccupancyHint(skipAutoSetPrimary) {
   const sel = document.getElementById('partRegSelect');
   const hintEl = document.getElementById('partRegOccupancyHint');
@@ -1033,6 +1057,7 @@ function updatePartRegOccupancyHint(skipAutoSetPrimary) {
   if (!skipAutoSetPrimary && primarySelect) {
     primarySelect.value = hasPrimary ? '0' : '1';
   }
+  syncPartRegCategory();
 }
 document.getElementById('partRegSelect').addEventListener('change', () => updatePartRegOccupancyHint(false));
 window.deleteReg = async (id) => { await jdel(`${API}/registrations/${id}`); toast('Registration deleted'); refreshRegs(); };
@@ -1354,6 +1379,23 @@ window.editPart = async (id) => {
   form.querySelectorAll('.drinkPrefBox').forEach((box) => { box.checked = drinks.includes(box.value); });
   if (form.elements.pretour_choice) form.elements.pretour_choice.value = p.pre_tour_id ? String(p.pre_tour_id) : '';
   form.dataset.editId = id;
+  // Registration type comes from the linked registration, not the delegate.
+  // Stashed so savePartForm only writes it back when it actually changed, and
+  // kept available even when the Registration select is frozen (non-super-
+  // admins can't change the registration, but should still be able to record
+  // which package it was sold on).
+  form.dataset.registrationId = p.registration_id || '';
+  form.dataset.regCategoryOriginal = p.registration_category || '';
+  syncPartRegCategory();
+  const catSel = document.getElementById('partRegCategorySelect');
+  if (catSel && p.registration_id) {
+    catSel.disabled = false;
+    if (!catSel.options.length || catSel.options.length === 1) {
+      catSel.innerHTML = '<option value="">-- not recorded --</option>'
+        + Object.entries(REG_CATEGORY_LABEL).map(([k, label]) => `<option value="${k}">${label}</option>`).join('');
+    }
+    catSel.value = p.registration_category || '';
+  }
   // Name, phone, club, and registration are frozen once a delegate exists —
   // only a super admin can change them (server-side enforced too, see
   // PUT /api/participants/:id). Everyone else can still freely edit travel,
@@ -1379,6 +1421,9 @@ window.cancelEditPart = () => {
   const form = document.getElementById('partForm');
   form.reset();
   delete form.dataset.editId;
+  delete form.dataset.registrationId;
+  delete form.dataset.regCategoryOriginal;
+  syncPartRegCategory();
   const occupancyHint = document.getElementById('partRegOccupancyHint');
   if (occupancyHint) occupancyHint.innerHTML = '';
   // Adding a brand-new delegate is never restricted — re-enable the frozen
@@ -1409,6 +1454,12 @@ async function savePartForm(form, force) {
   body.drink_preference = checkedDrinks.join(', ');
   const pretourChoice = body.pretour_choice || '';
   delete body.pretour_choice;
+  // registration_category is a column on `registrations`, not `participants`
+  // — pulled out here and saved against the linked registration after the
+  // delegate itself is saved (see below).
+  const regCategory = body.registration_category || '';
+  const regCategoryOriginal = form.dataset.regCategoryOriginal || '';
+  delete body.registration_category;
   if (!body.club_id) delete body.club_id;
   if (!body.registration_id) delete body.registration_id;
   // travel_mode/departure_mode have a DB check constraint allowing only
@@ -1439,6 +1490,18 @@ async function savePartForm(form, force) {
         refreshPartPretourOptions(); // seat counts changed
       } catch (ptErr) {
         toast('Delegate saved, but Pre-Tour signup failed: ' + ptErr.message);
+      }
+      // Registration type lives on the registration. Only written when it
+      // actually changed, so saving a co-registrant doesn't needlessly
+      // rewrite (or clobber) what the primary already set on the booking.
+      const regId = body.registration_id || form.dataset.registrationId;
+      if (regId && regCategory && regCategory !== regCategoryOriginal) {
+        try {
+          await jput(`${API}/registrations/${regId}`, { registration_category: regCategory });
+          refreshRegs();
+        } catch (rcErr) {
+          toast('Delegate saved, but the registration type could not be updated: ' + rcErr.message);
+        }
       }
     }
     if (editId) {
