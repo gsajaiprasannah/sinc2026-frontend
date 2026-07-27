@@ -2397,6 +2397,14 @@ function canonicalQueuePoint(direction, d) {
   return looksLikeLocalPoint(normPoint(raw)) ? canon : raw;
 }
 
+// Which column a group belongs in. Decided by the delegates' travel mode, not
+// the point text — with points now canonicalised per mode a group is
+// effectively single-mode anyway, but a majority vote keeps it sane if a
+// hand-entered point ever pulls a mixed group together.
+function clusterIsAir(c) {
+  const air = (c.delegates || []).filter((d) => (d.travel_mode || '').toLowerCase() === 'flight').length;
+  return air * 2 >= (c.delegates || []).length;
+}
 function clusterTransportQueue(direction, rows, windowMinutes) {
   const sorted = [...rows].sort((a, b) => {
     const ta = queueTime(a), tb = queueTime(b);
@@ -2687,6 +2695,25 @@ function drawTransportQueue() {
     arrival: (TRANSPORT_QUEUE_ROWS.arrival || []).length,
     departure: (TRANSPORT_QUEUE_ROWS.departure || []).length,
   };
+  // Air and rail pickups are run by different people at different places, so
+  // they get a column each rather than being interleaved in one long list.
+  const airRailColumns = (direction) => {
+    const cs = TRANSPORT_CLUSTERS[direction] || [];
+    const air = cs.filter(clusterIsAir);
+    const rail = cs.filter((c) => !clusterIsAir(c));
+    const col = (label, list, emptyMsg) => `
+      <div>
+        <div class="queue-column-head">
+          <span>${label}</span>
+          <span class="hint">${list.reduce((n, c) => n + c.delegates.length, 0)} delegate(s) · ${list.length} group(s)</span>
+        </div>
+        ${list.map((g) => transportQueueGroupCardHost(direction, g, vehicleOpts, driverOpts)).join('') || `<p class="hint">${emptyMsg}</p>`}
+      </div>`;
+    return `<div class="queue-columns">
+      ${col('✈ By air', air, 'No air pickups to plan.')}
+      ${col('🚆 By train', rail, 'No station pickups to plan.')}
+    </div>`;
+  };
   el.innerHTML = `
     <div class="card" style="margin-bottom:12px;">
       <div class="field" style="margin:0;">
@@ -2702,9 +2729,9 @@ function drawTransportQueue() {
       </p>
     </div>
     <div class="section-title" style="font-size:14px;">Arrivals to plan — ${totals.arrival} delegate(s) in ${TRANSPORT_CLUSTERS.arrival.length} group(s)</div>
-    ${TRANSPORT_CLUSTERS.arrival.map((g) => transportQueueGroupCardHost('arrival', g, vehicleOpts, driverOpts)).join('') || '<p class="hint">No unplanned arrivals right now.</p>'}
+    ${totals.arrival ? airRailColumns('arrival') : '<p class="hint">No unplanned arrivals right now.</p>'}
     <div class="section-title" style="font-size:14px;">Departures to plan — ${totals.departure} delegate(s) in ${TRANSPORT_CLUSTERS.departure.length} group(s)</div>
-    ${TRANSPORT_CLUSTERS.departure.map((g) => transportQueueGroupCardHost('departure', g, vehicleOpts, driverOpts)).join('') || '<p class="hint">No unplanned departures right now.</p>'}
+    ${totals.departure ? airRailColumns('departure') : '<p class="hint">No unplanned departures right now.</p>'}
   `;
   wireLocationDropdowns(el);
   el.querySelectorAll('.queue-group').forEach((card) => {

@@ -1174,6 +1174,35 @@ label {
   margin-bottom: 4px;
 }
 
+/* Transport planning queue: air pickups and rail pickups side by side, so the
+   committee can work the airport runs and the station runs independently.
+   Only splits on genuinely wide screens — each column holds a full trip form,
+   and those need room. Below that the two stack, which is also what happens
+   on the committee portal on a laptop. */
+.queue-columns {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (min-width: 1250px) {
+  .queue-columns { grid-template-columns: 1fr 1fr; }
+}
+.queue-column-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--navy);
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+  border-bottom: 2px solid var(--lightblue);
+}
+.queue-column-head .hint { margin: 0; font-weight: 500; }
+
 /* Checkbox/radio sitting inline with its own text, e.g. the drink-preference
    boxes and "I need hotel accommodation" on my-profile.html / my-travel.html.
    Needed because the two global rules just above and below this one are
