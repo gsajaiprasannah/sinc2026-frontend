@@ -5199,6 +5199,100 @@ function pdfSummaryLine(doc, y, text) {
   return y + 3;
 }
 
+// --- Bulk document download (ZIP) -------------------------------------
+// The files live in Cloudflare R2, which sends no CORS headers to this
+// origin, so the browser can't fetch and zip them itself — the server reads
+// the bytes and returns a finished ZIP (see participants.js/hostmembers.js
+// documents-zip). Aadhaar and passport are super-admin-only, matching the
+// redaction on the delegates list, and are simply not offered to anyone else.
+const DOC_ZIP_PICKERS = {
+  delegates: {
+    title: 'Download Delegate Documents',
+    endpoint: () => `${API}/participants/documents-zip`,
+    filename: 'delegate-documents.zip',
+    docs: [
+      { key: 'aadhaar', label: 'Aadhaar', superAdminOnly: true, checked: true },
+      { key: 'passport', label: 'Passport', superAdminOnly: true, checked: true },
+      { key: 'photo', label: 'Photo', checked: false },
+      { key: 'business_card', label: 'Business card', checked: false },
+    ],
+    note: 'Sorted into folders by document type, then by club.',
+  },
+  host_members: {
+    title: 'Download Host Member Documents',
+    endpoint: () => `${API}/hostmembers/documents-zip`,
+    filename: 'host-member-documents.zip',
+    docs: [
+      { key: 'photo', label: 'Photo', checked: true },
+      { key: 'business_card', label: 'Business card', checked: true },
+      { key: 'logo', label: 'Company logo', checked: true },
+    ],
+    note: 'Sorted into a folder per document type.',
+  },
+};
+let ACTIVE_DOC_ZIP = null;
+
+window.openDocZipPicker = (key) => {
+  ACTIVE_DOC_ZIP = key;
+  const cfg = DOC_ZIP_PICKERS[key];
+  const isSuper = CURRENT_USER && CURRENT_USER.role === 'super_admin';
+  const available = cfg.docs.filter((d) => !d.superAdminOnly || isSuper);
+  document.getElementById('docZipModalTitle').textContent = cfg.title;
+  document.getElementById('docZipGrid').innerHTML = available.map((d) => `
+    <label class="check-inline">
+      <input type="checkbox" class="doc-zip-box" value="${d.key}" ${d.checked ? 'checked' : ''} />
+      ${d.label}
+    </label>
+  `).join('');
+  const hidden = cfg.docs.length - available.length;
+  document.getElementById('docZipNote').textContent = cfg.note
+    + (hidden ? ' Aadhaar and passport downloads are restricted to super admins.' : '');
+  document.getElementById('docZipModal').style.display = '';
+};
+window.closeDocZipPicker = () => { document.getElementById('docZipModal').style.display = 'none'; };
+
+window.runDocZipPicker = async () => {
+  const cfg = DOC_ZIP_PICKERS[ACTIVE_DOC_ZIP];
+  const docs = [...document.querySelectorAll('.doc-zip-box:checked')].map((el) => el.value);
+  if (!docs.length) { toast('Tick at least one document type.'); return; }
+  const btn = document.getElementById('docZipGoBtn');
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Preparing…';
+  toast('Collecting files and building the ZIP — this can take a minute for a big batch.', 6000);
+  try {
+    const r = await fetch(cfg.endpoint(), {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ docs }),
+    });
+    if (r.status === 401) { handleUnauthorized(); return; }
+    if (!r.ok) {
+      // Errors come back as JSON even though success is a binary body.
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error || `Request failed (HTTP ${r.status})`);
+    }
+    const count = r.headers.get('X-Document-Count');
+    const missing = r.headers.get('X-Missing-Count');
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = cfg.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    closeDocZipPicker();
+    toast(`Downloaded ${count || '?'} file(s)${missing ? ` — ${missing} could not be read and were skipped` : ''}.`, 6000);
+  } catch (err) {
+    toast(err.message, 5000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+};
+
 // --- Shared "pick which columns to export" modal ----------------------
 // One modal (#pdfFieldModal) serves every module that offers a column
 // picker. Each entry below supplies its own field catalogue, defaults, any

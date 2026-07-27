@@ -438,6 +438,7 @@
       <div style="display:flex;gap:8px;">
         <button class="btn small" onclick="openPdfFieldPicker('delegates')">Download PDF</button>
         <button class="btn small" onclick="openDelegateReportModal()" title="Summary counts and breakdowns, not a per-person list">Reports</button>
+        <button class="btn small" onclick="openDocZipPicker('delegates')" title="Aadhaar / passport / photo / business card files as a ZIP">Download Documents (ZIP)</button>
         <button class="btn small" onclick="downloadAllDelegateBadgesZip()" title="Bulk badge+QR export for a print vendor">Download All Badges (ZIP)</button>
       </div>
     </div>
@@ -698,6 +699,7 @@
       <span>All host members</span>
       <div style="display:flex;gap:8px;">
         <button class="btn small" onclick="openPdfFieldPicker('host_members')">Download PDF</button>
+        <button class="btn small" onclick="openDocZipPicker('host_members')" title="Photos / business cards / company logos as a ZIP">Download Documents (ZIP)</button>
         <button class="btn small" onclick="downloadAllHostMemberBadgesZip()" title="Bulk badge+QR export for a print vendor">Download All Badges (ZIP)</button>
       </div>
     </div>
@@ -2493,6 +2495,25 @@
      checklist), Guest Speakers (checklist), Guest Visitors (offerings), and
      the goodies/kit handover checklist on Delegates + Host Members. Items
      are free-text so new ones can always be added later. -->
+<!-- Document picker for the "Download Documents (ZIP)" buttons on the
+     Delegates and Host Members tabs. Zipping happens server-side (R2 serves
+     no CORS headers to this origin) — see DOC_ZIP_PICKERS in js/admin.js. -->
+<div class="modal-overlay" id="docZipModal" style="display:none;" onclick="if(event.target===this) closeDocZipPicker()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="section-title" style="margin:0;" id="docZipModalTitle">Download Documents</div>
+      <button type="button" class="modal-close" onclick="closeDocZipPicker()">&times;</button>
+    </div>
+    <p class="hint" style="margin-top:0;">Tick which documents to include. Each type goes into its own folder inside the ZIP.</p>
+    <div class="module-checkbox-grid" id="docZipGrid" style="max-height:260px;overflow-y:auto;"></div>
+    <p class="hint" id="docZipNote" style="margin-top:10px;"></p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+      <button type="button" class="btn small" onclick="closeDocZipPicker()">Cancel</button>
+      <button type="button" class="btn" id="docZipGoBtn" onclick="runDocZipPicker()">Download ZIP</button>
+    </div>
+  </div>
+</div>
+
 <!-- Section picker for the Delegates "Reports" export — aggregate counts and
      breakdowns (registrations per club, meal/drink preferences, sizes...)
      rather than a per-person listing. Rendered by renderDelegateReportModal()
