@@ -938,12 +938,14 @@ applySidebarState();
 // tabs programmatically too, not just via a direct sidebar click.
 function switchAdminTab(tab) {
   const btn = document.querySelector(`.admin-nav button[data-tab="${tab}"]`);
-  const panel = document.getElementById('tab-' + tab);
+  // Post Tours reuses the Pre Tours panel in 'post' mode — see setTourType().
+  const panel = document.getElementById(tab === 'posttours' ? 'tab-pretours' : 'tab-' + tab);
   if (!btn || !panel) return;
   document.querySelectorAll('.admin-nav button').forEach((b) => b.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
   btn.classList.add('active');
   panel.classList.add('active');
+  if (tab === 'pretours' || tab === 'posttours') setTourType(tab === 'posttours' ? 'post' : 'pre');
   if (tab === 'settings') refreshUsersAdmin();
   if (tab === 'activitylog') { refreshActivityLog(); refreshScanActivity(); }
   // On phone/tablet widths the sidebar overlays the content, so tuck it away
@@ -4044,9 +4046,45 @@ document.getElementById('tripPassengerForm').addEventListener('submit', async (e
   } catch (err) { toast(err.message); }
 });
 
-// --- Operations: Pre Tours ---
+// --- Operations: Pre Tours / Post Tours ---
+// A post-tour is structurally identical to a pre-tour (dates, hotel plan,
+// day-wise itinerary, signups, transport), so both share this one section
+// and the same routes — pre_tours carries a tour_type discriminator. The
+// sidebar has an entry for each; switchAdminTab() flips this mode and points
+// both at the same panel rather than maintaining two copies of the markup.
+let TOUR_TYPE = 'pre';
+function tourTypeLabel() { return TOUR_TYPE === 'post' ? 'Post Tour' : 'Pre Tour'; }
+function setTourType(type) {
+  TOUR_TYPE = type === 'post' ? 'post' : 'pre';
+  const noun = tourTypeLabel();
+  const form = document.getElementById('tourForm');
+  // Leave an in-progress edit alone; just relabel around it.
+  if (form && !form.dataset.editId) {
+    const title = document.getElementById('tourFormTitle');
+    if (title) title.textContent = `Add ${noun.toLowerCase()}`;
+    const btn = document.getElementById('tourSubmitBtn');
+    if (btn) btn.textContent = `Save ${noun}`;
+  }
+  const heading = document.getElementById('tourSectionHeading');
+  if (heading) heading.textContent = `${noun}s`;
+  const intro = document.getElementById('tourSectionIntro');
+  if (intro) {
+    intro.textContent = TOUR_TYPE === 'post'
+      ? 'Optional post-congress tours — hotel, attractions, day-wise itinerary, transport, and the delegates/host members signed up.'
+      : 'Optional pre-congress tours — hotel, attractions, day-wise itinerary, transport, and the delegates/host members signed up.';
+  }
+  // Whichever tour was open belongs to the other list.
+  closeTourManage();
+  refreshPreTours();
+}
+function closeTourManage() {
+  currentTourId = null;
+  const card = document.getElementById('tourManageCard');
+  if (card) card.style.display = 'none';
+}
+
 async function refreshPreTours() {
-  const rows = await jget(`${API}/pretours`);
+  const rows = await jget(`${API}/pretours?type=${TOUR_TYPE}`);
   document.getElementById('tourTableBody').innerHTML = rows.map((t) => `
     <tr>
       <td><strong>${t.name}</strong></td>
@@ -4073,14 +4111,14 @@ window.deleteTour = async (id) => {
 
 const TOUR_FORM_FIELDS = ['name', 'start_date', 'end_date', 'hotel', 'capacity', 'price', 'attractions', 'description', 'status', 'notes'];
 window.editTour = async (id) => {
-  const rows = await jget(`${API}/pretours`);
+  const rows = await jget(`${API}/pretours?type=${TOUR_TYPE}`);
   const t = rows.find((r) => r.id === id);
   if (!t) return;
   const form = document.getElementById('tourForm');
   TOUR_FORM_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = t[f] !== null && t[f] !== undefined ? t[f] : ''; });
   form.dataset.editId = id;
-  document.getElementById('tourFormTitle').textContent = `Edit pre tour — ${t.name}`;
-  document.getElementById('tourSubmitBtn').textContent = 'Update Pre Tour';
+  document.getElementById('tourFormTitle').textContent = `Edit ${tourTypeLabel().toLowerCase()} — ${t.name}`;
+  document.getElementById('tourSubmitBtn').textContent = `Update ${tourTypeLabel()}`;
   document.getElementById('tourCancelEditBtn').style.display = '';
   form.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
@@ -4088,8 +4126,8 @@ window.cancelEditTour = () => {
   const form = document.getElementById('tourForm');
   form.reset();
   delete form.dataset.editId;
-  document.getElementById('tourFormTitle').textContent = 'Add pre tour';
-  document.getElementById('tourSubmitBtn').textContent = 'Save Pre Tour';
+  document.getElementById('tourFormTitle').textContent = `Add ${tourTypeLabel().toLowerCase()}`;
+  document.getElementById('tourSubmitBtn').textContent = `Save ${tourTypeLabel()}`;
   document.getElementById('tourCancelEditBtn').style.display = 'none';
 };
 document.getElementById('tourCancelEditBtn').addEventListener('click', (e) => { e.preventDefault(); window.cancelEditTour(); });
@@ -4099,12 +4137,13 @@ async function saveTourForm(form) {
   try {
     if (editId) {
       await jput(`${API}/pretours/${editId}`, body);
-      toast('Pre tour updated');
+      toast(`${tourTypeLabel()} updated`);
       window.cancelEditTour();
     } else {
-      await jpost(`${API}/pretours`, body);
+      // New tours are created into whichever list is being viewed.
+      await jpost(`${API}/pretours`, { ...body, tour_type: TOUR_TYPE });
       form.reset();
-      toast('Pre tour saved');
+      toast(`${tourTypeLabel()} saved`);
     }
     refreshPreTours();
   } catch (err) { toast(err.message); }
@@ -4165,16 +4204,60 @@ document.getElementById('tourHotelDayForm').addEventListener('submit', async (e)
   } catch (err) { toast(err.message); }
 });
 
+// Cached so editTourItinItem() can populate the form without a second fetch.
+let TOUR_ITIN_CACHE = [];
 async function refreshTourItinerary() {
   if (!currentTourId) return;
-  const rows = await jget(`${API}/pretours/${currentTourId}/itinerary`);
-  document.getElementById('tourItinTableBody').innerHTML = rows.map((i) => `
-    <tr>
-      <td>${i.day_label}</td><td>${i.time_label || '-'}</td><td>${i.title}</td><td>${i.location || '-'}</td>
-      <td>${canDelete() ? `<button class="btn danger small" onclick="deleteTourItinItem(${i.id})">Delete</button>` : ''}</td>
-    </tr>
-  `).join('') || '<tr><td colspan="5" class="empty">No itinerary items yet</td></tr>';
+  TOUR_ITIN_CACHE = await jget(`${API}/pretours/${currentTourId}/itinerary`);
+  // Grouped under a heading per day so a multi-day tour reads as an
+  // itinerary rather than one long undifferentiated list.
+  const byDay = [];
+  TOUR_ITIN_CACHE.forEach((i) => {
+    let g = byDay.find((x) => x.day === i.day_label);
+    if (!g) { g = { day: i.day_label, items: [] }; byDay.push(g); }
+    g.items.push(i);
+  });
+  document.getElementById('tourItinTableBody').innerHTML = byDay.map((g) => `
+    <tr><td colspan="7" style="background:var(--accent-soft);font-weight:700;color:var(--navy);">${escapeHtmlAdmin(g.day)}</td></tr>
+    ${g.items.map((i) => `
+      <tr>
+        <td></td>
+        <td>${escapeHtmlAdmin(i.time_label) || '-'}</td>
+        <td>${escapeHtmlAdmin(i.duration) || '-'}</td>
+        <td><strong>${escapeHtmlAdmin(i.title)}</strong></td>
+        <td>${escapeHtmlAdmin(i.location) || '-'}</td>
+        <td style="white-space:normal;max-width:320px;">${escapeHtmlAdmin(i.description) || '<span class="hint">-</span>'}</td>
+        <td style="white-space:nowrap;">
+          <button class="btn small" onclick="editTourItinItem(${i.id})">Edit</button>
+          ${canDelete() ? `<button class="btn danger small" onclick="deleteTourItinItem(${i.id})">Delete</button>` : ''}
+        </td>
+      </tr>
+    `).join('')}
+  `).join('') || '<tr><td colspan="7" class="empty">No itinerary items yet</td></tr>';
 }
+// Minimal escaper for the itinerary cells — free text typed by the office.
+function escapeHtmlAdmin(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+window.editTourItinItem = (itemId) => {
+  const item = TOUR_ITIN_CACHE.find((i) => i.id === itemId);
+  if (!item) return;
+  const form = document.getElementById('tourItinForm');
+  ['day_label', 'time_label', 'duration', 'title', 'location', 'sort_order', 'description'].forEach((k) => {
+    if (form.elements[k]) form.elements[k].value = item[k] !== null && item[k] !== undefined ? item[k] : '';
+  });
+  form.dataset.editId = itemId;
+  document.getElementById('tourItinSubmitBtn').textContent = 'Update itinerary item';
+  document.getElementById('tourItinCancelBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+};
+window.cancelEditTourItin = () => {
+  const form = document.getElementById('tourItinForm');
+  form.reset();
+  delete form.dataset.editId;
+  document.getElementById('tourItinSubmitBtn').textContent = 'Add itinerary item';
+  document.getElementById('tourItinCancelBtn').style.display = 'none';
+};
 window.deleteTourItinItem = async (itemId) => {
   await jdel(`${API}/pretours/itinerary/${itemId}`);
   toast('Itinerary item removed');
@@ -4184,12 +4267,23 @@ document.getElementById('tourItinForm').addEventListener('submit', async (e) => 
   e.preventDefault();
   if (!currentTourId) { toast('Click "Manage" on a tour first'); return; }
   const body = Object.fromEntries(new FormData(e.target).entries());
+  const editId = e.target.dataset.editId;
   try {
-    await jpost(`${API}/pretours/${currentTourId}/itinerary`, body);
-    e.target.reset();
-    toast('Itinerary item added');
+    if (editId) {
+      await jput(`${API}/pretours/itinerary/${editId}`, body);
+      toast('Itinerary item updated');
+      window.cancelEditTourItin();
+    } else {
+      await jpost(`${API}/pretours/${currentTourId}/itinerary`, body);
+      e.target.reset();
+      toast('Itinerary item added');
+    }
     refreshTourItinerary();
   } catch (err) { toast(err.message); }
+});
+document.getElementById('tourItinCancelBtn').addEventListener('click', (e) => {
+  e.preventDefault();
+  window.cancelEditTourItin();
 });
 
 async function refreshTourParticipants() {
