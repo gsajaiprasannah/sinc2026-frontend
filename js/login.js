@@ -2302,7 +2302,7 @@ function wireAgendaForm() {
 // the SAME POINT within `windowMinutes` of each other — 0 means "exact same
 // flight/train only", the original behaviour.
 const TRANSPORT_WINDOW_OPTIONS = [
-  [0, 'Exact same flight / train'],
+  [0, 'Arriving at exactly the same time'],
   [30, 'Within 30 minutes'],
   [60, 'Within 1 hour'],
   [120, 'Within 2 hours'],
@@ -2348,13 +2348,48 @@ const CANONICAL_TRANSPORT_POINTS = { flight: 'Coimbatore Airport', train: 'Coimb
 // "railway station") which can only mean the local one here. Anything naming
 // somewhere else — "Kochi Airport" — is left alone and groups separately,
 // because that genuinely is a different pickup.
-const LOCAL_POINT_TOKENS = /(coimbatore|kovai|cbe|cjb|peelamedu)/;
-const GENERIC_POINT_WORDS = /\b(the|a|at|airport|air|port|railway|rail|rly|station|stn|junction|jn|jct|terminal|terminus|international|domestic|arrival|arrivals|departure|departures|bus|stand)\b/g;
+const LOCAL_POINT_TOKENS = ['coimbatore', 'kovai', 'cbe', 'cjb', 'peelamedu', 'sulur'];
+const GENERIC_POINT_WORDS = [
+  'the', 'at', 'airport', 'air', 'port', 'railway', 'rail', 'rly', 'station', 'stn',
+  'junction', 'jn', 'jct', 'terminal', 'terminus', 'international', 'domestic',
+  'arrival', 'arrivals', 'departure', 'departures', 'bus', 'stand', 'central', 'main',
+];
+// Levenshtein, capped small — these are one- or two-word place names typed on
+// a phone, so "Rallway"/"Junciton"/"Coimbatoor" are common and shouldn't spawn
+// their own pickup point.
+function editDistance(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return 99;
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = tmp;
+    }
+  }
+  return prev[b.length];
+}
+// Exact match always. Beyond that the tolerance scales with word length: one
+// slip on a medium word, two on a long one — enough for "Coimbatoor" and
+// "Junciton" (a swapped pair costs 2 here) without letting short codes like
+// "cbe"/"cjb", or a genuinely different town, collapse into each other.
+function matchesWord(token, list) {
+  const allowed = token.length >= 8 ? 2 : (token.length >= 5 ? 1 : 0);
+  return list.some((w) => token === w || (allowed > 0 && editDistance(token, w) <= allowed));
+}
+// Local when every word is either a Coimbatore name or a generic transport
+// word ("airport", "railway station") — which for a Coimbatore congress can
+// only mean the local one. A word naming somewhere else ("kochi", "chennai",
+// "podanur") makes it a genuinely different pickup, left alone.
 function looksLikeLocalPoint(normalised) {
   if (!normalised) return true;
-  if (LOCAL_POINT_TOKENS.test(normalised)) return true;
-  return normalised.replace(GENERIC_POINT_WORDS, '').replace(/[^a-z]/g, '') === '';
+  const tokens = normalised.split(/[^a-z]+/).filter(Boolean);
+  if (!tokens.length) return true;
+  return tokens.every((tok) => matchesWord(tok, LOCAL_POINT_TOKENS) || matchesWord(tok, GENERIC_POINT_WORDS));
 }
+// The point to actually group and prefill on, given the delegate's mode.
 function canonicalQueuePoint(direction, d) {
   const raw = queuePointOf(direction, d);
   const canon = CANONICAL_TRANSPORT_POINTS[(d.travel_mode || '').toLowerCase()];
@@ -2396,7 +2431,10 @@ function clusterTransportQueue(direction, rows, windowMinutes) {
       if (!pointOk) continue;
 
       if (sameService) { target = c; break; }
-      if (windowMinutes === 0 || t === null || c.lastTime === null) continue;
+      // Otherwise it's purely point + time: pickups are planned on when and
+      // where people land, not on which service they were booked on. At a
+      // window of 0 this means "the same minute", not "the same flight".
+      if (t === null || c.lastTime === null) continue;
       if (Math.abs(t - c.lastTime) <= windowMinutes * 60000) { target = c; break; }
     }
 
