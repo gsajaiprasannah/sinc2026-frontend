@@ -945,6 +945,30 @@ document.getElementById('clubCsvForm').addEventListener('submit', async (e) => {
 
 // --- Registrations ---
 const REG_TYPE_LABEL = { single: 'Single', double: 'Double', congress_only: 'Congress Only' };
+// The package a registration was sold on — a different axis from reg_type
+// above, which is occupancy. "Full" includes hotel accommodation, "Congress
+// Only" is sessions without a room. Nullable: bookings taken before this
+// field existed have nothing recorded, shown as "Not recorded" rather than
+// being guessed at.
+const REG_CATEGORY_LABEL = {
+  early_bird_full: 'Early bird — Full',
+  early_bird_congress_only: 'Early bird — Congress Only',
+  regular_full: 'Regular — Full',
+  regular_congress_only: 'Regular — Congress Only',
+};
+const REG_CATEGORY_SHORT = {
+  early_bird_full: 'EB Full',
+  early_bird_congress_only: 'EB Congress',
+  regular_full: 'Reg Full',
+  regular_congress_only: 'Reg Congress',
+};
+function regCategoryLabel(v) { return REG_CATEGORY_LABEL[v] || (v ? v : 'Not recorded'); }
+// Congress Only excludes accommodation, so anything ending _congress_only
+// means this delegate is not entitled to a room.
+function regIncludesAccommodation(category) {
+  if (!category) return null;                 // unknown, don't assert either way
+  return !String(category).endsWith('congress_only');
+}
 // Cached so the Delegates form's occupancy hint (which registration already
 // has a primary registrant, how many delegates it already holds) can be
 // recomputed without another round trip every time the dropdown changes.
@@ -956,6 +980,9 @@ async function refreshRegs() {
     <tr>
       <td>${r.reg_number}</td>
       <td><span class="pill ${r.reg_type}">${REG_TYPE_LABEL[r.reg_type] || r.reg_type}</span></td>
+      <td>${r.registration_category
+        ? `${regCategoryLabel(r.registration_category)}${regIncludesAccommodation(r.registration_category) === false ? ' <span class="hint">(no room)</span>' : ''}`
+        : '<span class="hint">Not recorded</span>'}</td>
       <td>${r.club_name || '-'}</td>
       <td>₹${r.amount_paid}</td>
       <td>₹${r.amount_due}</td>
@@ -963,7 +990,7 @@ async function refreshRegs() {
       <td>${r.participant_count}</td>
       <td><button class="btn small" onclick="downloadReceiptPdf(${r.id})">Receipt</button> ${canDelete() ? `<button class="btn danger small" onclick="deleteReg(${r.id})">Delete</button>` : ''}</td>
     </tr>
-  `).join('') || '<tr><td colspan="8" class="empty">No registrations yet</td></tr>';
+  `).join('') || '<tr><td colspan="9" class="empty">No registrations yet</td></tr>';
 
   // Each option carries its occupancy in the visible text (so it's obvious
   // at a glance without opening the dropdown twice) and as data attributes
@@ -1173,6 +1200,9 @@ async function refreshParts(query) {
     const fields = [
       { label: 'Registration ID', value: `<strong>${p.participant_code || '-'}</strong>` },
       { label: 'Reg #', value: p.reg_number || '-' },
+      { label: 'Registration type', value: p.registration_category
+        ? `${regCategoryLabel(p.registration_category)}${regIncludesAccommodation(p.registration_category) === false ? '<br><span class="hint">No accommodation included</span>' : ''}`
+        : '<span class="hint">Not recorded</span>' },
       { label: 'Linked Registrant', value: linkedValue },
       { label: 'Phone', value: p.phone || '-' },
       { label: 'Travel In', value: p.travel_mode ? p.travel_mode + ' ' + (p.travel_number || '') + '<br><span class="hint">' + (p.travel_datetime || '') + '</span>' : '-' },
@@ -2970,10 +3000,19 @@ window.updateAssignmentStatus = async (id, status) => {
 async function refreshAssignmentDropdowns() {
   const parts = await jget(`${API}/participants`);
   const opts = parts.map((p) => `<option value="${p.id}">${p.name} — ${p.participant_code || ''} (${p.club_name || 'no club'})</option>`).join('');
-  ['assignPartSelect', 'tripPassengerParticipantSelect', 'tourPartParticipantSelect', 'roomParticipantSelect'].forEach((id) => {
+  // The room picker additionally flags Congress Only delegates, whose
+  // registration does not include accommodation — see the confirm() in the
+  // room form's submit handler.
+  const roomOpts = parts.map((p) => {
+    const noRoom = regIncludesAccommodation(p.registration_category) === false;
+    return `<option value="${p.id}" data-no-room="${noRoom}">${p.name} — ${p.participant_code || ''} (${p.club_name || 'no club'})${noRoom ? ' — CONGRESS ONLY, no room included' : ''}</option>`;
+  }).join('');
+  ['assignPartSelect', 'tripPassengerParticipantSelect', 'tourPartParticipantSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = opts;
   });
+  const roomEl = document.getElementById('roomParticipantSelect');
+  if (roomEl) roomEl.innerHTML = roomOpts;
 }
 
 document.getElementById('assignForm').addEventListener('submit', async (e) => {
@@ -4966,6 +5005,29 @@ const DELEGATE_REPORT_SECTIONS = [
     }
   },
   {
+    key: 'registration_type', label: 'Registration types', default: true,
+    build: (rows) => {
+      const withRoom = rows.filter((r) => regIncludesAccommodation(r.registration_category) === true).length;
+      const noRoom = rows.filter((r) => regIncludesAccommodation(r.registration_category) === false).length;
+      const unknown = rows.length - withRoom - noRoom;
+      return [
+        tallyBlock('Registration type', rows, (r) => regCategoryLabel(r.registration_category), {
+          blankLabel: 'Not recorded',
+          order: Object.values(REG_CATEGORY_LABEL),
+        }),
+        {
+          label: 'Accommodation entitlement',
+          columns: [{ label: 'Entitlement', width: 300 }, { label: 'Delegates', width: 90, align: 'right' }, { label: 'Share', width: 125, align: 'right' }],
+          rows: [
+            ['Room included (Full)', String(withRoom), `${Math.round((withRoom / (rows.length || 1)) * 1000) / 10}%`],
+            ['No room (Congress Only)', String(noRoom), `${Math.round((noRoom / (rows.length || 1)) * 1000) / 10}%`],
+            ['Not recorded', String(unknown), `${Math.round((unknown / (rows.length || 1)) * 1000) / 10}%`],
+          ],
+        },
+      ];
+    }
+  },
+  {
     key: 'food', label: 'Meal preferences', default: true,
     build: (rows) => [tallyBlock('Food preference', rows, (r) => r.dietary_preference, {
       blankLabel: 'No preference', order: ['Vegetarian', 'Non-vegetarian', 'No preference'],
@@ -5091,6 +5153,10 @@ const DELEGATE_PDF_FIELDS = [
   // Filled in by downloadDelegatesListPdf, which has the whole list to hand
   // and can look up who else is on the same registration.
   { key: 'travelling_with', label: 'Travelling with', group: 'Identity', width: 100, get: (r) => r._travelling_with || '' },
+  { key: 'registration_category', label: 'Registration type', group: 'Identity', width: 95,
+    get: (r) => (r.registration_category ? REG_CATEGORY_SHORT[r.registration_category] || r.registration_category : '') },
+  { key: 'accommodation', label: 'Room incl.', group: 'Identity', width: 55,
+    get: (r) => { const inc = regIncludesAccommodation(r.registration_category); return inc === null ? '' : (inc ? 'Yes' : 'No'); } },
 
   { key: 'phone', label: 'Phone', group: 'Contact', width: 70, get: (r) => r.phone },
   { key: 'whatsapp', label: 'WhatsApp', group: 'Contact', width: 70, get: (r) => r.whatsapp },
@@ -6715,7 +6781,17 @@ document.getElementById('roomForm').addEventListener('submit', async (e) => {
   const body = Object.fromEntries(new FormData(form).entries());
   const occupantType = document.getElementById('roomOccupantTypeSelect').value;
   if (occupantType === 'participant') {
-    body.participant_id = document.getElementById('roomParticipantSelect').value || null;
+    const sel = document.getElementById('roomParticipantSelect');
+    body.participant_id = sel.value || null;
+    // A Congress Only registration doesn't include accommodation. There are
+    // legitimate reasons to override (the delegate is paying the hotel
+    // directly, a goodwill upgrade), so this warns rather than blocks — but
+    // it shouldn't happen silently and then surface as a billing dispute.
+    const opt = sel.options[sel.selectedIndex];
+    if (opt && opt.dataset.noRoom === 'true') {
+      const ok = confirm(`${opt.textContent.split(' — ')[0]} is on a Congress Only registration, which does not include accommodation.\n\nAssign a room anyway?`);
+      if (!ok) return;
+    }
   } else {
     body.host_member_id = document.getElementById('roomHmSelect').value || null;
   }
