@@ -953,6 +953,10 @@ function switchAdminTab(tab) {
     applySidebarState();
   }
 }
+// Exposed so inline handlers can use it too — e.g. the "+ Add Delegate"
+// shortcut on the Delegates list, which jumps to the Add Delegate section.
+window.switchAdminTab = switchAdminTab;
+
 document.getElementById('tabNav').addEventListener('click', (e) => {
   const btn = e.target.closest('button');
   if (!btn) return;
@@ -2294,10 +2298,11 @@ window.makeCommitteeLead = async (committeeId, hostMemberId) => {
 
 // Edit a committee member's own details (name/phone/email/company/etc.)
 // right from the Committees tab, instead of having to go find them in the
-// Host Members tab first — jumps over there and reuses that tab's existing
-// edit form (same validation, same PUT /hostmembers/:id, no duplicated logic).
+// Host Members tab first — reuses the same edit form (same validation, same
+// PUT /hostmembers/:id, no duplicated logic). No longer switches tabs: the
+// form opens in a modal over whatever you were looking at, so you stay on
+// the committee you were working through.
 window.editCommitteeMemberDetails = (hostMemberId) => {
-  switchAdminTab('hostmembers');
   editHm(hostMemberId);
 };
 
