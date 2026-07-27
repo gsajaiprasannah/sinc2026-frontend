@@ -1174,6 +1174,35 @@ label {
   margin-bottom: 4px;
 }
 
+/* Checkbox/radio sitting inline with its own text, e.g. the drink-preference
+   boxes and "I need hotel accommodation" on my-profile.html / my-travel.html.
+   Needed because the two global rules just above and below this one are
+   written for full-width text fields: `label { display:block }` drops the
+   caption onto its own line, and `input { width:100% }` stretches the little
+   square across the whole field and shoves its text outside the card. This
+   class opts a label out of both. */
+.check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: normal;
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 0;
+  cursor: pointer;
+}
+.check-inline input[type="checkbox"],
+.check-inline input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  flex: 0 0 16px;
+  padding: 0;
+  margin: 0;
+  border-radius: 4px;
+  accent-color: var(--navy);
+}
+
 input, select, textarea {
   width: 100%;
   padding: 9px 11px;
