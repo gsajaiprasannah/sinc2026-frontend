@@ -1802,6 +1802,15 @@ async function refreshHostMembers(query) {
       { label: 'Committees', value: `<span title="${committeeNames.join(', ')}">${committeesLabel}</span>` },
       { label: 'Payment', value: `<span class="pill ${h.payment_status}">${h.payment_status}</span> <span class="hint">₹${h.payment_amount}</span>` },
       { label: 'Sizes', value: sizesLabel(h) },
+      { label: 'Food preference', value: h.dietary_preference || 'No preference' },
+      { label: 'Drink preference', value: h.drink_preference || '-' },
+      // Only worth a line when a room is actually being asked for — the host
+      // club is local, so "not required" is the norm and would be noise on
+      // every card.
+      { label: 'Hotel stay', value: h.hotel_stay_required
+        ? `<span class="pill pending">Required</span>${h.hotel_stay_notes ? '<br><span class="hint">' + h.hotel_stay_notes + '</span>' : ''}`
+        : '<span class="hint">Not required</span>' },
+      { label: 'Special requests', value: h.special_requests || '-' },
       { label: 'Photo', value: photoCell('host_member', h) },
       { label: 'Card', value: cardCell('host_member', h) },
       { label: 'Login', value: h.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createHostLogin(${h.id}, '${(h.name || '').replace(/'/g, '')}')">Create login</button>` },
@@ -4693,6 +4702,12 @@ const HOST_MEMBER_PDF_FIELDS = [
   { key: 'assignment_count', label: 'Delegates assigned', group: 'Committee', width: 70, align: 'right', get: (r) => String(r.assignment_count || 0) },
 
   { key: 'sizes', label: 'Sizes', group: 'Merchandise', width: 85, get: (r) => pdfSizesText(r) },
+
+  { key: 'dietary_preference', label: 'Food', group: 'Preferences', width: 66, get: (r) => r.dietary_preference || 'No preference' },
+  { key: 'drink_preference', label: 'Drink', group: 'Preferences', width: 70, get: (r) => r.drink_preference },
+  { key: 'hotel_stay', label: 'Hotel stay', group: 'Preferences', width: 100,
+    get: (r) => (r.hotel_stay_required ? pdfLines([['', 'REQUIRED'], ['', r.hotel_stay_notes]]) : 'Not required') },
+  { key: 'special_requests', label: 'Special requests', group: 'Preferences', width: 115, get: (r) => r.special_requests },
 
   { key: 'payment_status', label: 'Payment', group: 'Payment', width: 55, get: (r) => r.payment_status },
   { key: 'payment_amount', label: 'Amount', group: 'Payment', width: 60, align: 'right', get: (r) => (r.payment_amount != null ? `₹${r.payment_amount}` : '') },

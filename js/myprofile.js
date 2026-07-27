@@ -72,8 +72,49 @@ function openRecord(match) {
   form.elements.shirt_size.value = match.shirt_size || '';
   form.elements.tshirt_size.value = match.tshirt_size || '';
   form.elements.waist_size.value = match.waist_size || '';
+
+  // Catering + accommodation. A Delegate who lands here (the lookup searches
+  // all three tables) sees the same inputs, prefilled from whatever they
+  // already answered on my-travel.html.
+  if (form.elements.dietary_preference) form.elements.dietary_preference.value = match.dietary_preference || '';
+  const drinks = (match.drink_preference || '').split(',').map((s) => s.trim()).filter(Boolean);
+  form.querySelectorAll('.drinkPrefBox').forEach((box) => { box.checked = drinks.includes(box.value); });
+  if (form.elements.special_requests) form.elements.special_requests.value = match.special_requests || '';
+  const hotelBox = document.getElementById('hotelStayRequired');
+  if (hotelBox) {
+    hotelBox.checked = match.hotel_stay_required === true || match.hotel_stay_required === 'true';
+    if (form.elements.hotel_stay_notes) form.elements.hotel_stay_notes.value = match.hotel_stay_notes || '';
+    applyHotelStayVisibility();
+  }
+
   renderPreview('photoPreviewWrap', match.photo_url, 'photo');
   renderPreview('cardPreviewWrap', match.business_card_url, 'business card');
+}
+
+// The "which nights / why" box is only meaningful once a room is actually
+// being requested, so it stays hidden until the checkbox is ticked.
+function applyHotelStayVisibility() {
+  const wrap = document.getElementById('hotelStayNotesWrap');
+  const box = document.getElementById('hotelStayRequired');
+  if (!wrap || !box) return;
+  wrap.style.display = box.checked ? '' : 'none';
+}
+
+// "No Alcohol" is mutually exclusive with every other drink option, since
+// picking both makes no sense. Mirrors my-travel.html's wireDrinkPrefExclusivity.
+function wireDrinkPrefExclusivity() {
+  const boxes = Array.from(document.querySelectorAll('.drinkPrefBox'));
+  const noAlcohol = document.querySelector('.noAlcoholBox');
+  if (!noAlcohol) return;
+  boxes.forEach((box) => {
+    box.addEventListener('change', () => {
+      if (box === noAlcohol) {
+        if (box.checked) boxes.forEach((b) => { if (b !== noAlcohol) b.checked = false; });
+      } else if (box.checked) {
+        noAlcohol.checked = false;
+      }
+    });
+  });
 }
 
 function renderPreview(wrapId, url, label) {
@@ -135,6 +176,16 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
     const body = Object.fromEntries(new FormData(e.target).entries());
     body.name = current.name;
     body.phone = current.phone;
+    // The drink checkboxes carry no `name` attribute (FormData would only
+    // keep the last one), so they're collected manually — same approach as
+    // my-travel.html.
+    body.drink_preference = Array.from(e.target.querySelectorAll('.drinkPrefBox:checked')).map((b) => b.value).join(', ');
+    const hotelBox = document.getElementById('hotelStayRequired');
+    if (hotelBox) {
+      body.hotel_stay_required = hotelBox.checked;
+      // Don't keep stale "which nights" text against an unticked request.
+      if (!hotelBox.checked) body.hotel_stay_notes = '';
+    }
     const r = await fetch(`${API}/public-profile/${current.type}/${current.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -196,3 +247,7 @@ document.getElementById('cardInput').addEventListener('change', (e) => {
 });
 
 document.getElementById('startOverBtn').addEventListener('click', showLookup);
+
+const hotelStayBox = document.getElementById('hotelStayRequired');
+if (hotelStayBox) hotelStayBox.addEventListener('change', applyHotelStayVisibility);
+wireDrinkPrefExclusivity();

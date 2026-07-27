@@ -16,7 +16,7 @@
         <img src="img/skal-logo.png" alt="Skål International" class="logo-mark" />
         <div>
           <h1>My Details</h1>
-          <span class="hint">Shirt size, T-Shirt size, photo &amp; business card — no login needed</span>
+          <span class="hint">Sizes, food &amp; drink, accommodation, photo &amp; business card — no login needed</span>
         </div>
       </div>
     </div>
@@ -67,6 +67,45 @@
           <select name="waist_size"><option value="">-- none --</option><option>28</option><option>30</option><option>32</option><option>34</option><option>36</option><option>38</option><option>40</option><option>42</option><option>44</option><option>46</option></select>
         </div>
       </div>
+
+      <!-- Same food/drink questions the Delegates page asks (my-travel.html),
+           so catering headcounts cover the host team too. -->
+      <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Food &amp; drink preference</div>
+      <div class="form-grid cols-2">
+        <div class="field"><label>Food preference</label>
+          <select name="dietary_preference">
+            <option value="">No preference</option>
+            <option value="Vegetarian">Vegetarian</option>
+            <option value="Non-vegetarian">Non-vegetarian</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Drink preference</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:4px;">
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox" value="Wine" /> Wine</label>
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox" value="Whiskey" /> Whiskey</label>
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox" value="Brandy" /> Brandy</label>
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox" value="Beer" /> Beer</label>
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox" value="Vodka" /> Vodka</label>
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox" value="Rum" /> Rum</label>
+          <label style="font-weight:normal;"><input type="checkbox" class="drinkPrefBox noAlcoholBox" value="No Alcohol" /> No Alcohol</label>
+        </div>
+      </div>
+
+      <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Accommodation</div>
+      <p class="hint" style="margin-top:-6px;">Please request a room <strong>only if it is essential</strong> — as the host club, most of us will be travelling from home each day. Rooms are limited and are prioritised for those who genuinely need them.</p>
+      <div class="field">
+        <label style="font-weight:normal;display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="hotelStayRequired" /> I need hotel accommodation (essential only)
+        </label>
+      </div>
+      <div class="field" id="hotelStayNotesWrap" style="display:none;">
+        <label>Which nights, and why is a stay needed?</label>
+        <textarea name="hotel_stay_notes" rows="2" placeholder="e.g. 14th &amp; 15th August — travelling from Chennai, early duty on both mornings"></textarea>
+      </div>
+
+      <div class="field"><label>Special requests</label><textarea name="special_requests" rows="3" placeholder="Any dietary allergies, accessibility needs, or other requests..."></textarea></div>
 
       <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Your photo</div>
       <div id="photoPreviewWrap" style="margin-bottom:8px;"></div>
