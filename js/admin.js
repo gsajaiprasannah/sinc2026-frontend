@@ -447,6 +447,15 @@ function cardCell(memberType, obj) {
   return `${thumb}<button type="button" class="btn small" onclick="triggerMemberCardUpload('${memberType}', ${obj.id})">${obj.business_card_url ? 'Replace' : 'Upload'}</button>${obj.business_card_url ? ` <button type="button" class="btn small" onclick="removeMemberCard('${memberType}', ${obj.id})">Remove</button>` : ''}`;
 }
 
+// Company logo a Host Member/Volunteer uploaded from my-profile.html.
+// Read-only here: it's their own asset to manage, and the admin panel has no
+// upload path for it (unlike photo/business card, which the office often
+// scans on someone's behalf).
+function logoCell(obj) {
+  if (!obj.logo_url) return '<span class="hint">-</span>';
+  return `<img src="${mediaUrl(obj.logo_url)}" alt="${obj.name} company logo" style="width:56px;height:32px;object-fit:contain;border-radius:4px;border:1px solid var(--border,#ddd);background:#fff;cursor:zoom-in;" onclick="openImageLightbox(this.src)" />`;
+}
+
 // Shared Shirt/Tee/Waist summary shown on the Delegates, Host Members, and
 // Volunteers cards — one place so all three stay in sync (previously each
 // table rebuilt this string inline and two of the three had drifted out of
@@ -1847,6 +1856,7 @@ async function refreshHostMembers(query) {
       { label: 'Special requests', value: h.special_requests || '-' },
       { label: 'Photo', value: photoCell('host_member', h) },
       { label: 'Card', value: cardCell('host_member', h) },
+      { label: 'Company logo', value: logoCell(h) },
       { label: 'Login', value: h.user_id ? '<span class="pill paid">has login</span>' : `<button class="btn small" onclick="createHostLogin(${h.id}, '${(h.name || '').replace(/'/g, '')}')">Create login</button>` },
     ];
     const actions = `
@@ -5135,6 +5145,7 @@ const HOST_MEMBER_PDF_FIELDS = [
   { key: 'payment_mode', label: 'Mode', group: 'Payment', width: 60, get: (r) => r.payment_mode },
   { key: 'payment_date', label: 'Paid on', group: 'Payment', width: 65, get: (r) => r.payment_date },
 
+  { key: 'logo_on_file', label: 'Logo on file', group: 'Other', width: 60, get: (r) => (r.logo_url ? 'Yes' : 'No') },
   { key: 'notes', label: 'Notes', group: 'Other', width: 120, get: (r) => r.notes },
 ];
 const HOST_MEMBER_PDF_DEFAULT_KEYS = ['name', 'company', 'phone', 'committees', 'sizes', 'payment_status'];

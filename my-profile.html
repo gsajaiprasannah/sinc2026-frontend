@@ -118,6 +118,16 @@
       <input type="file" id="cardInput" accept="image/*" style="display:none;" />
       <button type="button" class="btn" id="cardUploadBtn">Choose / replace business card</button>
 
+      <!-- Host Members and Volunteers only — Delegates have no logo_url
+           column, so openRecord() hides this block for them. -->
+      <div id="logoSection">
+        <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Your company logo</div>
+        <p class="hint" style="margin-top:-6px;">Your firm's logo, if you have one. A PNG with a transparent or white background works best.</p>
+        <div id="logoPreviewWrap" style="margin-bottom:8px;"></div>
+        <input type="file" id="logoInput" accept="image/*" style="display:none;" />
+        <button type="button" class="btn" id="logoUploadBtn">Choose / replace company logo</button>
+      </div>
+
       <button class="btn gold" type="submit" id="saveAllBtn" style="width:100%;margin-top:20px;">Save changes</button>
     </form>
 

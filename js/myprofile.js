@@ -33,11 +33,13 @@ let current = null;
 // and others needing a separate click.
 let pendingPhoto = null;
 let pendingCard = null;
+let pendingLogo = null;
 
 function showLookup() {
   current = null;
   pendingPhoto = null;
   pendingCard = null;
+  pendingLogo = null;
   document.getElementById('lookupCard').style.display = '';
   document.getElementById('pickCard').style.display = 'none';
   document.getElementById('editCard').style.display = 'none';
@@ -63,6 +65,7 @@ function openRecord(match) {
   current = { type: match.type, id: match.id, name: match.name, phone: match.phone };
   pendingPhoto = null;
   pendingCard = null;
+  pendingLogo = null;
   document.getElementById('lookupCard').style.display = 'none';
   document.getElementById('pickCard').style.display = 'none';
   document.getElementById('editCard').style.display = '';
@@ -89,6 +92,15 @@ function openRecord(match) {
 
   renderPreview('photoPreviewWrap', match.photo_url, 'photo');
   renderPreview('cardPreviewWrap', match.business_card_url, 'business card');
+
+  // Delegates have no logo_url column (see publicProfile.js), so the whole
+  // section is hidden rather than offering an upload that would be rejected.
+  const logoSection = document.getElementById('logoSection');
+  if (logoSection) {
+    const canHaveLogo = match.type === 'host_member' || match.type === 'volunteer';
+    logoSection.style.display = canHaveLogo ? '' : 'none';
+    if (canHaveLogo) renderPreview('logoPreviewWrap', match.logo_url, 'company logo');
+  }
 }
 
 // The "which nights / why" box is only meaningful once a room is actually
@@ -204,6 +216,11 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
       renderPreview('cardPreviewWrap', cd.business_card_url, 'business card');
       pendingCard = null;
     }
+    if (pendingLogo) {
+      const ld = await uploadImage('logo', pendingLogo);
+      renderPreview('logoPreviewWrap', ld.logo_url, 'company logo');
+      pendingLogo = null;
+    }
 
     btn.textContent = '✓ Saved';
     toast('All changes saved — thank you!', 3000);
@@ -244,6 +261,15 @@ document.getElementById('cardInput').addEventListener('change', (e) => {
   if (!file) return;
   pendingCard = file;
   renderPendingPreview('cardPreviewWrap', file, 'business card');
+});
+
+document.getElementById('logoUploadBtn').addEventListener('click', () => document.getElementById('logoInput').click());
+document.getElementById('logoInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  pendingLogo = file;
+  renderPendingPreview('logoPreviewWrap', file, 'company logo');
 });
 
 document.getElementById('startOverBtn').addEventListener('click', showLookup);
