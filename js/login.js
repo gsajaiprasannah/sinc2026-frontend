@@ -2289,13 +2289,118 @@ function wireAgendaForm() {
 }
 
 // --- Arrivals & Departures to Plan (Transport Planning module only) ---
-// Delegates who gave flight/train details, auto-grouped by matching travel
-// number + date/time, so the transport committee assigns one vehicle to the
-// whole cluster instead of planning each delegate one at a time. Mirrors the
-// admin panel's version of this panel (admin.js's transportQueueGroupCard),
-// hitting the same /transport/arrivals-queue, /departures-queue, and
-// /group-trip endpoints via the committee's portal-modules mount instead of
-// the admin-only one.
+// Delegates who gave flight/train details, pooled into vehicle-sized groups
+// so the transport committee assigns one vehicle to a whole cluster instead
+// of planning each delegate one at a time. Mirrors the admin panel's version
+// of this panel (admin.js's transportQueueGroupCard), hitting the same
+// /transport/arrivals-queue, /departures-queue and /group-trip endpoints via
+// the committee's portal-modules mount instead of the admin-only one.
+//
+// The queue endpoints return one row per delegate; the pooling happens here
+// so the planner can widen or narrow what counts as "the same time" and see
+// the effect immediately. Two delegates share a vehicle when they land at
+// the SAME POINT within `windowMinutes` of each other — 0 means "exact same
+// flight/train only", the original behaviour.
+const TRANSPORT_WINDOW_OPTIONS = [
+  [0, 'Exact same flight / train'],
+  [30, 'Within 30 minutes'],
+  [60, 'Within 1 hour'],
+  [120, 'Within 2 hours'],
+  [1440, 'Same day'],
+];
+let TRANSPORT_WINDOW_MINUTES = 60;
+let TRANSPORT_MANUAL_MOVES = {};
+let TRANSPORT_QUEUE_ROWS = { arrival: [], departure: [] };
+let TRANSPORT_CLUSTERS = { arrival: [], departure: [] };
+let TRANSPORT_QUEUE_OPTS = { vehicleOpts: '', driverOpts: '' };
+
+function queuePointOf(direction, d) {
+  return ((direction === 'arrival' ? d.arrival_point : d.departure_point) || '').trim();
+}
+function queueTime(d) {
+  const t = Date.parse(d.travel_datetime);
+  return Number.isNaN(t) ? null : t;
+}
+function clusterKey(direction, c, i) {
+  return `${direction}|${c.point}|${i}`;
+}
+function fmtQueueTime(ms) {
+  if (ms === null || ms === undefined) return '';
+  return new Date(ms).toLocaleString('en-IN', {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
+  });
+}
+// Chains delegates at the same point into clusters: sorted by time, each
+// joins the running cluster while within `windowMinutes` of the one before.
+// Chained rather than measured from the first member, because a steady
+// trickle of arrivals is one continuous pickup run.
+function clusterTransportQueue(direction, rows, windowMinutes) {
+  const byPoint = new Map();
+  rows.forEach((d) => {
+    const key = queuePointOf(direction, d) || '(no point given)';
+    if (!byPoint.has(key)) byPoint.set(key, []);
+    byPoint.get(key).push(d);
+  });
+
+  const clusters = [];
+  byPoint.forEach((list, point) => {
+    const sorted = [...list].sort((a, b) => (queueTime(a) ?? 0) - (queueTime(b) ?? 0));
+    let current = null;
+    sorted.forEach((d) => {
+      const t = queueTime(d);
+      const sameFlightOnly = windowMinutes === 0 || t === null;
+      const fits = current && (sameFlightOnly
+        ? current.travel_number === d.travel_number && current.travel_datetime === d.travel_datetime
+        : current.lastTime !== null && (t - current.lastTime) <= windowMinutes * 60000);
+      if (!fits) {
+        current = {
+          point,
+          travel_mode: d.travel_mode,
+          travel_number: d.travel_number,
+          travel_datetime: d.travel_datetime,
+          lastTime: t,
+          delegates: [],
+        };
+        clusters.push(current);
+      }
+      current.delegates.push(d);
+      current.lastTime = t;
+    });
+  });
+
+  const byKey = new Map();
+  clusters.forEach((c, i) => { c.key = clusterKey(direction, c, i); byKey.set(c.key, c); });
+  Object.entries(TRANSPORT_MANUAL_MOVES).forEach(([pid, targetKey]) => {
+    const target = byKey.get(targetKey);
+    if (!target) return;
+    const id = Number(pid);
+    let moved = null;
+    clusters.forEach((c) => {
+      const idx = c.delegates.findIndex((d) => d.id === id);
+      if (idx !== -1 && c !== target) { moved = c.delegates.splice(idx, 1)[0]; }
+    });
+    if (moved && !target.delegates.some((d) => d.id === moved.id)) target.delegates.push(moved);
+  });
+
+  return clusters
+    .filter((c) => c.delegates.length)
+    .map((c) => ({
+      ...c,
+      delegate_count: c.delegates.length,
+      numbers: [...new Set(c.delegates.map((d) => d.travel_number).filter(Boolean))],
+      earliest: c.delegates.reduce((min, d) => {
+        const t = queueTime(d);
+        return t !== null && (min === null || t < min) ? t : min;
+      }, null),
+    }))
+    // Chronological, with unparseable-time groups pushed to the end.
+    .sort((a, b) => {
+      if (a.earliest === null) return b.earliest === null ? 0 : 1;
+      if (b.earliest === null) return -1;
+      return a.earliest - b.earliest;
+    });
+}
+
 function transportQueueGroupCardHost(direction, g, vehicleOpts, driverOpts) {
   const delegates = g.delegates || [];
   const hotelIds = new Set(delegates.map((d) => d.hotel_id).filter((x) => x !== null && x !== undefined));
@@ -2308,22 +2413,47 @@ function transportQueueGroupCardHost(direction, g, vehicleOpts, driverOpts) {
   const fromDefault = direction === 'arrival' ? (queuePoint || '') : (sharedHotel || '');
   const toDefault = direction === 'arrival' ? (sharedHotel || '') : (queuePoint || '');
   const purposeDefault = direction === 'arrival' ? 'Airport/station pickup' : 'Airport/station drop-off';
+  // A cluster can pool several flights/trains now, so the heading shows the
+  // span of times rather than a single one, and lists the numbers involved.
+  const numbers = g.numbers && g.numbers.length ? g.numbers : [g.travel_number].filter(Boolean);
+  const numbersLabel = numbers.length > 3
+    ? `${numbers.slice(0, 3).join(', ')} +${numbers.length - 3} more`
+    : numbers.join(', ');
+  const times = delegates.map(queueTime).filter((t) => t !== null).sort((a, b) => a - b);
+  const timeLabel = times.length
+    ? (times[0] === times[times.length - 1]
+      ? fmtQueueTime(times[0])
+      : `${fmtQueueTime(times[0])} – ${fmtQueueTime(times[times.length - 1])}`)
+    : (g.travel_datetime || '');
+  const moveTargets = (TRANSPORT_CLUSTERS[direction] || []).filter((c) => c.key !== g.key);
+
   return `
-    <div class="card queue-group" style="margin-bottom:10px;">
+    <div class="card queue-group" data-cluster-key="${g.key}" style="margin-bottom:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
-        <strong>${modeLabel} ${g.travel_number} — ${g.travel_datetime}</strong>
-        <span class="hint">${g.delegate_count} delegate${g.delegate_count === 1 ? '' : 's'}${queuePoint ? ' · ' + queuePoint : ''}${sharedHotel ? ' · all at ' + sharedHotel : ''}</span>
+        <strong>${modeLabel} ${escapeHtml(numbersLabel)} — ${escapeHtml(timeLabel)}</strong>
+        <span class="hint">${g.delegate_count} delegate${g.delegate_count === 1 ? '' : 's'}${queuePoint ? ' · ' + escapeHtml(queuePoint) : ''}${sharedHotel ? ' · all at ' + escapeHtml(sharedHotel) : ''}${numbers.length > 1 ? ` · ${numbers.length} services pooled` : ''}</span>
       </div>
-      <div style="margin:8px 0;">
+      <div style="margin:8px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
         <button type="button" class="btn small" onclick="toggleQueueGroupChecksHost(this, true)">Select all</button>
         <button type="button" class="btn small" onclick="toggleQueueGroupChecksHost(this, false)">Select none</button>
+        <span class="hint" style="margin:0 0 0 6px;">Too many for one vehicle?</span>
+        <button type="button" class="btn small" onclick="splitQueueGroupByCapacityHost(this)" title="Tick only as many delegates as the chosen vehicle seats">Fill to vehicle capacity</button>
       </div>
+      <div class="queue-split-note hint" style="margin:0 0 8px;"></div>
       <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;">
         ${delegates.map((d) => `
-          <label style="display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;width:100%;">
-            <input type="checkbox" class="queue-delegate-cb" value="${d.id}" checked style="width:16px;height:16px;min-width:16px;flex-shrink:0;padding:0;" />
-            <span style="line-height:1.35;flex:1;">${d.name}${d.hotel_name ? ` <span class="hint">→ ${d.hotel_name}</span>` : ''}</span>
-          </label>
+          <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;width:100%;">
+            <label class="check-inline" style="flex:1;">
+              <input type="checkbox" class="queue-delegate-cb" value="${d.id}" checked />
+              <span style="line-height:1.35;">${escapeHtml(d.name)}${d.travel_number ? ` <span class="hint">${escapeHtml(d.travel_number)}</span>` : ''}${d.hotel_name ? ` <span class="hint">→ ${escapeHtml(d.hotel_name)}</span>` : ''}</span>
+            </label>
+            ${moveTargets.length ? `
+              <select class="queue-move-select" onchange="moveDelegateToClusterHost(${d.id}, this.value)" title="Move this delegate into another group" style="width:auto;max-width:190px;font-size:12px;padding:4px 6px;">
+                <option value="">Move to…</option>
+                ${moveTargets.map((c) => `<option value="${escapeHtml(c.key)}">${escapeHtml(c.point || 'No point')} · ${fmtQueueTime(c.earliest)} (${c.delegates.length})</option>`).join('')}
+              </select>
+            ` : ''}
+          </div>
         `).join('')}
       </div>
       <form onsubmit="return submitGroupTripHost(event, '${direction}')">
@@ -2346,7 +2476,57 @@ function transportQueueGroupCardHost(direction, g, vehicleOpts, driverOpts) {
   `;
 }
 window.toggleQueueGroupChecksHost = (btn, checked) => {
-  btn.closest('.queue-group').querySelectorAll('.queue-delegate-cb').forEach((cb) => { cb.checked = checked; });
+  const card = btn.closest('.queue-group');
+  card.querySelectorAll('.queue-delegate-cb').forEach((cb) => { cb.checked = checked; });
+  updateQueueSplitNoteHost(card);
+};
+// Ticks only as many delegates as the chosen vehicle seats, leaving the rest
+// for the next run. Creating the trip removes the ticked ones from the queue,
+// so the leftovers reappear as a smaller group ready for a second vehicle.
+window.splitQueueGroupByCapacityHost = (btn) => {
+  const card = btn.closest('.queue-group');
+  const capacity = vehicleCapacityFromOptionHost(card.querySelector('select[name="vehicle_id"]'));
+  if (!capacity) { toast('Pick a vehicle first — its seating capacity decides the split.'); return; }
+  const boxes = Array.from(card.querySelectorAll('.queue-delegate-cb'));
+  boxes.forEach((cb, i) => { cb.checked = i < capacity; });
+  const runs = Math.ceil(boxes.length / capacity);
+  toast(runs > 1
+    ? `Filled ${Math.min(capacity, boxes.length)} of ${boxes.length} — about ${runs} vehicle runs needed.`
+    : 'Everyone fits in this vehicle.');
+  updateQueueSplitNoteHost(card);
+};
+// Vehicle <option> labels carry their capacity, e.g. "S001 · Van (12 seats)".
+function vehicleCapacityFromOptionHost(select) {
+  if (!select || !select.value) return 0;
+  const label = select.options[select.selectedIndex]?.textContent || '';
+  const m = label.match(/(\d+)\s*seat/i);
+  return m ? Number(m[1]) : 0;
+}
+function updateQueueSplitNoteHost(card) {
+  const note = card.querySelector('.queue-split-note');
+  if (!note) return;
+  const total = card.querySelectorAll('.queue-delegate-cb').length;
+  const picked = card.querySelectorAll('.queue-delegate-cb:checked').length;
+  const capacity = vehicleCapacityFromOptionHost(card.querySelector('select[name="vehicle_id"]'));
+  let msg = `${picked} of ${total} selected for this trip`;
+  if (capacity) {
+    msg += ` · vehicle seats ${capacity}`;
+    if (picked > capacity) msg += ` — ${picked - capacity} too many`;
+    else if (total > capacity) msg += ` · ${Math.ceil(total / capacity)} runs needed for all ${total}`;
+  }
+  note.textContent = msg;
+  note.style.color = capacity && picked > capacity ? 'var(--red)' : '';
+}
+window.moveDelegateToClusterHost = (participantId, targetKey) => {
+  if (!targetKey) return;
+  TRANSPORT_MANUAL_MOVES[participantId] = targetKey;
+  drawTransportQueue();
+};
+window.setTransportWindowHost = (minutes) => {
+  TRANSPORT_WINDOW_MINUTES = Number(minutes);
+  // Cluster keys are positional, so old moves would point at the wrong group.
+  TRANSPORT_MANUAL_MOVES = {};
+  drawTransportQueue();
 };
 // Picking a driver auto-fills their usually-assigned vehicle (drivers carry a
 // vehicle_id in the Vehicles master) so the committee member doesn't have to
@@ -2387,20 +2567,60 @@ async function renderTransportQueue() {
       jget(`${API}/portal-modules/transport/vehicles-lite`).catch(() => []),
       jget(`${API}/portal-modules/transport/drivers-lite`).catch(() => []),
     ]);
-    const vehicleOpts = '<option value="">-- select vehicle --</option>' + vehicles.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${vehicleTypeLabel(v.vehicle_type)} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join('');
-    const driverOpts = '<option value="">-- none --</option>' + drivers.map((d) => `<option value="${d.id}">${d.name}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}</option>`).join('');
+    TRANSPORT_QUEUE_OPTS = {
+      vehicleOpts: '<option value="">-- select vehicle --</option>' + vehicles.map((v) => `<option value="${v.id}">${v.vehicle_code} · ${vehicleTypeLabel(v.vehicle_type)} (${v.seating_capacity} seats)${v.model ? ' — ' + v.model : ''}</option>`).join(''),
+      driverOpts: '<option value="">-- none --</option>' + drivers.map((d) => `<option value="${d.id}">${d.name}${d.vehicle_code ? ' — ' + d.vehicle_code : ''}</option>`).join(''),
+    };
     window.hostDriverVehicleMap = Object.fromEntries(drivers.filter((d) => d.vehicle_id).map((d) => [String(d.id), d.vehicle_id]));
-    el.innerHTML = `
-      <div class="section-title" style="font-size:14px;">Arrivals to plan (${arrivals.length})</div>
-      ${arrivals.map((g) => transportQueueGroupCardHost('arrival', g, vehicleOpts, driverOpts)).join('') || '<p class="hint">No unplanned arrivals right now.</p>'}
-      <div class="section-title" style="font-size:14px;">Departures to plan (${departures.length})</div>
-      ${departures.map((g) => transportQueueGroupCardHost('departure', g, vehicleOpts, driverOpts)).join('') || '<p class="hint">No unplanned departures right now.</p>'}
-    `;
-    wireLocationDropdowns(el);
+    TRANSPORT_QUEUE_ROWS = { arrival: arrivals, departure: departures };
+    TRANSPORT_MANUAL_MOVES = {};
+    drawTransportQueue();
   } catch (err) {
     if (err instanceof UnauthorizedError) return;
     el.innerHTML = `<p class="hint" style="color:var(--red);">${err.message}</p>`;
   }
+}
+// Re-groups and redraws from the cached rows — no network call, so the
+// committee can flick between time windows freely.
+function drawTransportQueue() {
+  const el = document.getElementById('transportQueueBody');
+  if (!el) return;
+  const { vehicleOpts, driverOpts } = TRANSPORT_QUEUE_OPTS;
+  TRANSPORT_CLUSTERS = {
+    arrival: clusterTransportQueue('arrival', TRANSPORT_QUEUE_ROWS.arrival || [], TRANSPORT_WINDOW_MINUTES),
+    departure: clusterTransportQueue('departure', TRANSPORT_QUEUE_ROWS.departure || [], TRANSPORT_WINDOW_MINUTES),
+  };
+  const totals = {
+    arrival: (TRANSPORT_QUEUE_ROWS.arrival || []).length,
+    departure: (TRANSPORT_QUEUE_ROWS.departure || []).length,
+  };
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:12px;">
+      <div class="field" style="margin:0;">
+        <label>Group people travelling together when they are</label>
+        <select onchange="setTransportWindowHost(this.value)">
+          ${TRANSPORT_WINDOW_OPTIONS.map(([m, label]) =>
+            `<option value="${m}" ${m === TRANSPORT_WINDOW_MINUTES ? 'selected' : ''}>${label}</option>`).join('')}
+        </select>
+      </div>
+      <p class="hint" style="margin:6px 0 0;">
+        Delegates arriving at the <strong>same point</strong> within this much time of each other are pooled into one vehicle,
+        even on different flights. Widen it to run fewer vehicles; narrow it to cut waiting at the airport.
+      </p>
+    </div>
+    <div class="section-title" style="font-size:14px;">Arrivals to plan — ${totals.arrival} delegate(s) in ${TRANSPORT_CLUSTERS.arrival.length} group(s)</div>
+    ${TRANSPORT_CLUSTERS.arrival.map((g) => transportQueueGroupCardHost('arrival', g, vehicleOpts, driverOpts)).join('') || '<p class="hint">No unplanned arrivals right now.</p>'}
+    <div class="section-title" style="font-size:14px;">Departures to plan — ${totals.departure} delegate(s) in ${TRANSPORT_CLUSTERS.departure.length} group(s)</div>
+    ${TRANSPORT_CLUSTERS.departure.map((g) => transportQueueGroupCardHost('departure', g, vehicleOpts, driverOpts)).join('') || '<p class="hint">No unplanned departures right now.</p>'}
+  `;
+  wireLocationDropdowns(el);
+  el.querySelectorAll('.queue-group').forEach((card) => {
+    updateQueueSplitNoteHost(card);
+    card.querySelectorAll('.queue-delegate-cb').forEach((cb) =>
+      cb.addEventListener('change', () => updateQueueSplitNoteHost(card)));
+    const vsel = card.querySelector('select[name="vehicle_id"]');
+    if (vsel) vsel.addEventListener('change', () => updateQueueSplitNoteHost(card));
+  });
 }
 window.submitHostModuleForm = async (e) => {
   e.preventDefault();
