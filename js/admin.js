@@ -3461,9 +3461,14 @@ function transportQueueGroupCard(direction, g) {
       : `${fmtQueueTime(times[0])} – ${fmtQueueTime(times[times.length - 1])}`)
     : (g.travel_datetime || '');
 
-  // Every other cluster in the same direction, so a delegate can be moved
-  // out of this one when the planner disagrees with the automatic pooling.
-  const moveTargets = (TRANSPORT_CLUSTERS[direction] || []).filter((c) => c.key !== g.key);
+  // Other groups this delegate could be moved into, for when the planner
+  // disagrees with the automatic pooling. Restricted to the same mode as this
+  // card's own column — an airport pickup and a station pickup are different
+  // vehicles going to different places, so offering to move someone across
+  // would only ever be a mis-click.
+  const isAir = clusterIsAir(g);
+  const moveTargets = (TRANSPORT_CLUSTERS[direction] || [])
+    .filter((c) => c.key !== g.key && clusterIsAir(c) === isAir);
 
   return `
     <div class="card queue-group" data-cluster-key="${g.key}" style="margin-bottom:10px;">
