@@ -436,7 +436,7 @@
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
       <span>All delegates</span>
       <div style="display:flex;gap:8px;">
-        <button class="btn small" onclick="openDelegatePdfModal()">Download PDF</button>
+        <button class="btn small" onclick="openPdfFieldPicker('delegates')">Download PDF</button>
         <button class="btn small" onclick="openDelegateReportModal()" title="Summary counts and breakdowns, not a per-person list">Reports</button>
         <button class="btn small" onclick="downloadAllDelegateBadgesZip()" title="Bulk badge+QR export for a print vendor">Download All Badges (ZIP)</button>
       </div>
@@ -697,7 +697,7 @@
     <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
       <span>All host members</span>
       <div style="display:flex;gap:8px;">
-        <button class="btn small" onclick="downloadHostMembersListPdf()">Download PDF</button>
+        <button class="btn small" onclick="openPdfFieldPicker('host_members')">Download PDF</button>
         <button class="btn small" onclick="downloadAllHostMemberBadgesZip()" title="Bulk badge+QR export for a print vendor">Download All Badges (ZIP)</button>
       </div>
     </div>
@@ -2518,30 +2518,27 @@
 
 <!-- Field picker for the Delegates "Download PDF" export — tick only the
      columns a given list actually needs (a name-badge list wants just names;
-     a catering list wants name + food). Rendered by renderDelegatePdfModal()
-     in js/admin.js from the DELEGATE_PDF_FIELDS catalog. -->
-<div class="modal-overlay" id="delegatePdfModal" style="display:none;" onclick="if(event.target===this) closeDelegatePdfModal()">
+     a catering list wants name + food). One shared modal drives every such
+     export — see PDF_FIELD_PICKERS in js/admin.js for the per-module field
+     catalogues (Delegates, Host Members). -->
+<div class="modal-overlay" id="pdfFieldModal" style="display:none;" onclick="if(event.target===this) closePdfFieldPicker()">
   <div class="modal-card">
     <div class="modal-header">
-      <div class="section-title" style="margin:0;">Download Delegates PDF</div>
-      <button type="button" class="modal-close" onclick="closeDelegatePdfModal()">&times;</button>
+      <div class="section-title" style="margin:0;" id="pdfFieldModalTitle">Download PDF</div>
+      <button type="button" class="modal-close" onclick="closePdfFieldPicker()">&times;</button>
     </div>
     <p class="hint" style="margin-top:0;">Tick the fields to include. Columns are sized to fill the page, so fewer fields means a roomier, easier-to-read list.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-      <button type="button" class="btn small" onclick="setAllDelegatePdfFields(true)">Select all</button>
-      <button type="button" class="btn small" onclick="setAllDelegatePdfFields(false)">Clear all</button>
-      <button type="button" class="btn small" onclick="resetDelegatePdfFields()">Reset to default</button>
+      <button type="button" class="btn small" onclick="setAllPdfFields(true)">Select all</button>
+      <button type="button" class="btn small" onclick="setAllPdfFields(false)">Clear all</button>
+      <button type="button" class="btn small" onclick="resetPdfFields()">Reset to default</button>
     </div>
-    <div class="module-checkbox-grid" id="delegatePdfFieldGrid" style="max-height:300px;overflow-y:auto;"></div>
-    <div class="field" style="margin-top:12px;">
-      <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
-        <input type="checkbox" id="delegatePdfGroupByClub" checked />
-        Group by club (a heading and count per club)
-      </label>
-    </div>
+    <div class="module-checkbox-grid" id="pdfFieldModalGrid" style="max-height:300px;overflow-y:auto;"></div>
+    <!-- Per-picker toggles (e.g. Delegates' "Group by club") are injected here. -->
+    <div id="pdfFieldModalExtras"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
-      <button type="button" class="btn small" onclick="closeDelegatePdfModal()">Cancel</button>
-      <button type="button" class="btn" onclick="downloadDelegatesListPdf()">Download PDF</button>
+      <button type="button" class="btn small" onclick="closePdfFieldPicker()">Cancel</button>
+      <button type="button" class="btn" onclick="runPdfFieldPicker()">Download PDF</button>
     </div>
   </div>
 </div>

@@ -4676,9 +4676,32 @@ const DELEGATE_PDF_FIELDS = [
   { key: 'payment_status', label: 'Payment', group: 'Other', width: 55, get: (r) => r.payment_status },
 ];
 const DELEGATE_PDF_DEFAULT_KEYS = ['participant_code', 'name', 'role', 'phone', 'dietary_preference', 'sizes', 'arrival', 'departure'];
-// Remembers the last ticked set for this page session, so repeat exports of
-// the same kind of list don't have to be re-ticked every time.
-let DELEGATE_PDF_SELECTED = [...DELEGATE_PDF_DEFAULT_KEYS];
+
+// Same idea for Host Members. Committees come back from /hostmembers as a
+// json_agg array of {id,name}, hence the join in that field's getter.
+const HOST_MEMBER_PDF_FIELDS = [
+  { key: 'name', label: 'Name', group: 'Identity', width: 120, get: (r) => r.name },
+  { key: 'designation', label: 'Designation', group: 'Identity', width: 95, get: (r) => r.designation },
+  { key: 'leadership_role', label: 'Leadership role', group: 'Identity', width: 95, get: (r) => r.leadership_role },
+  { key: 'company', label: 'Company', group: 'Identity', width: 110, get: (r) => r.company },
+  { key: 'category', label: 'Category', group: 'Identity', width: 80, get: (r) => r.category },
+
+  { key: 'phone', label: 'Phone', group: 'Contact', width: 70, get: (r) => r.phone },
+  { key: 'email', label: 'Email', group: 'Contact', width: 120, get: (r) => r.email },
+
+  { key: 'committees', label: 'Committees', group: 'Committee', width: 115, get: (r) => (r.committees || []).map((c) => c.name).join(', ') },
+  { key: 'assignment_count', label: 'Delegates assigned', group: 'Committee', width: 70, align: 'right', get: (r) => String(r.assignment_count || 0) },
+
+  { key: 'sizes', label: 'Sizes', group: 'Merchandise', width: 85, get: (r) => pdfSizesText(r) },
+
+  { key: 'payment_status', label: 'Payment', group: 'Payment', width: 55, get: (r) => r.payment_status },
+  { key: 'payment_amount', label: 'Amount', group: 'Payment', width: 60, align: 'right', get: (r) => (r.payment_amount != null ? `₹${r.payment_amount}` : '') },
+  { key: 'payment_mode', label: 'Mode', group: 'Payment', width: 60, get: (r) => r.payment_mode },
+  { key: 'payment_date', label: 'Paid on', group: 'Payment', width: 65, get: (r) => r.payment_date },
+
+  { key: 'notes', label: 'Notes', group: 'Other', width: 120, get: (r) => r.notes },
+];
+const HOST_MEMBER_PDF_DEFAULT_KEYS = ['name', 'company', 'phone', 'committees', 'sizes', 'payment_status'];
 
 // Tallies one delegate list into "Label N" chunks for the summary line that
 // sits under a club heading (and under the report title). Only breakdowns
@@ -4729,40 +4752,100 @@ function pdfSummaryLine(doc, y, text) {
   return y + 3;
 }
 
-function renderDelegatePdfModal() {
-  const grid = document.getElementById('delegatePdfFieldGrid');
+// --- Shared "pick which columns to export" modal ----------------------
+// One modal (#pdfFieldModal) serves every module that offers a column
+// picker. Each entry below supplies its own field catalogue, defaults, any
+// extra toggles, and a run() that actually builds the PDF from the ticked
+// fields. Add a module by adding a key here and pointing its Download PDF
+// button at openPdfFieldPicker('<key>').
+const PDF_FIELD_PICKERS = {
+  delegates: {
+    title: 'Download Delegates PDF',
+    fields: DELEGATE_PDF_FIELDS,
+    defaultKeys: DELEGATE_PDF_DEFAULT_KEYS,
+    selected: [...DELEGATE_PDF_DEFAULT_KEYS],
+    extras: [{ id: 'pdfGroupByClub', label: 'Group by club (a heading and count per club)', checked: true }],
+    run: (fields, columns, extras) => downloadDelegatesListPdf(fields, columns, extras.pdfGroupByClub),
+  },
+  host_members: {
+    title: 'Download Host Members PDF',
+    fields: HOST_MEMBER_PDF_FIELDS,
+    defaultKeys: HOST_MEMBER_PDF_DEFAULT_KEYS,
+    selected: [...HOST_MEMBER_PDF_DEFAULT_KEYS],
+    extras: [{ id: 'pdfGroupByCommittee', label: 'Group by committee (a member appears under each committee they serve on)', checked: false }],
+    run: (fields, columns, extras) => downloadHostMembersListPdf(fields, columns, extras.pdfGroupByCommittee),
+  },
+};
+let ACTIVE_PDF_PICKER = null;
+
+function renderPdfFieldPicker() {
+  const cfg = PDF_FIELD_PICKERS[ACTIVE_PDF_PICKER];
+  document.getElementById('pdfFieldModalTitle').textContent = cfg.title;
+
   const groups = [];
-  DELEGATE_PDF_FIELDS.forEach((f) => {
+  cfg.fields.forEach((f) => {
     let g = groups.find((x) => x.name === f.group);
     if (!g) { g = { name: f.group, fields: [] }; groups.push(g); }
     g.fields.push(f);
   });
-  grid.innerHTML = groups.map((g) => `
+  document.getElementById('pdfFieldModalGrid').innerHTML = groups.map((g) => `
     <div style="grid-column:1/-1;font-weight:700;font-size:12px;color:#314691;margin-top:6px;">${g.name}</div>
     ${g.fields.map((f) => `
       <label style="display:flex;align-items:center;gap:6px;">
-        <input type="checkbox" class="delegate-pdf-field" value="${f.key}" ${DELEGATE_PDF_SELECTED.includes(f.key) ? 'checked' : ''} />
+        <input type="checkbox" class="pdf-field-box" value="${f.key}" ${cfg.selected.includes(f.key) ? 'checked' : ''} />
         ${f.label}
       </label>
     `).join('')}
   `).join('');
+
+  document.getElementById('pdfFieldModalExtras').innerHTML = (cfg.extras || []).map((x) => `
+    <div class="field" style="margin-top:12px;">
+      <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
+        <input type="checkbox" class="pdf-extra-box" id="${x.id}" ${x.checked ? 'checked' : ''} />
+        ${x.label}
+      </label>
+    </div>
+  `).join('');
 }
-function selectedDelegatePdfKeys() {
-  return [...document.querySelectorAll('.delegate-pdf-field:checked')].map((el) => el.value);
-}
-window.openDelegatePdfModal = () => {
-  renderDelegatePdfModal();
+window.openPdfFieldPicker = (key) => {
+  ACTIVE_PDF_PICKER = key;
+  renderPdfFieldPicker();
   // '' (not 'flex') so .modal-overlay's own display rule applies, matching
   // how every other modal in this file is opened.
-  document.getElementById('delegatePdfModal').style.display = '';
+  document.getElementById('pdfFieldModal').style.display = '';
 };
-window.closeDelegatePdfModal = () => { document.getElementById('delegatePdfModal').style.display = 'none'; };
-window.setAllDelegatePdfFields = (checked) => {
-  document.querySelectorAll('.delegate-pdf-field').forEach((el) => { el.checked = checked; });
+window.closePdfFieldPicker = () => { document.getElementById('pdfFieldModal').style.display = 'none'; };
+window.setAllPdfFields = (checked) => {
+  document.querySelectorAll('.pdf-field-box').forEach((el) => { el.checked = checked; });
 };
-window.resetDelegatePdfFields = () => {
-  DELEGATE_PDF_SELECTED = [...DELEGATE_PDF_DEFAULT_KEYS];
-  renderDelegatePdfModal();
+window.resetPdfFields = () => {
+  const cfg = PDF_FIELD_PICKERS[ACTIVE_PDF_PICKER];
+  cfg.selected = [...cfg.defaultKeys];
+  renderPdfFieldPicker();
+};
+// Scales the ticked columns' preferred widths to exactly fill the content
+// area — shrinking them when a lot is ticked, widening them when little is,
+// so the table always spans the page instead of hugging the left margin.
+function scalePdfColumns(fields) {
+  const usable = PDF_CONTENT_RIGHT - PDF_MARGIN;
+  const totalPref = fields.reduce((sum, f) => sum + f.width, 0);
+  const scale = usable / totalPref;
+  // `align` must be carried through — pdfTable reads it to right-align
+  // numeric columns like Amount and Delegates assigned.
+  return fields.map((f) => ({ label: f.label, width: f.width * scale, align: f.align }));
+}
+window.runPdfFieldPicker = () => {
+  const cfg = PDF_FIELD_PICKERS[ACTIVE_PDF_PICKER];
+  const keys = [...document.querySelectorAll('.pdf-field-box:checked')].map((el) => el.value);
+  if (!keys.length) { toast('Tick at least one field to include in the PDF.'); return; }
+  cfg.selected = keys;
+  const extras = {};
+  (cfg.extras || []).forEach((x) => { extras[x.id] = document.getElementById(x.id).checked; });
+  // Preserve the catalogue's own order rather than tick order, so the same
+  // set of fields always produces the same column layout.
+  const fields = cfg.fields.filter((f) => keys.includes(f.key));
+  closePdfFieldPicker();
+  cfg.run(fields, scalePdfColumns(fields), extras);
 };
 
 // Exported club by club — one heading + table per club — since the congress
@@ -4770,23 +4853,9 @@ window.resetDelegatePdfFields = () => {
 // whatever was ticked in the field-picker modal; multi-value cells (Arrival,
 // Pickup, SPOC) stack their labelled lines and pdfTable wraps them, sizing
 // each row to its tallest cell.
-window.downloadDelegatesListPdf = async () => {
+async function downloadDelegatesListPdf(fields, columns, groupByClub) {
   try {
-    const keys = selectedDelegatePdfKeys();
-    if (!keys.length) { toast('Tick at least one field to include in the PDF.'); return; }
-    DELEGATE_PDF_SELECTED = keys;
-    const groupByClub = document.getElementById('delegatePdfGroupByClub').checked;
-    const fields = DELEGATE_PDF_FIELDS.filter((f) => keys.includes(f.key));
-
-    // Scale the chosen columns' preferred widths to exactly fill the content
-    // area — shrinking them when a lot is ticked, widening them when little
-    // is, so the table always spans the page instead of hugging the margin.
-    const usable = PDF_CONTENT_RIGHT - PDF_MARGIN;
-    const totalPref = fields.reduce((sum, f) => sum + f.width, 0);
-    const scale = usable / totalPref;
-    const columns = fields.map((f) => ({ label: f.label, width: f.width * scale }));
-
-    closeDelegatePdfModal();
+    const keys = fields.map((f) => f.key);
     const rows = await jget(`${API}/participants`);
     const toRow = (r) => fields.map((f) => f.get(r));
 
@@ -4817,7 +4886,7 @@ window.downloadDelegatesListPdf = async () => {
     pdfFinalize(doc);
     doc.save('delegates-directory.pdf');
   } catch (err) { toast(err.message); }
-};
+}
 window.downloadDelegateDetailPdf = async (id) => {
   try {
     const rows = await jget(`${API}/participants`);
@@ -4851,20 +4920,54 @@ window.downloadDelegateDetailPdf = async (id) => {
 };
 
 // Host Members
-window.downloadHostMembersListPdf = async () => {
+// Columns come from whatever was ticked in the shared field picker. The
+// optional committee grouping deliberately repeats anyone who sits on more
+// than one committee — each committee's section is meant to be a complete
+// roster you can hand to that committee's lead — so section counts add up to
+// more than the headline total. Anyone on no committee gets their own bucket
+// at the end so nobody silently drops out of the export.
+async function downloadHostMembersListPdf(fields, columns, groupByCommittee) {
   try {
     const rows = await jget(`${API}/hostmembers`);
-    await downloadListReportPdf('Host Members Directory', `${rows.length} host member(s)`, [
-      { label: 'Name', width: 125, get: (r) => r.name },
-      { label: 'Company', width: 110, get: (r) => r.company },
-      { label: 'Phone', width: 70, get: (r) => r.phone },
-      { label: 'Committees', width: 85, get: (r) => (r.committees || []).map((c) => c.name).join(', ') },
-      { label: 'Shirt', width: 35, get: (r) => r.shirt_size },
-      { label: 'Tee', width: 35, get: (r) => r.tshirt_size },
-      { label: 'Payment', width: 55, get: (r) => r.payment_status },
-    ], rows, 'host-members-directory.pdf');
+    const toRow = (r) => fields.map((f) => f.get(r));
+    const doc = pdfDoc();
+
+    if (!groupByCommittee) {
+      let y = await pdfLetterhead(doc, 'Host Members Directory', `${rows.length} host member(s)`);
+      y = pdfTable(doc, y, columns, rows.map(toRow));
+      pdfFinalize(doc);
+      doc.save('host-members-directory.pdf');
+      return;
+    }
+
+    const collator = new Intl.Collator('en', { sensitivity: 'base' });
+    const byCommittee = new Map();
+    const unassigned = [];
+    rows.forEach((r) => {
+      const list = r.committees || [];
+      if (!list.length) { unassigned.push(r); return; }
+      list.forEach((c) => {
+        if (!byCommittee.has(c.name)) byCommittee.set(c.name, []);
+        byCommittee.get(c.name).push(r);
+      });
+    });
+    const groups = [...byCommittee.entries()]
+      .map(([name, list]) => ({ name, rows: list.sort((a, b) => collator.compare(a.name || '', b.name || '')) }))
+      .sort((a, b) => collator.compare(a.name, b.name));
+    if (unassigned.length) groups.push({ name: 'Not on any committee', rows: unassigned });
+
+    let y = await pdfLetterhead(doc, 'Host Members Directory', `${rows.length} host member(s) across ${byCommittee.size} committee(s)`);
+    groups.forEach((g) => {
+      // Keep the heading with its table header and at least one member.
+      y = pdfMaybeNewPage(doc, y, 90);
+      y = pdfSectionLabel(doc, y, `${g.name} — ${g.rows.length} member(s)`);
+      y = pdfTable(doc, y, columns, g.rows.map(toRow));
+      y += 10;
+    });
+    pdfFinalize(doc);
+    doc.save('host-members-directory.pdf');
   } catch (err) { toast(err.message); }
-};
+}
 window.downloadHostMemberDetailPdf = async (id) => {
   try {
     const rows = await jget(`${API}/hostmembers`);
