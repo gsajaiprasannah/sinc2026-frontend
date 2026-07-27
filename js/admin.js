@@ -475,6 +475,57 @@ function sizesLabel(obj) {
 // the card; `fields` is an array of {label, value} pairs (falsy values are
 // skipped so blank fields don't leave an empty gap); `actionsHtml` is a
 // pre-built string of one or more <button> tags.
+// --- Edit-in-place modal ----------------------------------------------
+// The Add/Edit forms for Delegates and Host Members sit at the top of their
+// tab, so editing a record meant scrolling up, editing, then hunting for
+// your place in the list again. These two helpers move the *existing* form
+// card into the modal and put it back afterwards, rather than duplicating
+// the markup — a second copy would need its own listeners, its own
+// dynamically-populated club/registration/committee dropdowns, and would
+// drift out of sync with the original the first time either changed.
+//
+// Remembers the exact original position (parent + next sibling) so the form
+// returns where it came from, not appended to the end of its parent.
+let EDIT_MODAL_ORIGIN = null;
+
+function openEditModal(cardEl, titleEl, titleText) {
+  if (!cardEl) return;
+  const modal = document.getElementById('editFormModal');
+  const body = document.getElementById('editFormModalBody');
+  if (!modal || !body) return;
+  // Guard against opening twice (e.g. Update clicked on a second record
+  // while one is already open) — put the current occupant back first.
+  if (EDIT_MODAL_ORIGIN) closeEditModal({ keepFormState: true });
+  EDIT_MODAL_ORIGIN = { node: cardEl, parent: cardEl.parentNode, next: cardEl.nextSibling, titleEl };
+  document.getElementById('editFormModalTitle').textContent = titleText || (titleEl ? titleEl.textContent : 'Edit');
+  // The card carries its own heading, which would repeat the modal's.
+  if (titleEl) titleEl.style.display = 'none';
+  body.appendChild(cardEl);
+  modal.style.display = '';
+}
+
+// `keepFormState` skips the cancel-edit reset — used when swapping one record
+// for another, where the caller is about to repopulate the form anyway.
+function closeEditModal(opts) {
+  const modal = document.getElementById('editFormModal');
+  if (modal) modal.style.display = 'none';
+  if (!EDIT_MODAL_ORIGIN) return;
+  const { node, parent, next, titleEl } = EDIT_MODAL_ORIGIN;
+  EDIT_MODAL_ORIGIN = null;
+  if (titleEl) titleEl.style.display = '';
+  // insertBefore(node, null) appends, which is correct when it was last.
+  if (parent) parent.insertBefore(node, next);
+  if (opts && opts.keepFormState) return;
+  // Closing via the × or the backdrop should abandon the edit the same way
+  // the Cancel button does, so the form isn't left half-populated and still
+  // in "edit" mode the next time someone adds a new record.
+  const form = node.querySelector('form');
+  if (!form || !form.dataset.editId) return;
+  if (form.id === 'partForm' && typeof window.cancelEditPart === 'function') window.cancelEditPart();
+  else if (form.id === 'hmForm' && typeof window.cancelEditHm === 'function') window.cancelEditHm();
+}
+window.closeEditModal = closeEditModal;
+
 function renderRecordCard(headerLeftHtml, headerRightHtml, fields, actionsHtml, cardId) {
   const fieldsHtml = fields
     .filter((f) => f && f.value !== undefined && f.value !== null && f.value !== '')
@@ -1452,7 +1503,8 @@ window.editPart = async (id) => {
   // already on, but don't let it silently flip is_primary — that value is
   // already correct for an existing delegate.
   updatePartRegOccupancyHint(true);
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModal(form.closest('.card'), document.getElementById('partFormTitle'),
+    `Update delegate — ${p.participant_code || p.name}`);
 };
 
 window.cancelEditPart = () => {
@@ -1475,6 +1527,8 @@ window.cancelEditPart = () => {
   document.getElementById('partFormTitle').textContent = 'Add delegate';
   document.getElementById('partSubmitBtn').textContent = 'Save Delegate';
   document.getElementById('partCancelEditBtn').style.display = 'none';
+  // Puts the form card back on the page if it was opened in the modal.
+  closeEditModal({ keepFormState: true });
 };
 
 async function savePartForm(form, force) {
@@ -2035,7 +2089,8 @@ window.editHm = async (id) => {
   document.getElementById('hmFormTitle').textContent = `Edit host member — ${h.name}`;
   document.getElementById('hmSubmitBtn').textContent = 'Update Host Member';
   document.getElementById('hmCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModal(form.closest('.card'), document.getElementById('hmFormTitle'),
+    `Edit host member — ${h.name}`);
 };
 window.cancelEditHm = () => {
   const form = document.getElementById('hmForm');
@@ -2044,6 +2099,8 @@ window.cancelEditHm = () => {
   document.getElementById('hmFormTitle').textContent = 'Add host member';
   document.getElementById('hmSubmitBtn').textContent = 'Save Host Member';
   document.getElementById('hmCancelEditBtn').style.display = 'none';
+  // Puts the form card back on the page if it was opened in the modal.
+  closeEditModal({ keepFormState: true });
 };
 document.getElementById('hmCancelEditBtn').addEventListener('click', (e) => { e.preventDefault(); window.cancelEditHm(); });
 async function saveHmForm(form, force) {

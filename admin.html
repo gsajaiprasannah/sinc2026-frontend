@@ -2504,6 +2504,22 @@
      checklist), Guest Speakers (checklist), Guest Visitors (offerings), and
      the goodies/kit handover checklist on Delegates + Host Members. Items
      are free-text so new ones can always be added later. -->
+<!-- Edit-in-place modal. The Add/Edit forms for Delegates and Host Members
+     are long, and editing meant scrolling back to the top of the tab and
+     losing your place in the list. Rather than maintaining a second copy of
+     each form, openEditModal() physically MOVES the existing form card in
+     here and closeEditModal() puts it back — so every listener, dynamically
+     populated dropdown and validation rule keeps working untouched. -->
+<div class="modal-overlay" id="editFormModal" style="display:none;" onclick="if(event.target===this) closeEditModal()">
+  <div class="modal-card wide">
+    <div class="modal-header">
+      <div class="section-title" style="margin:0;" id="editFormModalTitle">Edit</div>
+      <button type="button" class="modal-close" onclick="closeEditModal()">&times;</button>
+    </div>
+    <div id="editFormModalBody"></div>
+  </div>
+</div>
+
 <!-- Document picker for the "Download Documents (ZIP)" buttons on the
      Delegates and Host Members tabs. Zipping happens server-side (R2 serves
      no CORS headers to this origin) — see DOC_ZIP_PICKERS in js/admin.js. -->
