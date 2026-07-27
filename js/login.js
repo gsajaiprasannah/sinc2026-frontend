@@ -2334,38 +2334,65 @@ function fmtQueueTime(ms) {
 // joins the running cluster while within `windowMinutes` of the one before.
 // Chained rather than measured from the first member, because a steady
 // trickle of arrivals is one continuous pickup run.
+function normPoint(s) {
+  return (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
 function clusterTransportQueue(direction, rows, windowMinutes) {
-  const byPoint = new Map();
-  rows.forEach((d) => {
-    const key = queuePointOf(direction, d) || '(no point given)';
-    if (!byPoint.has(key)) byPoint.set(key, []);
-    byPoint.get(key).push(d);
+  const sorted = [...rows].sort((a, b) => {
+    const ta = queueTime(a), tb = queueTime(b);
+    if (ta === null && tb === null) return 0;
+    if (ta === null) return 1;   // unparseable times sort last
+    if (tb === null) return -1;
+    return ta - tb;
   });
 
   const clusters = [];
-  byPoint.forEach((list, point) => {
-    const sorted = [...list].sort((a, b) => (queueTime(a) ?? 0) - (queueTime(b) ?? 0));
-    let current = null;
-    sorted.forEach((d) => {
-      const t = queueTime(d);
-      const sameFlightOnly = windowMinutes === 0 || t === null;
-      const fits = current && (sameFlightOnly
-        ? current.travel_number === d.travel_number && current.travel_datetime === d.travel_datetime
-        : current.lastTime !== null && (t - current.lastTime) <= windowMinutes * 60000);
-      if (!fits) {
-        current = {
-          point,
-          travel_mode: d.travel_mode,
-          travel_number: d.travel_number,
-          travel_datetime: d.travel_datetime,
-          lastTime: t,
-          delegates: [],
-        };
-        clusters.push(current);
-      }
-      current.delegates.push(d);
-      current.lastTime = t;
-    });
+  sorted.forEach((d) => {
+    const t = queueTime(d);
+    const p = normPoint(queuePointOf(direction, d));
+
+    // Walk back from the most recent cluster (time-ordered, so the last one
+    // is closest in time) and join the first compatible one.
+    let target = null;
+    for (let i = clusters.length - 1; i >= 0; i--) {
+      const c = clusters[i];
+
+      // Same flight/train at the same time is always one pickup, whatever
+      // the point field says — delegates type their own point, so the same
+      // station arrives as "Coimbatore Jn", "coimbatore junction" or blank,
+      // and that must never split a single service across two vehicles.
+      const sameService = !!d.travel_number
+        && c.numbers.has(d.travel_number)
+        && c.datetimes.has(d.travel_datetime);
+
+      // Otherwise points must agree once normalised; a blank on either side
+      // means "unknown, don't object" rather than a location of its own.
+      const pointOk = sameService || !p || !c.point || normPoint(c.point) === p;
+      if (!pointOk) continue;
+
+      if (sameService) { target = c; break; }
+      if (windowMinutes === 0 || t === null || c.lastTime === null) continue;
+      if (Math.abs(t - c.lastTime) <= windowMinutes * 60000) { target = c; break; }
+    }
+
+    if (!target) {
+      target = {
+        point: queuePointOf(direction, d),
+        travel_mode: d.travel_mode,
+        travel_number: d.travel_number,
+        travel_datetime: d.travel_datetime,
+        lastTime: t,
+        numbers: new Set(),
+        datetimes: new Set(),
+        delegates: [],
+      };
+      clusters.push(target);
+    }
+    if (!target.point) target.point = queuePointOf(direction, d);
+    target.numbers.add(d.travel_number);
+    target.datetimes.add(d.travel_datetime);
+    target.delegates.push(d);
+    if (t !== null) target.lastTime = t;
   });
 
   const byKey = new Map();
@@ -2409,7 +2436,10 @@ function transportQueueGroupCardHost(direction, g, vehicleOpts, driverOpts) {
   // Arrivals use the delegate's arrival_point; departures use their own
   // departure_point (falls back to arrival_point server-side for older rows
   // saved before that field existed).
-  const queuePoint = direction === 'arrival' ? g.arrival_point : g.departure_point;
+  // The cluster carries a single resolved `point` (see clusterTransportQueue)
+  // rather than the per-delegate arrival_point/departure_point columns — this
+  // is what prefills From/To below, so it must read the cluster's own field.
+  const queuePoint = g.point || '';
   const fromDefault = direction === 'arrival' ? (queuePoint || '') : (sharedHotel || '');
   const toDefault = direction === 'arrival' ? (sharedHotel || '') : (queuePoint || '');
   const purposeDefault = direction === 'arrival' ? 'Airport/station pickup' : 'Airport/station drop-off';
