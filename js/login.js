@@ -2337,6 +2337,31 @@ function fmtQueueTime(ms) {
 function normPoint(s) {
   return (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
+
+// The congress is in Coimbatore, so a delegate flying in lands at Coimbatore
+// Airport and one coming by train arrives at Coimbatore Junction — the mode
+// tells us the pickup point far more reliably than the free-text box, which
+// comes back as "CJB", "cbe airport", "Railway Station", or blank. Mirrors
+// admin.js; see there for the fuller reasoning.
+const CANONICAL_TRANSPORT_POINTS = { flight: 'Coimbatore Airport', train: 'Coimbatore Junction' };
+// Local if it names Coimbatore, or is only generic words ("airport",
+// "railway station") which can only mean the local one here. Anything naming
+// somewhere else — "Kochi Airport" — is left alone and groups separately,
+// because that genuinely is a different pickup.
+const LOCAL_POINT_TOKENS = /(coimbatore|kovai|cbe|cjb|peelamedu)/;
+const GENERIC_POINT_WORDS = /\b(the|a|at|airport|air|port|railway|rail|rly|station|stn|junction|jn|jct|terminal|terminus|international|domestic|arrival|arrivals|departure|departures|bus|stand)\b/g;
+function looksLikeLocalPoint(normalised) {
+  if (!normalised) return true;
+  if (LOCAL_POINT_TOKENS.test(normalised)) return true;
+  return normalised.replace(GENERIC_POINT_WORDS, '').replace(/[^a-z]/g, '') === '';
+}
+function canonicalQueuePoint(direction, d) {
+  const raw = queuePointOf(direction, d);
+  const canon = CANONICAL_TRANSPORT_POINTS[(d.travel_mode || '').toLowerCase()];
+  if (!canon) return raw;
+  return looksLikeLocalPoint(normPoint(raw)) ? canon : raw;
+}
+
 function clusterTransportQueue(direction, rows, windowMinutes) {
   const sorted = [...rows].sort((a, b) => {
     const ta = queueTime(a), tb = queueTime(b);
@@ -2349,7 +2374,7 @@ function clusterTransportQueue(direction, rows, windowMinutes) {
   const clusters = [];
   sorted.forEach((d) => {
     const t = queueTime(d);
-    const p = normPoint(queuePointOf(direction, d));
+    const p = normPoint(canonicalQueuePoint(direction, d));
 
     // Walk back from the most recent cluster (time-ordered, so the last one
     // is closest in time) and join the first compatible one.
@@ -2377,7 +2402,7 @@ function clusterTransportQueue(direction, rows, windowMinutes) {
 
     if (!target) {
       target = {
-        point: queuePointOf(direction, d),
+        point: canonicalQueuePoint(direction, d),
         travel_mode: d.travel_mode,
         travel_number: d.travel_number,
         travel_datetime: d.travel_datetime,
@@ -2388,7 +2413,7 @@ function clusterTransportQueue(direction, rows, windowMinutes) {
       };
       clusters.push(target);
     }
-    if (!target.point) target.point = queuePointOf(direction, d);
+    if (!target.point) target.point = canonicalQueuePoint(direction, d);
     target.numbers.add(d.travel_number);
     target.datetimes.add(d.travel_datetime);
     target.delegates.push(d);
