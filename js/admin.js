@@ -1063,6 +1063,33 @@ function spocDisplay(p) {
 // blank heading, and sorted to the very end so the real clubs read cleanly.
 const NO_CLUB_LABEL = 'No club assigned';
 
+// Keeps everyone on one registration together — a primary registrant and
+// their co-registrant (a double registration is a couple sharing a booking,
+// a room and usually a car) should never be separated by an alphabetical
+// sort that lands them pages apart. Applied *after* whatever sort ran, so it
+// preserves that ordering: the registration takes the position of whichever
+// of its members the sort put first, with the primary listed ahead of the
+// co-registrant inside it. Anyone registered alone is untouched.
+function clubRegistrations(rows) {
+  const byReg = new Map();
+  rows.forEach((p) => {
+    if (!p.registration_id) return;
+    if (!byReg.has(p.registration_id)) byReg.set(p.registration_id, []);
+    byReg.get(p.registration_id).push(p);
+  });
+  const out = [];
+  const seen = new Set();
+  rows.forEach((p) => {
+    if (seen.has(p.id)) return;
+    const mates = p.registration_id ? byReg.get(p.registration_id) : null;
+    if (!mates || mates.length < 2) { out.push(p); seen.add(p.id); return; }
+    [...mates]
+      .sort((a, b) => (Number(b.is_primary) === 1 ? 1 : 0) - (Number(a.is_primary) === 1 ? 1 : 0))
+      .forEach((m) => { if (!seen.has(m.id)) { out.push(m); seen.add(m.id); } });
+  });
+  return out;
+}
+
 // Groups delegates by club into [{ club, rows }], clubs A–Z with the
 // unassigned bucket last, and members sorted by name within each club.
 // Shared by the on-screen "Group by club" view and the Delegates PDF.
@@ -1075,7 +1102,12 @@ function groupPartsByClub(rows) {
     byClub.get(club).push(p);
   });
   return [...byClub.entries()]
-    .map(([club, list]) => ({ club, rows: [...list].sort((a, b) => collator.compare(a.name || '', b.name || '')) }))
+    .map(([club, list]) => ({
+      club,
+      // A–Z within the club, then registrations pulled back together so a
+      // couple is never split across the list.
+      rows: clubRegistrations([...list].sort((a, b) => collator.compare(a.name || '', b.name || ''))),
+    }))
     .sort((a, b) => {
       if (a.club === NO_CLUB_LABEL) return 1;
       if (b.club === NO_CLUB_LABEL) return -1;
@@ -1084,7 +1116,9 @@ function groupPartsByClub(rows) {
 }
 
 function sortParts(rows, sortValue) {
-  if (!sortValue) return rows;
+  // Registrations stay clubbed under every ordering, including the default
+  // registration order — see clubRegistrations().
+  if (!sortValue) return clubRegistrations(rows);
   // 'club_group' isn't a plain sort — refreshParts renders it with club
   // heading rows — but flattening the groups here keeps the row order
   // identical to what's displayed for anything that just reads the list.
@@ -1097,9 +1131,9 @@ function sortParts(rows, sortValue) {
     club: (p) => p.club_name || '',
   };
   const get = getters[field];
-  if (!get) return rows;
+  if (!get) return clubRegistrations(rows);
   const sorted = [...rows].sort((a, b) => collator.compare(get(a), get(b)));
-  return dir === 'desc' ? sorted.reverse() : sorted;
+  return clubRegistrations(dir === 'desc' ? sorted.reverse() : sorted);
 }
 
 async function refreshParts(query) {
@@ -4880,6 +4914,7 @@ const DELEGATE_REPORT_SECTIONS = [
         columns: [{ label: 'Measure', width: 300 }, { label: 'Count', width: 90, align: 'right' }, { label: 'Share', width: 125, align: 'right' }],
         rows: [
           ['Total delegates', String(rows.length), '100%'],
+          ['Registrations (bookings)', String(new Set(rows.map((r) => r.registration_id).filter(Boolean)).size), ''],
           ['Clubs represented', String(clubs.size), ''],
           measure('Primary registrants', (r) => Number(r.is_primary) === 1),
           measure('Co-registrants', (r) => Number(r.is_primary) !== 1),
@@ -4896,20 +4931,24 @@ const DELEGATE_REPORT_SECTIONS = [
     build: (rows) => {
       const groups = groupPartsByClub(rows);
       const denom = rows.length || 1;
+      // Registrations = distinct bookings, so a couple on one double
+      // registration counts once here but twice under Delegates.
+      const regCount = (list) => new Set(list.map((r) => r.registration_id).filter(Boolean)).size;
       return [{
         columns: [
-          { label: 'Club', width: 175 }, { label: 'Delegates', width: 80, align: 'right' },
-          { label: 'Primary', width: 80, align: 'right' }, { label: 'Co-reg', width: 80, align: 'right' },
-          { label: 'Share', width: 100, align: 'right' },
+          { label: 'Club', width: 150 }, { label: 'Registrations', width: 85, align: 'right' },
+          { label: 'Delegates', width: 75, align: 'right' },
+          { label: 'Primary', width: 70, align: 'right' }, { label: 'Co-reg', width: 70, align: 'right' },
+          { label: 'Share', width: 65, align: 'right' },
         ],
         rows: [
           ...groups.map((g) => [
-            g.club, String(g.rows.length),
+            g.club, String(regCount(g.rows)), String(g.rows.length),
             String(g.rows.filter((r) => Number(r.is_primary) === 1).length),
             String(g.rows.filter((r) => Number(r.is_primary) !== 1).length),
             `${Math.round((g.rows.length / denom) * 1000) / 10}%`,
           ]),
-          ['TOTAL', String(rows.length),
+          ['TOTAL', String(regCount(rows)), String(rows.length),
             String(rows.filter((r) => Number(r.is_primary) === 1).length),
             String(rows.filter((r) => Number(r.is_primary) !== 1).length), '100%'],
         ],
@@ -5039,6 +5078,9 @@ const DELEGATE_PDF_FIELDS = [
   { key: 'club_name', label: 'Club', group: 'Identity', width: 85, get: (r) => r.club_name },
   { key: 'role', label: 'Role', group: 'Identity', width: 55, get: (r) => (Number(r.is_primary) === 1 ? 'Primary' : 'Co-reg') },
   { key: 'reg_number', label: 'Reg #', group: 'Identity', width: 62, get: (r) => r.reg_number },
+  // Filled in by downloadDelegatesListPdf, which has the whole list to hand
+  // and can look up who else is on the same registration.
+  { key: 'travelling_with', label: 'Travelling with', group: 'Identity', width: 100, get: (r) => r._travelling_with || '' },
 
   { key: 'phone', label: 'Phone', group: 'Contact', width: 70, get: (r) => r.phone },
   { key: 'whatsapp', label: 'WhatsApp', group: 'Contact', width: 70, get: (r) => r.whatsapp },
@@ -5251,6 +5293,18 @@ async function downloadDelegatesListPdf(fields, columns, groupByClub) {
   try {
     const keys = fields.map((f) => f.key);
     const rows = await jget(`${API}/participants`);
+    // Annotate each delegate with whoever else shares their registration, so
+    // the "Travelling with" column can show the partner by name.
+    const byReg = new Map();
+    rows.forEach((r) => {
+      if (!r.registration_id) return;
+      if (!byReg.has(r.registration_id)) byReg.set(r.registration_id, []);
+      byReg.get(r.registration_id).push(r);
+    });
+    rows.forEach((r) => {
+      const mates = (byReg.get(r.registration_id) || []).filter((m) => m.id !== r.id);
+      r._travelling_with = mates.map((m) => m.name).join(', ');
+    });
     const toRow = (r) => fields.map((f) => f.get(r));
 
     const doc = pdfDoc();
@@ -5275,7 +5329,8 @@ async function downloadDelegatesListPdf(fields, columns, groupByClub) {
         y += 10;
       });
     } else {
-      y = pdfTable(doc, y, columns, rows.map(toRow));
+      // Ungrouped still keeps each registration's members side by side.
+      y = pdfTable(doc, y, columns, clubRegistrations(rows).map(toRow));
     }
     pdfFinalize(doc);
     doc.save('delegates-directory.pdf');
