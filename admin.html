@@ -259,23 +259,12 @@
         <form id="regForm">
           <div class="form-grid cols-2">
             <div class="field"><label>Registration number *</label><input id="regNumberField" name="reg_number" required readonly placeholder="Loading..." style="background:#f0f2f5;" /><span class="hint">Auto-generated to prevent duplicates.</span></div>
-            <div class="field"><label>Type *</label>
-              <select name="reg_type" required>
-                <option value="single">Single</option>
-                <option value="double">Double</option>
-                <option value="congress_only">Congress Only (domestic, no room)</option>
-              </select>
-            </div>
-            <!-- The package sold, as opposed to the occupancy above. "Full"
-                 includes hotel accommodation; "Congress Only" does not. -->
-            <div class="field"><label>Registration type</label>
-              <select name="registration_category">
-                <option value="">-- not recorded --</option>
-                <option value="early_bird_full">Early bird — Full</option>
-                <option value="early_bird_congress_only">Early bird — Congress Only</option>
-                <option value="regular_full">Regular — Full</option>
-                <option value="regular_congress_only">Regular — Congress Only</option>
-              </select>
+            <!-- One control covering both axes: the package sold (early bird
+                 vs regular, Full vs Congress Only) and the occupancy (single
+                 vs double). Split back into registration_category + reg_type
+                 on save — see regSplitCombined() in admin.js. -->
+            <div class="field"><label>Registration type *</label>
+              <select name="reg_combined" id="regCombinedSelect" required></select>
               <span class="hint">Full includes accommodation; Congress Only does not.</span>
             </div>
             <div class="field"><label>Club</label><select name="club_id" id="regClubSelect"></select></div>

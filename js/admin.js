@@ -963,6 +963,33 @@ const REG_CATEGORY_SHORT = {
   regular_congress_only: 'Reg Congress',
 };
 function regCategoryLabel(v) { return REG_CATEGORY_LABEL[v] || (v ? v : 'Not recorded'); }
+
+// The two axes are picked as one control — eight combinations of package
+// (early bird/regular x full/congress only) and occupancy (single/double) —
+// because that's how a booking is actually sold and how the office thinks
+// about it. They're still stored in the two columns they belong in:
+// registration_category and reg_type. Combining them in the UI only, rather
+// than as a ninth column, keeps the capacity check and the "Double = 2"
+// headcount reading reg_type exactly as before.
+const REG_OCCUPANCY_OPTIONS = [['single', 'Single'], ['double', 'Double']];
+function regCombinedValue(category, regType) {
+  return category && regType ? `${category}|${regType}` : '';
+}
+function regCombinedOptionsHtml(selectedValue, placeholder) {
+  const opts = [];
+  Object.entries(REG_CATEGORY_LABEL).forEach(([cat, label]) => {
+    REG_OCCUPANCY_OPTIONS.forEach(([occ, occLabel]) => {
+      const v = `${cat}|${occ}`;
+      opts.push(`<option value="${v}" ${v === selectedValue ? 'selected' : ''}>${label} (${occLabel})</option>`);
+    });
+  });
+  return `<option value="">${placeholder}</option>` + opts.join('');
+}
+// Splits the combined value back into the two stored columns.
+function regSplitCombined(value) {
+  const [registration_category, reg_type] = String(value || '').split('|');
+  return { registration_category: registration_category || null, reg_type: reg_type || null };
+}
 // Congress Only excludes accommodation, so anything ending _congress_only
 // means this delegate is not entitled to a room.
 function regIncludesAccommodation(category) {
@@ -1001,7 +1028,8 @@ async function refreshRegs() {
     const participants = r.participants || [];
     const filled = participants.length;
     const hasPrimary = participants.some((p) => Number(p.is_primary) === 1);
-    return `<option value="${r.id}" data-reg-type="${r.reg_type}" data-category="${r.registration_category || ''}" data-filled="${filled}" data-max="${max}" data-has-primary="${hasPrimary}">${r.reg_number} (${r.club_name || '-'}) — ${REG_TYPE_LABEL[r.reg_type] || r.reg_type}, ${filled}/${max} filled</option>`;
+    const catLabel = r.registration_category ? REG_CATEGORY_SHORT[r.registration_category] || r.registration_category : '';
+    return `<option value="${r.id}" data-reg-type="${r.reg_type}" data-category="${r.registration_category || ''}" data-filled="${filled}" data-max="${max}" data-has-primary="${hasPrimary}">${r.reg_number} (${r.club_name || '-'}) — ${REG_TYPE_LABEL[r.reg_type] || r.reg_type}${catLabel ? ', ' + catLabel : ''}, ${filled}/${max} filled</option>`;
   }).join('');
   document.getElementById('partRegSelect').innerHTML = '<option value="">-- none --</option>' + opts;
 }
@@ -1031,11 +1059,11 @@ function syncPartRegCategory() {
     catSel.disabled = true;
     return;
   }
-  const current = opt.dataset.category || '';
   catSel.disabled = false;
-  catSel.innerHTML = '<option value="">-- not recorded --</option>'
-    + Object.entries(REG_CATEGORY_LABEL).map(([k, label]) =>
-        `<option value="${k}" ${k === current ? 'selected' : ''}>${label}</option>`).join('');
+  catSel.innerHTML = regCombinedOptionsHtml(
+    regCombinedValue(opt.dataset.category, opt.dataset.regType),
+    '-- not recorded --'
+  );
 }
 
 function updatePartRegOccupancyHint(skipAutoSetPrimary) {
@@ -1074,12 +1102,25 @@ async function loadNextRegNumber() {
   }
 }
 
+// Populated once on load — the eight package x occupancy combinations.
+(() => {
+  const el = document.getElementById('regCombinedSelect');
+  if (el) el.innerHTML = regCombinedOptionsHtml('', '-- select registration type --');
+})();
+
 document.getElementById('regForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
+  const body = Object.fromEntries(fd.entries());
+  // The single dropdown carries both columns.
+  const split = regSplitCombined(body.reg_combined);
+  delete body.reg_combined;
+  Object.assign(body, split);
   try {
-    await jpost(`${API}/registrations`, Object.fromEntries(fd.entries()));
+    await jpost(`${API}/registrations`, body);
     e.target.reset();
+    const combinedEl = document.getElementById('regCombinedSelect');
+    if (combinedEl) combinedEl.innerHTML = regCombinedOptionsHtml('', '-- select registration type --');
     toast('Registration saved');
     refreshRegs();
     loadNextRegNumber();
@@ -1385,16 +1426,13 @@ window.editPart = async (id) => {
   // admins can't change the registration, but should still be able to record
   // which package it was sold on).
   form.dataset.registrationId = p.registration_id || '';
-  form.dataset.regCategoryOriginal = p.registration_category || '';
+  const combined = regCombinedValue(p.registration_category, p.reg_type);
+  form.dataset.regCategoryOriginal = combined;
   syncPartRegCategory();
   const catSel = document.getElementById('partRegCategorySelect');
   if (catSel && p.registration_id) {
     catSel.disabled = false;
-    if (!catSel.options.length || catSel.options.length === 1) {
-      catSel.innerHTML = '<option value="">-- not recorded --</option>'
-        + Object.entries(REG_CATEGORY_LABEL).map(([k, label]) => `<option value="${k}">${label}</option>`).join('');
-    }
-    catSel.value = p.registration_category || '';
+    catSel.innerHTML = regCombinedOptionsHtml(combined, '-- not recorded --');
   }
   // Name, phone, club, and registration are frozen once a delegate exists —
   // only a super admin can change them (server-side enforced too, see
@@ -1457,8 +1495,8 @@ async function savePartForm(form, force) {
   // registration_category is a column on `registrations`, not `participants`
   // — pulled out here and saved against the linked registration after the
   // delegate itself is saved (see below).
-  const regCategory = body.registration_category || '';
-  const regCategoryOriginal = form.dataset.regCategoryOriginal || '';
+  const regCombined = body.registration_category || '';
+  const regCombinedOriginal = form.dataset.regCategoryOriginal || '';
   delete body.registration_category;
   if (!body.club_id) delete body.club_id;
   if (!body.registration_id) delete body.registration_id;
@@ -1495,9 +1533,10 @@ async function savePartForm(form, force) {
       // actually changed, so saving a co-registrant doesn't needlessly
       // rewrite (or clobber) what the primary already set on the booking.
       const regId = body.registration_id || form.dataset.registrationId;
-      if (regId && regCategory && regCategory !== regCategoryOriginal) {
+      if (regId && regCombined && regCombined !== regCombinedOriginal) {
         try {
-          await jput(`${API}/registrations/${regId}`, { registration_category: regCategory });
+          // One dropdown, two columns — see regSplitCombined().
+          await jput(`${API}/registrations/${regId}`, regSplitCombined(regCombined));
           refreshRegs();
         } catch (rcErr) {
           toast('Delegate saved, but the registration type could not be updated: ' + rcErr.message);
