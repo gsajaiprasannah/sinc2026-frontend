@@ -913,11 +913,20 @@
             <option value="sponsor">Sponsors</option>
             <option value="speaker">Guest Speakers</option>
             <option value="guest_visitor">Guest Visitors</option>
+            <option value="manual">Manually entered addresses (anyone, incl. outside the database)</option>
           </select>
           <p class="hint" id="ecAudienceCount" style="margin-bottom:0;"></p>
         </div>
 
-        <div class="field"><label>Recipients</label>
+        <!-- Shown only for the "manual" audience — see ecAudienceSelect's
+             change handler in admin.js. -->
+        <div class="field" id="ecManualField" style="display:none;">
+          <label>Email addresses *</label>
+          <textarea id="ecManualRecipients" rows="4" placeholder="one@example.com&#10;Hotel Contact &lt;reservations@lemeridien.com&gt;&#10;vendor@example.org"></textarea>
+          <p class="hint">One per line, or separated by commas. Either a plain address or <code>Name &lt;email&gt;</code> — the name is used for <code>{{name}}</code>. Duplicates are ignored.</p>
+        </div>
+
+        <div class="field" id="ecRecipientModeField"><label>Recipients</label>
           <select id="ecRecipientMode">
             <option value="all">Everyone in this audience with an email on file</option>
             <option value="pick">Click to pick specific people</option>

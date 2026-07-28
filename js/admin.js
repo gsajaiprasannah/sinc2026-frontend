@@ -2821,9 +2821,29 @@ const ecAudienceTypeSelect = document.getElementById('ecAudienceType');
 const ecRecipientModeSelect = document.getElementById('ecRecipientMode');
 const ecIndividualField = document.getElementById('ecIndividualField');
 
+// The manual audience isn't a table — it swaps the "pick people" controls
+// for a free-text address box.
+function ecIsManual() { return ecAudienceTypeSelect && ecAudienceTypeSelect.value === 'manual'; }
+function ecManualValue() {
+  const el = document.getElementById('ecManualRecipients');
+  return el ? el.value : '';
+}
+function applyEcAudienceMode() {
+  const manual = ecIsManual();
+  const manualField = document.getElementById('ecManualField');
+  const modeField = document.getElementById('ecRecipientModeField');
+  if (manualField) manualField.style.display = manual ? '' : 'none';
+  if (modeField) modeField.style.display = manual ? 'none' : '';
+  if (manual && ecIndividualField) ecIndividualField.style.display = 'none';
+}
+
 async function refreshEcAudienceCount() {
   const countEl = document.getElementById('ecAudienceCount');
   if (!ecAudienceTypeSelect.value) { countEl.textContent = ''; return; }
+  if (ecIsManual()) {
+    countEl.textContent = 'Type the addresses below — they do not need to exist in the database.';
+    return;
+  }
   try {
     const audiences = await jget(`${API}/email-campaigns/audiences`);
     const a = audiences[ecAudienceTypeSelect.value];
@@ -2865,6 +2885,7 @@ async function loadEcDirectory(audienceType) {
 if (ecAudienceTypeSelect) {
   ecAudienceTypeSelect.addEventListener('change', async () => {
     ecCurrentAudience = ecAudienceTypeSelect.value;
+    applyEcAudienceMode();
     refreshEcAudienceCount();
     if (ecCurrentAudience && ecRecipientModeSelect.value === 'pick') await loadEcDirectory(ecCurrentAudience);
   });
@@ -2902,7 +2923,10 @@ document.getElementById('ecPreviewBtn').addEventListener('click', async () => {
   const body_html = document.getElementById('ecBody').value;
   if (!audience_type || !subject || !body_html) { toast('Fill in Audience, Subject and Body first.'); return; }
   try {
-    const result = await jpost(`${API}/email-campaigns/preview`, { audience_type, recipient_ids: ecCurrentRecipientIds(), subject, body_html });
+    const result = await jpost(`${API}/email-campaigns/preview`, {
+      audience_type, recipient_ids: ecCurrentRecipientIds(), subject, body_html,
+      manual_recipients: ecManualValue(),
+    });
     const panel = document.getElementById('ecPreviewPanel');
     panel.style.display = '';
     panel.innerHTML = `
@@ -2927,10 +2951,13 @@ document.getElementById('ecForm').addEventListener('submit', async (e) => {
   const subject = document.getElementById('ecSubject').value;
   const body_html = document.getElementById('ecBody').value;
   if (!audience_type) { toast('Pick an audience.'); return; }
-  const recipient_ids = ecCurrentRecipientIds();
+  const manual_recipients = ecManualValue();
+  if (ecIsManual() && !manual_recipients.trim()) { toast('Enter at least one email address.'); return; }
+  // Hand-picked ids are meaningless for a manual audience.
+  const recipient_ids = ecIsManual() ? null : ecCurrentRecipientIds();
   if (recipient_ids && !recipient_ids.length) { toast('Pick at least one person, or switch Recipients to "Everyone".'); return; }
   try {
-    await jpost(`${API}/email-campaigns`, { name, subject, body_html, audience_type, recipient_ids, from_name });
+    await jpost(`${API}/email-campaigns`, { name, subject, body_html, audience_type, recipient_ids, from_name, manual_recipients });
     toast('Campaign saved as a draft — find it below to send.');
     form.reset();
     document.getElementById('ecSubject').value = '';
@@ -2939,6 +2966,9 @@ document.getElementById('ecForm').addEventListener('submit', async (e) => {
     ecPickedIds = new Set();
     ecRecipientModeSelect.value = 'all';
     ecIndividualField.style.display = 'none';
+    const manualEl = document.getElementById('ecManualRecipients');
+    if (manualEl) manualEl.value = '';
+    applyEcAudienceMode();
     refreshEcHistory();
   } catch (err) { toast(err.message); }
 });
