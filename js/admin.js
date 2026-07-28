@@ -2978,6 +2978,44 @@ function ecStatusPill(status) {
   return `<span class="pill ${cls}">${status}</span>`;
 }
 
+// Loads a previous campaign back into the compose form — same subject, body,
+// sender, audience and recipient selection — so a message can be resent or
+// used as the starting point for the next one. Deliberately creates a NEW
+// draft on save rather than editing the original, so the sent record and its
+// per-recipient results stay intact as a history.
+window.reuseEcCampaign = async (id) => {
+  try {
+    const c = await jget(`${API}/email-campaigns/${id}`);
+    const form = document.getElementById('ecForm');
+    form.elements['name'].value = `${c.name} (copy)`;
+    if (form.elements['from_name']) form.elements['from_name'].value = c.from_name || '';
+    document.getElementById('ecSubject').value = c.subject || '';
+    document.getElementById('ecBody').value = c.body_html || '';
+
+    ecAudienceTypeSelect.value = c.audience_type;
+    ecCurrentAudience = c.audience_type;
+    const manualEl = document.getElementById('ecManualRecipients');
+    if (manualEl) manualEl.value = c.manual_recipients || '';
+    applyEcAudienceMode();
+    await refreshEcAudienceCount();
+
+    // Restore a hand-picked selection; otherwise fall back to "everyone".
+    ecPickedIds = new Set((c.recipient_ids || []).map(Number));
+    if (!ecIsManual() && c.recipient_ids && c.recipient_ids.length) {
+      ecRecipientModeSelect.value = 'pick';
+      ecIndividualField.style.display = '';
+      await loadEcDirectory(c.audience_type);
+    } else {
+      ecRecipientModeSelect.value = 'all';
+      ecIndividualField.style.display = 'none';
+    }
+
+    document.getElementById('ecPreviewPanel').style.display = 'none';
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    toast('Loaded into the form — edit what you need, then save it as a new draft.', 5000);
+  } catch (err) { toast(err.message); }
+};
+
 async function refreshEcHistory() {
   const rows = await jget(`${API}/email-campaigns`);
   document.getElementById('ecHistoryBody').innerHTML = rows.map((c) => `
@@ -2991,6 +3029,7 @@ async function refreshEcHistory() {
       <td class="sticky-actions">
         ${c.status === 'draft' ? `<button class="btn small" onclick="ecSendTest(${c.id})">Send test</button> <button class="btn gold small" onclick="ecSendCampaign(${c.id}, ${c.attempted_count || 0})">Send</button>` : ''}
         <button class="btn small" onclick="toggleEcRecipients(${c.id})">View</button>
+        <button class="btn small" onclick="reuseEcCampaign(${c.id})" title="Load this message back into the form to edit and send again">Reuse</button>
       </td>
     </tr>
     <tr id="ecRecipientsRow-${c.id}" style="display:none;"><td colspan="7"><div id="ecRecipientsPanel-${c.id}"></div></td></tr>
