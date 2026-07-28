@@ -1053,12 +1053,21 @@ const REG_OCCUPANCY_OPTIONS = [['single', 'Single'], ['double_king', 'Double Kin
 function regCombinedValue(category, regType) {
   return category && regType ? `${category}|${regType}` : '';
 }
+// Congress Only comes without a room, so King vs Twin is meaningless for it
+// — those bookings carry the standalone 'congress_only' occupancy (which
+// holds one delegate, as it always has) and are listed without a bed-type
+// suffix. Only the Full packages offer Single / Double King / Double Twin.
+function regOccupancyOptionsFor(category) {
+  return regIncludesAccommodation(category) === false
+    ? [['congress_only', null]]
+    : REG_OCCUPANCY_OPTIONS;
+}
 function regCombinedOptionsHtml(selectedValue, placeholder) {
   const opts = [];
   Object.entries(REG_CATEGORY_LABEL).forEach(([cat, label]) => {
-    REG_OCCUPANCY_OPTIONS.forEach(([occ, occLabel]) => {
+    regOccupancyOptionsFor(cat).forEach(([occ, occLabel]) => {
       const v = `${cat}|${occ}`;
-      opts.push(`<option value="${v}" ${v === selectedValue ? 'selected' : ''}>${label} (${occLabel})</option>`);
+      opts.push(`<option value="${v}" ${v === selectedValue ? 'selected' : ''}>${label}${occLabel ? ` (${occLabel})` : ''}</option>`);
     });
   });
   return `<option value="">${placeholder}</option>` + opts.join('');
