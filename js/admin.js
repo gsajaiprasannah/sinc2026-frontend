@@ -5467,48 +5467,216 @@ const DELEGATE_REPORT_SECTIONS = [
     ]
   },
 ];
-let DELEGATE_REPORT_SELECTED = DELEGATE_REPORT_SECTIONS.filter((s) => s.default).map((s) => s.key);
 
-function renderDelegateReportModal() {
-  document.getElementById('delegateReportSectionGrid').innerHTML = DELEGATE_REPORT_SECTIONS.map((s) => `
-    <label style="display:flex;align-items:center;gap:6px;">
-      <input type="checkbox" class="delegate-report-section" value="${s.key}" ${DELEGATE_REPORT_SELECTED.includes(s.key) ? 'checked' : ''} />
-      ${s.label}
+// Same shape as DELEGATE_REPORT_SECTIONS, over /hostmembers rows.
+const HOST_MEMBER_REPORT_SECTIONS = [
+  {
+    key: 'overview', label: 'Host team at a glance', default: true,
+    build: (rows) => {
+      const denom = rows.length || 1;
+      const share = (c) => `${Math.round((c / denom) * 1000) / 10}%`;
+      const m = (label, fn) => { const c = rows.filter(fn).length; return [label, String(c), share(c)]; };
+      const committees = new Set(rows.flatMap((r) => (r.committees || []).map((c) => c.name)));
+      return [{
+        columns: [{ label: 'Measure', width: 300 }, { label: 'Count', width: 90, align: 'right' }, { label: 'Share', width: 125, align: 'right' }],
+        rows: [
+          ['Total host members', String(rows.length), '100%'],
+          ['Committees with members', String(committees.size), ''],
+          m('On at least one committee', (r) => (r.committees || []).length),
+          m('On no committee', (r) => !(r.committees || []).length),
+          m('Phone on file', (r) => r.phone),
+          m('Email on file', (r) => r.email),
+          m('Photo uploaded', (r) => r.photo_url),
+          m('Business card uploaded', (r) => r.business_card_url),
+          m('Company logo uploaded', (r) => r.logo_url),
+          m('Sizes given', (r) => r.shirt_size || r.tshirt_size || r.waist_size),
+          m('Hotel stay requested', (r) => r.hotel_stay_required),
+        ],
+      }];
+    }
+  },
+  {
+    key: 'by_committee', label: 'Members by committee', default: true,
+    build: (rows) => {
+      const collator = new Intl.Collator('en', { sensitivity: 'base' });
+      const counts = {};
+      rows.forEach((r) => (r.committees || []).forEach((c) => { counts[c.name] = (counts[c.name] || 0) + 1; }));
+      const none = rows.filter((r) => !(r.committees || []).length).length;
+      const names = Object.keys(counts).sort(collator.compare);
+      return [{
+        // Someone on two committees is counted in both, so this deliberately
+        // sums to more than the headline total.
+        columns: [{ label: 'Committee', width: 320 }, { label: 'Members', width: 95, align: 'right' }, { label: 'Share of team', width: 100, align: 'right' }],
+        rows: [
+          ...names.map((n) => [n, String(counts[n]), `${Math.round((counts[n] / (rows.length || 1)) * 1000) / 10}%`]),
+          ...(none ? [['(not on any committee)', String(none), `${Math.round((none / (rows.length || 1)) * 1000) / 10}%`]] : []),
+        ],
+      }];
+    }
+  },
+  {
+    key: 'sizes', label: 'Merchandise sizes', default: true,
+    build: (rows) => [
+      tallyBlock('Shirt size', rows, (r) => r.shirt_size, { blankLabel: 'Not given' }),
+      tallyBlock('T-shirt size', rows, (r) => r.tshirt_size, { blankLabel: 'Not given' }),
+      tallyBlock('Waist size', rows, (r) => r.waist_size, { blankLabel: 'Not given' }),
+    ]
+  },
+  {
+    key: 'food', label: 'Meal preferences', default: true,
+    build: (rows) => [tallyBlock('Food preference', rows, (r) => r.dietary_preference, {
+      blankLabel: 'No preference', order: ['Vegetarian', 'Non-vegetarian', 'No preference'],
+    })]
+  },
+  {
+    key: 'drink', label: 'Drink preferences', default: true,
+    // Multi-select, so shares add up to more than 100%.
+    build: (rows) => [tallyBlock('Drink preference', rows, (r) => r.drink_preference, { multi: true, blankLabel: 'Not specified' })]
+  },
+  {
+    key: 'accommodation', label: 'Accommodation requests', default: true,
+    build: (rows) => {
+      const need = rows.filter((r) => r.hotel_stay_required);
+      return [
+        {
+          columns: [{ label: 'Accommodation', width: 300 }, { label: 'Members', width: 90, align: 'right' }, { label: 'Share', width: 125, align: 'right' }],
+          rows: [
+            ['Room requested (essential)', String(need.length), `${Math.round((need.length / (rows.length || 1)) * 1000) / 10}%`],
+            ['Travelling from home', String(rows.length - need.length), `${Math.round(((rows.length - need.length) / (rows.length || 1)) * 1000) / 10}%`],
+          ],
+        },
+        // The reasons matter as much as the count when rooms are limited.
+        {
+          label: 'Who requested a room',
+          columns: [{ label: 'Name', width: 150 }, { label: 'Company', width: 140 }, { label: 'Reason / nights', width: 225 }],
+          rows: need.length
+            ? need.map((r) => [r.name, r.company || '-', r.hotel_stay_notes || '-'])
+            : [['-', '-', 'No requests']],
+        },
+      ];
+    }
+  },
+  {
+    key: 'payment', label: 'Payments', default: true,
+    build: (rows) => {
+      const paid = rows.filter((r) => r.payment_status === 'paid');
+      const sum = (list) => list.reduce((n, r) => n + (Number(r.payment_amount) || 0), 0);
+      return [
+        tallyBlock('Payment status', rows, (r) => r.payment_status, { blankLabel: 'Not set' }),
+        {
+          label: 'Amounts',
+          columns: [{ label: 'Measure', width: 300 }, { label: 'Value', width: 215, align: 'right' }],
+          rows: [
+            ['Collected', `₹${sum(paid).toLocaleString('en-IN')}`],
+            ['Outstanding', `₹${sum(rows.filter((r) => r.payment_status !== 'paid')).toLocaleString('en-IN')}`],
+            ['Expected in total', `₹${sum(rows).toLocaleString('en-IN')}`],
+          ],
+        },
+      ];
+    }
+  },
+  {
+    key: 'roles', label: 'Leadership roles & categories', default: false,
+    build: (rows) => [
+      tallyBlock('Leadership role', rows, (r) => r.leadership_role, { blankLabel: 'Member' }),
+      tallyBlock('Category', rows, (r) => r.category, { blankLabel: 'Not set' }),
+    ]
+  },
+  {
+    key: 'assets', label: 'Photos, cards & logos on file', default: false,
+    build: (rows) => {
+      const denom = rows.length || 1;
+      const row = (label, fn) => {
+        const c = rows.filter(fn).length;
+        return [label, String(c), String(rows.length - c), `${Math.round((c / denom) * 1000) / 10}%`];
+      };
+      return [{
+        columns: [{ label: 'Asset', width: 220 }, { label: 'On file', width: 90, align: 'right' }, { label: 'Missing', width: 90, align: 'right' }, { label: 'Complete', width: 115, align: 'right' }],
+        rows: [
+          row('Photo', (r) => r.photo_url),
+          row('Business card', (r) => r.business_card_url),
+          row('Company logo', (r) => r.logo_url),
+        ],
+      }];
+    }
+  },
+];
+
+// --- Shared "pick which summaries to include" report modal -------------
+// One modal serves both report generators. Each entry supplies its section
+// catalogue, where the rows come from, and how to title the PDF.
+const REPORT_PICKERS = {
+  delegates: {
+    title: 'Download Delegates Report',
+    heading: 'Delegates Report',
+    filename: 'delegates-report.pdf',
+    noun: 'delegate',
+    sections: DELEGATE_REPORT_SECTIONS,
+    fetchRows: () => jget(`${API}/participants`),
+  },
+  host_members: {
+    title: 'Download Host Members Report',
+    heading: 'Host Members Report',
+    filename: 'host-members-report.pdf',
+    noun: 'host member',
+    sections: HOST_MEMBER_REPORT_SECTIONS,
+    fetchRows: () => jget(`${API}/hostmembers`),
+  },
+};
+// Remembers each picker's ticked set for this page session.
+Object.values(REPORT_PICKERS).forEach((cfg) => {
+  cfg.selected = cfg.sections.filter((x) => x.default).map((x) => x.key);
+});
+let ACTIVE_REPORT_PICKER = null;
+
+function renderReportPicker() {
+  const cfg = REPORT_PICKERS[ACTIVE_REPORT_PICKER];
+  document.getElementById('reportModalTitle').textContent = cfg.title;
+  document.getElementById('reportSectionGrid').innerHTML = cfg.sections.map((x) => `
+    <label class="check-inline">
+      <input type="checkbox" class="report-section-box" value="${x.key}" ${cfg.selected.includes(x.key) ? 'checked' : ''} />
+      ${x.label}
     </label>
   `).join('');
 }
-window.openDelegateReportModal = () => {
-  renderDelegateReportModal();
-  document.getElementById('delegateReportModal').style.display = '';
+window.openReportPicker = (key) => {
+  ACTIVE_REPORT_PICKER = key;
+  renderReportPicker();
+  document.getElementById('reportModal').style.display = '';
 };
-window.closeDelegateReportModal = () => { document.getElementById('delegateReportModal').style.display = 'none'; };
-window.setAllDelegateReportSections = (checked) => {
-  document.querySelectorAll('.delegate-report-section').forEach((el) => { el.checked = checked; });
+window.closeReportPicker = () => { document.getElementById('reportModal').style.display = 'none'; };
+window.setAllReportSections = (checked) => {
+  document.querySelectorAll('.report-section-box').forEach((el) => { el.checked = checked; });
 };
 
-window.downloadDelegatesReportPdf = async () => {
+window.runReportPicker = async () => {
+  const cfg = REPORT_PICKERS[ACTIVE_REPORT_PICKER];
   try {
-    const keys = [...document.querySelectorAll('.delegate-report-section:checked')].map((el) => el.value);
+    const keys = [...document.querySelectorAll('.report-section-box:checked')].map((el) => el.value);
     if (!keys.length) { toast('Tick at least one report section to include.'); return; }
-    DELEGATE_REPORT_SELECTED = keys;
-    closeDelegateReportModal();
+    cfg.selected = keys;
+    closeReportPicker();
 
-    const rows = await jget(`${API}/participants`);
-    const sections = DELEGATE_REPORT_SECTIONS.filter((s) => keys.includes(s.key));
+    const rows = await cfg.fetchRows();
+    // Catalogue order, not tick order, so the same picks always produce the
+    // same document.
+    const sections = cfg.sections.filter((x) => keys.includes(x.key));
     const doc = pdfDoc();
-    let y = await pdfLetterhead(doc, 'Delegates Report', `${rows.length} delegate(s) · generated from live registration data`);
+    let y = await pdfLetterhead(doc, cfg.heading, `${rows.length} ${cfg.noun}(s) · generated from live data`);
     sections.forEach((section) => {
       y = pdfMaybeNewPage(doc, y, 90);
       y = pdfSectionLabel(doc, y, section.label);
       section.build(rows).forEach((block) => {
         y = pdfMaybeNewPage(doc, y, 60);
+        // Blocks may carry their own sub-heading (e.g. "Amounts").
+        if (block.label) y = pdfSummaryLine(doc, y, block.label);
         y = pdfTable(doc, y, block.columns, block.rows);
         y += 6;
       });
       y += 8;
     });
     pdfFinalize(doc);
-    doc.save('delegates-report.pdf');
+    doc.save(cfg.filename);
   } catch (err) { toast(err.message); }
 };
 

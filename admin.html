@@ -518,7 +518,7 @@
       <div style="display:flex;gap:8px;">
         <button class="btn small" onclick="switchAdminTab('add-participant')">+ Add Delegate</button>
         <button class="btn small" onclick="openPdfFieldPicker('delegates')">Download PDF</button>
-        <button class="btn small" onclick="openDelegateReportModal()" title="Summary counts and breakdowns, not a per-person list">Reports</button>
+        <button class="btn small" onclick="openReportPicker('delegates')" title="Summary counts and breakdowns, not a per-person list">Reports</button>
         <button class="btn small" onclick="openDocZipPicker('delegates')" title="Aadhaar / passport / photo / business card files as a ZIP">Download Documents (ZIP)</button>
         <button class="btn small" onclick="downloadAllDelegateBadgesZip()" title="Bulk badge+QR export for a print vendor">Download All Badges (ZIP)</button>
       </div>
@@ -726,6 +726,7 @@
       <div style="display:flex;gap:8px;">
         <button class="btn small" onclick="switchAdminTab('add-hostmember')">+ Add Host Member</button>
         <button class="btn small" onclick="openPdfFieldPicker('host_members')">Download PDF</button>
+        <button class="btn small" onclick="openReportPicker('host_members')" title="Summary counts and breakdowns, not a per-person list">Reports</button>
         <button class="btn small" onclick="openDocZipPicker('host_members')" title="Photos / business cards / company logos as a ZIP">Download Documents (ZIP)</button>
         <button class="btn small" onclick="downloadAllHostMemberBadgesZip()" title="Bulk badge+QR export for a print vendor">Download All Badges (ZIP)</button>
       </div>
@@ -2582,21 +2583,21 @@
      breakdowns (registrations per club, meal/drink preferences, sizes...)
      rather than a per-person listing. Rendered by renderDelegateReportModal()
      in js/admin.js from the DELEGATE_REPORT_SECTIONS catalog. -->
-<div class="modal-overlay" id="delegateReportModal" style="display:none;" onclick="if(event.target===this) closeDelegateReportModal()">
+<div class="modal-overlay" id="reportModal" style="display:none;" onclick="if(event.target===this) closeReportPicker()">
   <div class="modal-card">
     <div class="modal-header">
-      <div class="section-title" style="margin:0;">Download Delegates Report</div>
-      <button type="button" class="modal-close" onclick="closeDelegateReportModal()">&times;</button>
+      <div class="section-title" style="margin:0;" id="reportModalTitle">Download Report</div>
+      <button type="button" class="modal-close" onclick="closeReportPicker()">&times;</button>
     </div>
     <p class="hint" style="margin-top:0;">Tick the summaries to include. This is a counts-and-totals report — for a per-person list use <strong>Download PDF</strong> instead.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-      <button type="button" class="btn small" onclick="setAllDelegateReportSections(true)">Select all</button>
-      <button type="button" class="btn small" onclick="setAllDelegateReportSections(false)">Clear all</button>
+      <button type="button" class="btn small" onclick="setAllReportSections(true)">Select all</button>
+      <button type="button" class="btn small" onclick="setAllReportSections(false)">Clear all</button>
     </div>
-    <div class="module-checkbox-grid" id="delegateReportSectionGrid" style="max-height:300px;overflow-y:auto;"></div>
+    <div class="module-checkbox-grid" id="reportSectionGrid" style="max-height:300px;overflow-y:auto;"></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
-      <button type="button" class="btn small" onclick="closeDelegateReportModal()">Cancel</button>
-      <button type="button" class="btn" onclick="downloadDelegatesReportPdf()">Download Report</button>
+      <button type="button" class="btn small" onclick="closeReportPicker()">Cancel</button>
+      <button type="button" class="btn" onclick="runReportPicker()">Download Report</button>
     </div>
   </div>
 </div>
