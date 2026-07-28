@@ -519,6 +519,13 @@ function closeEditModal(opts) {
   // Closing via the × or the backdrop should abandon the edit the same way
   // the Cancel button does, so the form isn't left half-populated and still
   // in "edit" mode the next time someone adds a new record.
+  // The itinerary form only ever exists as a popup, so re-hide its wrapper
+  // once it's back on the page and clear any half-finished edit.
+  if (node.id === 'tourItinFormWrap') {
+    node.style.display = 'none';
+    if (typeof window.cancelEditTourItin === 'function') window.cancelEditTourItin();
+    return;
+  }
   const form = node.querySelector('form');
   if (!form || !form.dataset.editId) return;
   if (form.id === 'partForm' && typeof window.cancelEditPart === 'function') window.cancelEditPart();
@@ -1001,7 +1008,21 @@ document.getElementById('clubCsvForm').addEventListener('submit', async (e) => {
 });
 
 // --- Registrations ---
-const REG_TYPE_LABEL = { single: 'Single', double: 'Double', congress_only: 'Congress Only' };
+// 'double' was split into King/Twin (same two people, different bed setup —
+// which the hotel needs to know). Legacy 'double' rows stay valid and keep
+// their label. Anything that asks "how many delegates does this hold?" must
+// go through isDoubleOccupancy/occupancyOf, or a twin booking would be
+// treated as single-occupancy and its co-registrant rejected.
+const REG_TYPE_LABEL = {
+  single: 'Single',
+  double: 'Double',
+  double_king: 'Double King',
+  double_twin: 'Double Twin',
+  congress_only: 'Congress Only',
+};
+const DOUBLE_REG_TYPES = ['double', 'double_king', 'double_twin'];
+function isDoubleOccupancy(regType) { return DOUBLE_REG_TYPES.includes(regType); }
+function occupancyOf(regType) { return isDoubleOccupancy(regType) ? 2 : 1; }
 // The package a registration was sold on — a different axis from reg_type
 // above, which is occupancy. "Full" includes hotel accommodation, "Congress
 // Only" is sessions without a room. Nullable: bookings taken before this
@@ -1028,7 +1049,7 @@ function regCategoryLabel(v) { return REG_CATEGORY_LABEL[v] || (v ? v : 'Not rec
 // registration_category and reg_type. Combining them in the UI only, rather
 // than as a ninth column, keeps the capacity check and the "Double = 2"
 // headcount reading reg_type exactly as before.
-const REG_OCCUPANCY_OPTIONS = [['single', 'Single'], ['double', 'Double']];
+const REG_OCCUPANCY_OPTIONS = [['single', 'Single'], ['double_king', 'Double King'], ['double_twin', 'Double Twin']];
 function regCombinedValue(category, regType) {
   return category && regType ? `${category}|${regType}` : '';
 }
@@ -1081,7 +1102,7 @@ async function refreshRegs() {
   // (so updatePartRegOccupancyHint() can react instantly on change without
   // re-fetching).
   const opts = regs.map((r) => {
-    const max = r.reg_type === 'double' ? 2 : 1;
+    const max = occupancyOf(r.reg_type);
     const participants = r.participants || [];
     const filled = participants.length;
     const hasPrimary = participants.some((p) => Number(p.is_primary) === 1);
@@ -4239,24 +4260,38 @@ async function refreshTourItinerary() {
 function escapeHtmlAdmin(v) {
   return String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
-window.editTourItinItem = (itemId) => {
-  const item = TOUR_ITIN_CACHE.find((i) => i.id === itemId);
-  if (!item) return;
+// Add/edit an itinerary item in a popup rather than a form buried under the
+// Manage panel — with several days of entries the form ends up well below
+// the table you're working from.
+window.openTourItinModal = (itemId) => {
+  if (!currentTourId) { toast('Click "Manage" on a tour first.'); return; }
   const form = document.getElementById('tourItinForm');
-  ['day_label', 'time_label', 'duration', 'title', 'location', 'sort_order', 'description'].forEach((k) => {
-    if (form.elements[k]) form.elements[k].value = item[k] !== null && item[k] !== undefined ? item[k] : '';
-  });
-  form.dataset.editId = itemId;
-  document.getElementById('tourItinSubmitBtn').textContent = 'Update itinerary item';
-  document.getElementById('tourItinCancelBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const wrap = document.getElementById('tourItinFormWrap');
+  const item = itemId ? TOUR_ITIN_CACHE.find((i) => i.id === itemId) : null;
+  if (itemId && !item) return;
+  form.reset();
+  delete form.dataset.editId;
+  if (item) {
+    ['day_label', 'time_label', 'duration', 'title', 'location', 'sort_order', 'description'].forEach((k) => {
+      if (form.elements[k]) form.elements[k].value = item[k] !== null && item[k] !== undefined ? item[k] : '';
+    });
+    form.dataset.editId = itemId;
+  } else {
+    // Carry the last day forward — a day's worth of stops are entered one
+    // after another, and retyping "Day 2 · 11 Aug" each time is needless.
+    const lastDay = TOUR_ITIN_CACHE.length ? TOUR_ITIN_CACHE[TOUR_ITIN_CACHE.length - 1].day_label : '';
+    if (lastDay && form.elements.day_label) form.elements.day_label.value = lastDay;
+  }
+  document.getElementById('tourItinSubmitBtn').textContent = item ? 'Update itinerary item' : 'Add itinerary item';
+  wrap.style.display = '';
+  openEditModal(wrap, null, `${item ? 'Edit' : 'Add'} itinerary item — ${document.getElementById('tourManageLabel').textContent}`);
 };
+window.editTourItinItem = (itemId) => window.openTourItinModal(itemId);
 window.cancelEditTourItin = () => {
   const form = document.getElementById('tourItinForm');
   form.reset();
   delete form.dataset.editId;
   document.getElementById('tourItinSubmitBtn').textContent = 'Add itinerary item';
-  document.getElementById('tourItinCancelBtn').style.display = 'none';
 };
 window.deleteTourItinItem = async (itemId) => {
   await jdel(`${API}/pretours/itinerary/${itemId}`);
@@ -4272,18 +4307,21 @@ document.getElementById('tourItinForm').addEventListener('submit', async (e) => 
     if (editId) {
       await jput(`${API}/pretours/itinerary/${editId}`, body);
       toast('Itinerary item updated');
-      window.cancelEditTourItin();
+      closeEditModal();
     } else {
       await jpost(`${API}/pretours/${currentTourId}/itinerary`, body);
-      e.target.reset();
       toast('Itinerary item added');
+      // Stay open on the same day so the next stop can be typed straight in.
+      const day = body.day_label;
+      e.target.reset();
+      if (day && e.target.elements.day_label) e.target.elements.day_label.value = day;
     }
     refreshTourItinerary();
   } catch (err) { toast(err.message); }
 });
 document.getElementById('tourItinCancelBtn').addEventListener('click', (e) => {
   e.preventDefault();
-  window.cancelEditTourItin();
+  closeEditModal();
 });
 
 async function refreshTourParticipants() {

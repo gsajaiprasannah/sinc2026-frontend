@@ -1072,7 +1072,7 @@ const MODULE_CONFIG = {
       columns: [['reg_number', 'Reg #'], ['reg_type', 'Type'], ['club_name', 'Club']],
       fields: [
         { name: 'reg_type', label: 'Registration type', type: 'select', required: true,
-          options: [['single', 'Single'], ['double', 'Double'], ['congress_only', 'Congress Only (no room)']] },
+          options: [['single', 'Single'], ['double_king', 'Double King'], ['double_twin', 'Double Twin'], ['congress_only', 'Congress Only (no room)']] },
         { name: 'club_id', label: 'Club', type: 'select', optionsFrom: 'clubs', optionLabel: (c) => c.name },
       ] },
     { path: 'participants', label: 'Delegates', editable: true,
