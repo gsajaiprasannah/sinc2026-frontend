@@ -6218,20 +6218,22 @@ window.runDocZipPicker = async () => {
 // button at openPdfFieldPicker('<key>').
 const PDF_FIELD_PICKERS = {
   delegates: {
-    title: 'Download Delegates PDF',
+    title: 'Download Delegates Data',
     fields: DELEGATE_PDF_FIELDS,
     defaultKeys: DELEGATE_PDF_DEFAULT_KEYS,
     selected: [...DELEGATE_PDF_DEFAULT_KEYS],
-    extras: [{ id: 'pdfGroupByClub', label: 'Group by club (a heading and count per club)', checked: true }],
+    extras: [{ id: 'pdfGroupByClub', label: 'Group by club (a heading and count per club) — PDF only, Excel is always one flat sheet', checked: true }],
     run: (fields, columns, extras) => downloadDelegatesListPdf(fields, columns, extras.pdfGroupByClub),
+    runXlsx: (fields) => downloadDelegatesListXlsx(fields),
   },
   host_members: {
-    title: 'Download Host Members PDF',
+    title: 'Download Host Members Data',
     fields: HOST_MEMBER_PDF_FIELDS,
     defaultKeys: HOST_MEMBER_PDF_DEFAULT_KEYS,
     selected: [...HOST_MEMBER_PDF_DEFAULT_KEYS],
-    extras: [{ id: 'pdfGroupByCommittee', label: 'Group by committee (a member appears under each committee they serve on)', checked: false }],
+    extras: [{ id: 'pdfGroupByCommittee', label: 'Group by committee (a member appears under each committee they serve on) — PDF only, Excel is always one flat sheet', checked: false }],
     run: (fields, columns, extras) => downloadHostMembersListPdf(fields, columns, extras.pdfGroupByCommittee),
+    runXlsx: (fields) => downloadHostMembersListXlsx(fields),
   },
 };
 let ACTIVE_PDF_PICKER = null;
@@ -6292,18 +6294,35 @@ function scalePdfColumns(fields) {
   // numeric columns like Amount and Delegates assigned.
   return fields.map((f) => ({ label: f.label, width: f.width * scale, align: f.align }));
 }
-window.runPdfFieldPicker = () => {
+// Shared by both "Download PDF" and "Download Excel" — reads whichever
+// checkboxes are currently ticked in the modal (same fields, same extras),
+// so choosing a smaller set of columns applies identically to either format.
+function readPdfFieldPickerSelection() {
   const cfg = PDF_FIELD_PICKERS[ACTIVE_PDF_PICKER];
   const keys = [...document.querySelectorAll('.pdf-field-box:checked')].map((el) => el.value);
-  if (!keys.length) { toast('Tick at least one field to include in the PDF.'); return; }
+  if (!keys.length) { toast('Tick at least one field to include.'); return null; }
   cfg.selected = keys;
   const extras = {};
   (cfg.extras || []).forEach((x) => { extras[x.id] = document.getElementById(x.id).checked; });
   // Preserve the catalogue's own order rather than tick order, so the same
   // set of fields always produces the same column layout.
   const fields = cfg.fields.filter((f) => keys.includes(f.key));
+  return { cfg, fields, extras };
+}
+window.runPdfFieldPicker = () => {
+  const picked = readPdfFieldPickerSelection();
+  if (!picked) return;
+  const { cfg, fields, extras } = picked;
   closePdfFieldPicker();
   cfg.run(fields, scalePdfColumns(fields), extras);
+};
+window.runXlsxFieldPicker = () => {
+  const picked = readPdfFieldPickerSelection();
+  if (!picked) return;
+  const { cfg, fields, extras } = picked;
+  if (!cfg.runXlsx) { toast('Excel export is not available for this list yet.'); return; }
+  closePdfFieldPicker();
+  cfg.runXlsx(fields, extras);
 };
 
 // Exported club by club — one heading + table per club — since the congress
@@ -6356,6 +6375,25 @@ async function downloadDelegatesListPdf(fields, columns, groupByClub) {
     }
     pdfFinalize(doc);
     doc.save('delegates-directory.pdf');
+  } catch (err) { toast(err.message); }
+}
+// Same field-picker selection, one flat sheet (no club grouping — that's a
+// PDF-only presentation choice; in Excel the user can sort/filter/pivot by
+// Club themselves once it's a ticked column).
+async function downloadDelegatesListXlsx(fields) {
+  try {
+    const rows = await jget(`${API}/participants`);
+    const byReg = new Map();
+    rows.forEach((r) => {
+      if (!r.registration_id) return;
+      if (!byReg.has(r.registration_id)) byReg.set(r.registration_id, []);
+      byReg.get(r.registration_id).push(r);
+    });
+    rows.forEach((r) => {
+      const mates = (byReg.get(r.registration_id) || []).filter((m) => m.id !== r.id);
+      r._travelling_with = mates.map((m) => m.name).join(', ');
+    });
+    downloadListReportXlsx('Delegates', fields, rows, 'delegates-directory.xlsx');
   } catch (err) { toast(err.message); }
 }
 window.downloadDelegateDetailPdf = async (id) => {
@@ -6437,6 +6475,15 @@ async function downloadHostMembersListPdf(fields, columns, groupByCommittee) {
     });
     pdfFinalize(doc);
     doc.save('host-members-directory.pdf');
+  } catch (err) { toast(err.message); }
+}
+// Same field-picker selection, one flat sheet — committee grouping is a
+// PDF-only presentation choice (see downloadHostMembersListPdf above); the
+// "Committees" column, if ticked, still lists every committee a member is on.
+async function downloadHostMembersListXlsx(fields) {
+  try {
+    const rows = await jget(`${API}/hostmembers`);
+    downloadListReportXlsx('Host Members', fields, rows, 'host-members-directory.xlsx');
   } catch (err) { toast(err.message); }
 }
 window.downloadHostMemberDetailPdf = async (id) => {
