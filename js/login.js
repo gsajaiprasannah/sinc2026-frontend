@@ -354,6 +354,7 @@ function activateTab(tabKey) {
   // trip added/edited mid-day (or one that just finished) shows up without
   // needing a full page reload.
   if (tabKey === 'my-scans' && typeof loadTransportTripsToday === 'function') loadTransportTripsToday();
+  if (tabKey === 'my-scans' && typeof loadGoodiesChecklist === 'function') loadGoodiesChecklist();
 }
 
 document.getElementById('tabNav').addEventListener('click', (e) => {
@@ -1950,6 +1951,27 @@ function wireMediaUploadForm() {
 const INV_RECIPIENT_TYPE_LABELS = { sponsor: 'Sponsor', speaker: 'Guest Speaker', guest_visitor: 'Guest Visitor', participant: 'Delegate', host_member: 'Host Member' };
 const INV_RECIPIENT_LITE_PATH = { sponsor: 'inventory/sponsors-lite', speaker: 'inventory/speakers-lite', guest_visitor: 'inventory/guestvisitors-lite', participant: 'inventory/participants-lite', host_member: 'inventory/host-members-lite' };
 let inventoryDistCtx = { itemId: null, itemName: '' };
+
+// "Assigned to" (the courier — host member OR volunteer) as one combined
+// select carrying "type:id", mirroring admin.js's custodianOptionsHtml.
+function custodianOptionsHtml(hostMembers, volunteers, selectedType, selectedId) {
+  const cur = selectedType && selectedId ? `${selectedType}:${selectedId}` : '';
+  const hmOpts = hostMembers.map((h) => `<option value="host_member:${h.id}" ${cur === `host_member:${h.id}` ? 'selected' : ''}>${escapeHtml(h.name)} — Host member</option>`).join('');
+  const volOpts = volunteers.map((v) => `<option value="volunteer:${v.id}" ${cur === `volunteer:${v.id}` ? 'selected' : ''}>${escapeHtml(v.name)} — Volunteer</option>`).join('');
+  return `<option value="">-- unassigned --</option>${hmOpts}${volOpts}`;
+}
+function parseCustodianValue(v) {
+  if (!v) return { assigned_custodian_type: null, assigned_custodian_id: null };
+  const [type, id] = String(v).split(':');
+  return { assigned_custodian_type: type, assigned_custodian_id: id };
+}
+async function loadCustodianLists() {
+  let hostMembers = [], volunteers = [];
+  try { hostMembers = await jget(`${API}/portal-modules/inventory/host-members-lite`); } catch (e) { /* ignore */ }
+  try { volunteers = await jget(`${API}/portal-modules/inventory/volunteers-lite`); } catch (e) { /* ignore */ }
+  return { hostMembers, volunteers };
+}
+
 function inventoryDistCardHtml() {
   return `
     <div class="card" id="inventoryDistCard" style="margin-top:14px; display:none;">
@@ -1957,10 +1979,11 @@ function inventoryDistCardHtml() {
       <div id="inventoryDistRows"></div>
       <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
         <strong>Assign to everyone in a category</strong>
+        <p class="hint" style="margin:2px 0 8px;">Picking a courier here hands them the whole batch — it shows up on their own "My Deliveries" checklist in My Scans.</p>
         <form id="inventoryBulkAssignForm" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
           <select name="recipient_type" required>${Object.entries(INV_RECIPIENT_TYPE_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
           <input name="quantity" type="number" min="1" value="1" style="max-width:80px;" title="Quantity each" />
-          <select name="assigned_host_member_id" id="inventoryBulkAssignHmSelect" style="max-width:160px;"></select>
+          <select name="assigned_custodian" id="inventoryBulkAssignHmSelect" style="max-width:180px;"></select>
           <button class="btn gold small" type="submit">Assign to all</button>
         </form>
       </div>
@@ -1970,7 +1993,7 @@ function inventoryDistCardHtml() {
           <select name="recipient_type" id="invAddRecipientType" required>${Object.entries(INV_RECIPIENT_TYPE_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select>
           <select name="recipient_id" id="invAddRecipientId" required style="min-width:160px;"><option value="">-- select --</option></select>
           <input name="quantity" type="number" min="1" value="1" style="max-width:80px;" title="Quantity" />
-          <select name="assigned_host_member_id" id="inventoryAddRecipientHmSelect" style="max-width:160px;"></select>
+          <select name="assigned_custodian" id="inventoryAddRecipientHmSelect" style="max-width:180px;"></select>
           <button class="btn small" type="submit">Add</button>
         </form>
       </div>
@@ -1989,9 +2012,8 @@ window.openInventoryDist = async (itemId, itemName) => {
   card.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 async function refreshInventoryDistHmOptions() {
-  let hostMembers = [];
-  try { hostMembers = await jget(`${API}/portal-modules/inventory/host-members-lite`); } catch (e) { hostMembers = []; }
-  const opts = '<option value="">-- unassigned --</option>' + hostMembers.map((h) => `<option value="${h.id}">${escapeHtml(h.name)}</option>`).join('');
+  const { hostMembers, volunteers } = await loadCustodianLists();
+  const opts = custodianOptionsHtml(hostMembers, volunteers, null, null);
   const a = document.getElementById('inventoryBulkAssignHmSelect');
   const b = document.getElementById('inventoryAddRecipientHmSelect');
   if (a) a.innerHTML = opts;
@@ -2011,18 +2033,15 @@ async function refreshInventoryDist() {
   let rows = [];
   try { rows = await jget(`${API}/portal-modules/inventory/${itemId}/distributions`); }
   catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); return; }
-  let hostMembers = [];
-  try { hostMembers = await jget(`${API}/portal-modules/inventory/host-members-lite`); } catch (e) { hostMembers = []; }
-  const hmOptionsFor = (selectedId) => '<option value="">-- unassigned --</option>' + hostMembers.map((h) =>
-    `<option value="${h.id}" ${String(selectedId) === String(h.id) ? 'selected' : ''}>${escapeHtml(h.name)}</option>`).join('');
+  const { hostMembers, volunteers } = await loadCustodianLists();
   document.getElementById('inventoryDistRows').innerHTML = rows.map((d) => `
     <div class="checklist-row status-${d.status}">
       <span class="checklist-label">
         <span class="pill single" style="margin-right:6px;">${INV_RECIPIENT_TYPE_LABELS[d.recipient_type] || d.recipient_type}</span>
         ${escapeHtml(d.recipient_name || 'Unknown')}${d.quantity > 1 ? ` ×${d.quantity}` : ''}
       </span>
-      <select style="max-width:160px;" title="Assigned to" onchange="updateInventoryDistField(${d.id}, 'assigned_host_member_id', this.value || null)">
-        ${hmOptionsFor(d.assigned_host_member_id)}
+      <select style="max-width:180px;" title="Assigned to" onchange="updateInventoryDistCustodian(${d.id}, this.value)">
+        ${custodianOptionsHtml(hostMembers, volunteers, d.assigned_custodian_type, d.assigned_custodian_id)}
       </select>
       <select onchange="updateInventoryDistField(${d.id}, 'status', this.value)">
         <option value="pending" ${d.status === 'pending' ? 'selected' : ''}>Pending</option>
@@ -2043,6 +2062,14 @@ window.updateInventoryDistField = async (distId, field, value) => {
     if (currentModuleKey === 'inventory') renderHostModuleSection(cfg, cfg).then(() => window.openInventoryDist(inventoryDistCtx.itemId, inventoryDistCtx.itemName));
   } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
 };
+window.updateInventoryDistCustodian = async (distId, value) => {
+  try {
+    await jput(`${API}/portal-modules/inventory/distributions/${distId}`, parseCustodianValue(value));
+    toast('Updated');
+    await refreshInventoryDist();
+    refreshInventoryMonitor();
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
 function wireInventoryDistForms() {
   const bulkForm = document.getElementById('inventoryBulkAssignForm');
   if (bulkForm && !bulkForm.dataset.wired) {
@@ -2052,6 +2079,8 @@ function wireInventoryDistForms() {
       const { itemId } = inventoryDistCtx;
       if (!itemId) { toast('Click "Deliveries" on an item first'); return; }
       const body = Object.fromEntries(new FormData(e.target).entries());
+      Object.assign(body, parseCustodianValue(body.assigned_custodian));
+      delete body.assigned_custodian;
       try {
         const r = await jpost(`${API}/portal-modules/inventory/${itemId}/distributions/bulk`, body);
         toast(`Assigned to ${r.created} recipient(s) (already-assigned recipients were skipped).`);
@@ -2075,6 +2104,8 @@ function wireInventoryDistForms() {
       if (!itemId) { toast('Click "Deliveries" on an item first'); return; }
       const body = Object.fromEntries(new FormData(e.target).entries());
       if (!body.recipient_id) { toast('Choose a recipient'); return; }
+      Object.assign(body, parseCustodianValue(body.assigned_custodian));
+      delete body.assigned_custodian;
       try {
         await jpost(`${API}/portal-modules/inventory/${itemId}/distributions`, body);
         toast('Recipient added');
@@ -2094,6 +2125,16 @@ function wireInventoryDistForms() {
 // inventory list (cfg.hasDeliveryMonitor), independent of any row selection.
 function inventoryMonitorCardHtml() {
   return `
+    <div class="card" style="margin-top:16px;">
+      <div class="section-title" style="margin-top:0;font-size:14px;">Who has what in charge</div>
+      <p class="hint" style="margin-top:0;">Every host member/volunteer currently carrying stock — how much is still in their hand vs. already handed over.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Custodian</th><th>Role</th><th>In hand (pending)</th><th>Delivered</th></tr></thead>
+          <tbody id="inventoryCustodySummaryBody"></tbody>
+        </table>
+      </div>
+    </div>
     <div class="card" style="margin-top:16px;">
       <div class="section-title" style="margin-top:0;font-size:14px;">Delivery monitor</div>
       <div class="table-scroll">
@@ -2169,16 +2210,32 @@ async function refreshInventoryMonitorDetail() {
       <td>${escapeHtml(r.item_name)}${r.quantity > 1 ? ` ×${r.quantity}` : ''}<br><span class="hint">${escapeHtml(r.item_category || '-')}</span></td>
       <td>${escapeHtml(r.recipient_name || '-')} <span class="hint">(${INV_RECIPIENT_TYPE_LABELS[r.recipient_type] || r.recipient_type})</span></td>
       <td>${escapeHtml(r.committee_name || 'Unassigned')}</td>
-      <td>${escapeHtml(r.assigned_host_member_name || '-')}</td>
+      <td>${escapeHtml(r.assigned_custodian_name || '-')}</td>
       <td><span class="pill ${r.status === 'delivered' ? 'done' : r.status === 'cancelled' ? 'refunded' : 'in_progress'}">${r.status}</span></td>
       <td>${r.delivered_by_name ? escapeHtml(r.delivered_by_name) + (r.delivered_at ? ' on ' + new Date(r.delivered_at).toLocaleDateString() : '') : '-'}</td>
     </tr>
   `).join('') || '<tr><td colspan="6" class="empty">No deliveries match this filter.</td></tr>';
 }
+async function refreshInventoryCustodySummary() {
+  const body = document.getElementById('inventoryCustodySummaryBody');
+  if (!body) return;
+  let rows = [];
+  try { rows = await jget(`${API}/portal-modules/inventory/custody-summary`); }
+  catch (err) { if (!(err instanceof UnauthorizedError)) return; rows = []; }
+  body.innerHTML = rows.map((r) => `
+    <tr>
+      <td>${escapeHtml(r.custodian_name || 'Unknown')}</td>
+      <td>${r.custodian_type === 'volunteer' ? 'Volunteer' : 'Host member'}</td>
+      <td><span class="pill ${r.pending_quantity ? 'in_progress' : 'done'}">${r.pending_quantity} (${r.pending_count} item${r.pending_count === 1 ? '' : 's'})</span></td>
+      <td>${r.delivered_quantity} (${r.delivered_count} item${r.delivered_count === 1 ? '' : 's'})</td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" class="empty">Nobody is currently carrying assigned stock.</td></tr>';
+}
 async function refreshInventoryMonitor() {
   if (currentModuleKey !== 'inventory') return;
   await refreshInventoryMonitorSummary();
   await refreshInventoryMonitorDetail();
+  await refreshInventoryCustodySummary();
 }
 function wireInventoryMonitorFilters() {
   ['inventoryMonitorFilterCommittee', 'inventoryMonitorFilterStatus', 'inventoryMonitorFilterRecipientType'].forEach((id) => {
@@ -3632,6 +3689,43 @@ document.getElementById('scanTripSelect')?.addEventListener('change', (e) => {
   SELECTED_SCAN_TRIP_ID = e.target.value || null;
 });
 
+// --- Goodies: "My Deliveries" proactive checklist -----------------------
+// Shows a courier (host member/volunteer handed goods to distribute, or
+// admin/super_admin) their full delivery run up front — every item
+// currently assigned to them and who it's for — via GET /badge/
+// my-goodies-checklist. Hidden entirely for logins with no inventory scan
+// cap (server 403s the request; the card just stays hidden).
+async function loadGoodiesChecklist() {
+  const card = document.getElementById('goodiesChecklistCard');
+  if (!card) return;
+  let rows;
+  try {
+    rows = await jget(`${API}/badge/my-goodies-checklist`);
+  } catch (e) {
+    if (e instanceof UnauthorizedError) return;
+    card.style.display = 'none';
+    return;
+  }
+  if (!Array.isArray(rows) || !rows.length) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  const pending = rows.filter((r) => r.status === 'pending');
+  const delivered = rows.filter((r) => r.status === 'delivered');
+  const summary = `<p class="hint" style="margin:0 0 10px;"><strong>${pending.length}</strong> pending, <strong>${delivered.length}</strong> delivered.</p>`;
+  const rowHtml = (r) => `
+    <div class="checklist-row status-${r.status}">
+      <span class="checklist-label">
+        <span class="pill single" style="margin-right:6px;">${escapeHtml(r.item_name)}${r.quantity > 1 ? ' ×' + r.quantity : ''}</span>
+        ${escapeHtml(r.recipient_name || 'Unknown')}${r.recipient_phone ? ` · ${escapeHtml(r.recipient_phone)}` : ''}
+      </span>
+      ${r.status === 'delivered' ? `<span class="hint">✓ Delivered${r.delivered_at ? ' ' + new Date(r.delivered_at).toLocaleDateString() : ''}</span>` : '<span class="hint">Pending — scan their badge below</span>'}
+    </div>
+  `;
+  document.getElementById('goodiesChecklistBody').innerHTML = summary + pending.map(rowHtml).join('') + delivered.map(rowHtml).join('');
+}
+
 // --- Transport scan result popup ---------------------------------------
 // Every Transport Scan tap pops this up immediately (in addition to the
 // inline result text already shown in the scan card) so a match/mismatch/
@@ -3891,6 +3985,7 @@ function renderScanResult(d, token) {
         try {
           await jpost(`${API}/badge/staff/${encodeURIComponent(token)}/goodies/${btn.dataset.distId}/deliver`, {});
           btn.closest('div').remove();
+          if (typeof loadGoodiesChecklist === 'function') loadGoodiesChecklist();
         } catch (err) { if (!(err instanceof UnauthorizedError)) { toast(err.message); btn.disabled = false; } }
       });
     });

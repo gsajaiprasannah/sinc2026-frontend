@@ -7846,6 +7846,28 @@ window.submitRequirementPr = async (e) => {
   return false;
 };
 
+// --- Custodian ("assigned to") — host member OR volunteer, one combined ---
+// select carrying "type:id" as its value (same trick as the combined
+// registration-category/occupancy dropdown elsewhere in this file), so a
+// single select can offer both lists without a separate type toggle.
+function custodianOptionsHtml(hostMembers, volunteers, selectedType, selectedId) {
+  const cur = selectedType && selectedId ? `${selectedType}:${selectedId}` : '';
+  const hmOpts = hostMembers.map((h) => `<option value="host_member:${h.id}" ${cur === `host_member:${h.id}` ? 'selected' : ''}>${h.name} — Host member</option>`).join('');
+  const volOpts = volunteers.map((v) => `<option value="volunteer:${v.id}" ${cur === `volunteer:${v.id}` ? 'selected' : ''}>${v.name} — Volunteer</option>`).join('');
+  return `<option value="">-- unassigned --</option>${hmOpts}${volOpts}`;
+}
+function parseCustodianValue(v) {
+  if (!v) return { assigned_custodian_type: null, assigned_custodian_id: null };
+  const [type, id] = String(v).split(':');
+  return { assigned_custodian_type: type, assigned_custodian_id: id };
+}
+async function loadCustodianLists() {
+  let hostMembers = [], volunteers = [];
+  try { hostMembers = await jget(`${API}/hostmembers`); } catch (e) { /* ignore */ }
+  try { volunteers = await jget(`${API}/volunteers`); } catch (e) { /* ignore */ }
+  return { hostMembers, volunteers };
+}
+
 // --- Manage one item's deliveries: bulk-assign, individual add, per-row status ---
 let inventoryDistCtx = { itemId: null, itemName: '' };
 
@@ -7864,25 +7886,18 @@ async function renderInventoryDistBody() {
   const { itemId } = inventoryDistCtx;
   if (!itemId) return;
   const rows = await jget(`${API}/inventory/${itemId}/distributions`);
-  // Fetch host members ONCE and reuse for every row's "assigned to" select,
-  // rather than re-fetching per row.
-  let hostMembers = [];
-  try { hostMembers = await jget(`${API}/hostmembers`); } catch (e) { hostMembers = []; }
-  const hostMemberOptionsFor = (selectedId) => {
-    const opts = hostMembers.map((h) =>
-      `<option value="${h.id}" ${String(selectedId) === String(h.id) ? 'selected' : ''}>${h.name}</option>`
-    ).join('');
-    return `<option value="">-- unassigned --</option>${opts}`;
-  };
-  const hostMemberOptionsHtml = hostMemberOptionsFor(null);
+  // Fetch custodian lists ONCE and reuse for every row's "assigned to"
+  // select, rather than re-fetching per row.
+  const { hostMembers, volunteers } = await loadCustodianLists();
+  const custodianOptionsFor = custodianOptionsHtml_bound(hostMembers, volunteers);
   const rowsHtml = rows.map((d) => `
     <div class="checklist-row status-${d.status}">
       <span class="checklist-label">
         <span class="pill single" style="margin-right:6px;">${RECIPIENT_TYPE_LABELS[d.recipient_type] || d.recipient_type}</span>
         ${d.recipient_name || 'Unknown'}${d.quantity > 1 ? ` ×${d.quantity}` : ''}
       </span>
-      <select style="max-width:160px;" title="Assigned to" onchange="updateInventoryDistField(${d.id}, 'assigned_host_member_id', this.value || null)">
-        ${hostMemberOptionsFor(d.assigned_host_member_id)}
+      <select style="max-width:180px;" title="Assigned to" onchange="updateInventoryDistCustodian(${d.id}, this.value)">
+        ${custodianOptionsFor(d.assigned_custodian_type, d.assigned_custodian_id)}
       </select>
       <select onchange="updateInventoryDistField(${d.id}, 'status', this.value)">
         <option value="pending" ${d.status === 'pending' ? 'selected' : ''}>Pending</option>
@@ -7895,15 +7910,17 @@ async function renderInventoryDistBody() {
   `).join('') || '<p class="empty">No recipients added yet.</p>';
 
   const recipientTypeOptions = Object.entries(RECIPIENT_TYPE_LABELS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+  const blankCustodianOptions = custodianOptionsFor(null, null);
 
   document.getElementById('inventoryDistModalBody').innerHTML = `
     ${rowsHtml}
     <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line);">
       <strong>Assign to everyone in a category</strong>
+      <p class="hint" style="margin:2px 0 8px;">Picking a courier here hands them the whole batch — their own "My Deliveries" checklist in the portal will list every recipient this creates.</p>
       <form onsubmit="return submitInventoryBulkAssign(event)" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
         <select name="recipient_type" required>${recipientTypeOptions}</select>
         <input name="quantity" type="number" min="1" value="1" style="max-width:80px;" title="Quantity each" />
-        <select name="assigned_host_member_id" style="max-width:160px;">${hostMemberOptionsHtml}</select>
+        <select name="assigned_custodian" style="max-width:180px;">${blankCustodianOptions}</select>
         <button class="btn gold small" type="submit">Assign to all</button>
       </form>
     </div>
@@ -7913,13 +7930,26 @@ async function renderInventoryDistBody() {
         <select name="recipient_type" id="invAddRecipientType" required onchange="onInvAddRecipientTypeChange()">${recipientTypeOptions}</select>
         <select name="recipient_id" id="invAddRecipientId" required style="min-width:160px;"><option value="">-- select --</option></select>
         <input name="quantity" type="number" min="1" value="1" style="max-width:80px;" title="Quantity" />
-        <select name="assigned_host_member_id" style="max-width:160px;">${hostMemberOptionsHtml}</select>
+        <select name="assigned_custodian" style="max-width:180px;">${blankCustodianOptions}</select>
         <button class="btn small" type="submit">Add</button>
       </form>
     </div>
   `;
   await onInvAddRecipientTypeChange();
 }
+// Curries custodianOptionsHtml(hostMembers, volunteers, ...) down to just
+// (selectedType, selectedId) so the template literals above stay readable.
+function custodianOptionsHtml_bound(hostMembers, volunteers) {
+  return (selectedType, selectedId) => custodianOptionsHtml(hostMembers, volunteers, selectedType, selectedId);
+}
+window.updateInventoryDistCustodian = async (distId, value) => {
+  try {
+    await jput(`${API}/inventory/distributions/${distId}`, parseCustodianValue(value));
+    await renderInventoryDistBody();
+    refreshInventoryItems();
+    refreshInventoryMonitor();
+  } catch (err) { toast(err.message); }
+};
 
 window.onInvAddRecipientTypeChange = async () => {
   const sel = document.getElementById('invAddRecipientType');
@@ -7942,6 +7972,8 @@ window.submitInventoryBulkAssign = async (e) => {
   e.preventDefault();
   const { itemId } = inventoryDistCtx;
   const body = Object.fromEntries(new FormData(e.target).entries());
+  Object.assign(body, parseCustodianValue(body.assigned_custodian));
+  delete body.assigned_custodian;
   try {
     const r = await jpost(`${API}/inventory/${itemId}/distributions/bulk`, body);
     toast(`Assigned to ${r.created} recipient(s) (already-assigned recipients were skipped).`);
@@ -7957,6 +7989,8 @@ window.submitInventoryAddRecipient = async (e) => {
   const { itemId } = inventoryDistCtx;
   const body = Object.fromEntries(new FormData(e.target).entries());
   if (!body.recipient_id) { toast('Choose a recipient'); return false; }
+  Object.assign(body, parseCustodianValue(body.assigned_custodian));
+  delete body.assigned_custodian;
   try {
     await jpost(`${API}/inventory/${itemId}/distributions`, body);
     toast('Recipient added');
@@ -8004,7 +8038,7 @@ async function renderGoodiesModalBody() {
         <option value="delivered" ${d.status === 'delivered' ? 'selected' : ''}>Delivered</option>
         <option value="cancelled" ${d.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
       </select>
-      ${d.status === 'delivered' && d.delivered_by_name ? `<span class="hint">✓ ${d.delivered_by_name}${d.delivered_at ? ' on ' + new Date(d.delivered_at).toLocaleDateString() : ''}</span>` : (d.assigned_host_member_name ? `<span class="hint">Assigned: ${d.assigned_host_member_name}</span>` : '')}
+      ${d.status === 'delivered' && d.delivered_by_name ? `<span class="hint">✓ ${d.delivered_by_name}${d.delivered_at ? ' on ' + new Date(d.delivered_at).toLocaleDateString() : ''}</span>` : (d.assigned_custodian_name ? `<span class="hint">Assigned: ${d.assigned_custodian_name}</span>` : '')}
       ${canDelete() ? `<button class="btn danger small" onclick="deleteGoodiesDist(${d.id})">Delete</button>` : ''}
     </div>
   `).join('') || '<p class="empty">Nothing assigned to this person yet — add an item below.</p>';
@@ -8096,16 +8130,36 @@ async function refreshInventoryMonitorDetail() {
       <td>${r.item_name}${r.quantity > 1 ? ` ×${r.quantity}` : ''}<br><span class="hint">${r.item_category || '-'}</span></td>
       <td>${r.recipient_name || '-'} <span class="hint">(${RECIPIENT_TYPE_LABELS[r.recipient_type] || r.recipient_type})</span></td>
       <td>${r.committee_name || 'Unassigned'}</td>
-      <td>${r.assigned_host_member_name || '-'}</td>
+      <td>${r.assigned_custodian_name || '-'}</td>
       <td><span class="pill ${r.status === 'delivered' ? 'done' : r.status === 'cancelled' ? 'refunded' : 'in_progress'}">${r.status}</span></td>
       <td>${r.delivered_by_name ? r.delivered_by_name + (r.delivered_at ? ' on ' + new Date(r.delivered_at).toLocaleDateString() : '') : '-'}</td>
     </tr>
   `).join('') || '<tr><td colspan="6" class="empty">No deliveries match this filter.</td></tr>';
 }
 
+// "Who has how many products in charge" — one row per courier currently
+// holding stock, rolled up across every item. Pending = still in their hand
+// (assigned, not yet scanned over to a recipient); Delivered = what they've
+// already handed out. See GET /inventory/custody-summary.
+async function refreshInventoryCustodySummary() {
+  const body = document.getElementById('inventoryCustodySummaryBody');
+  if (!body) return;
+  let rows = [];
+  try { rows = await jget(`${API}/inventory/custody-summary`); } catch (e) { rows = []; }
+  body.innerHTML = rows.map((r) => `
+    <tr>
+      <td>${r.custodian_name || 'Unknown'}</td>
+      <td>${r.custodian_type === 'volunteer' ? 'Volunteer' : 'Host member'}</td>
+      <td><span class="pill ${r.pending_quantity ? 'in_progress' : 'done'}">${r.pending_quantity} (${r.pending_count} item${r.pending_count === 1 ? '' : 's'})</span></td>
+      <td>${r.delivered_quantity} (${r.delivered_count} item${r.delivered_count === 1 ? '' : 's'})</td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" class="empty">Nobody is currently carrying assigned stock.</td></tr>';
+}
+
 async function refreshInventoryMonitor() {
   await refreshInventoryMonitorSummary();
   await refreshInventoryMonitorDetail();
+  await refreshInventoryCustodySummary();
 }
 ['inventoryMonitorFilterCommittee', 'inventoryMonitorFilterStatus', 'inventoryMonitorFilterRecipientType'].forEach((id) => {
   document.getElementById(id)?.addEventListener('change', refreshInventoryMonitorDetail);
