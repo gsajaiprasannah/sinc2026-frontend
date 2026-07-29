@@ -523,8 +523,12 @@
         <button class="btn small" onclick="downloadAllDelegateBadgesZip()" title="Bulk badge+QR export for a print vendor">Download All Badges (ZIP)</button>
       </div>
     </div>
-    <div class="form-grid cols-2">
+    <div id="partCompletionSummary"></div>
+    <div class="form-grid cols-3">
       <div class="field"><input id="partSearch" placeholder="Search by name, phone, reg#, or club..." /></div>
+      <div class="field"><label>Profile completion</label>
+        <select id="partCompletionFilter"></select>
+      </div>
       <div class="field"><label>Sort by</label>
         <select id="partSortSelect">
           <option value="">Registration order (default)</option>
@@ -731,7 +735,13 @@
         <button class="btn small" onclick="downloadAllHostMemberBadgesZip()" title="Bulk badge+QR export for a print vendor">Download All Badges (ZIP)</button>
       </div>
     </div>
-    <div class="field"><input id="hmSearch" placeholder="Search by name, phone, or company..." /></div>
+    <div id="hmCompletionSummary"></div>
+    <div class="form-grid cols-2">
+      <div class="field"><input id="hmSearch" placeholder="Search by name, phone, or company..." /></div>
+      <div class="field"><label>Profile completion</label>
+        <select id="hmCompletionFilter"></select>
+      </div>
+    </div>
     <div class="card">
       <div class="record-card-list" id="hmTableBody"></div>
     </div>

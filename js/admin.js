@@ -475,6 +475,99 @@ function sizesLabel(obj) {
 // the card; `fields` is an array of {label, value} pairs (falsy values are
 // skipped so blank fields don't leave an empty gap); `actionsHtml` is a
 // pre-built string of one or more <button> tags.
+// --- Profile completion -------------------------------------------------
+// "How much of this person's record is actually filled in" — the thing the
+// office chases in the weeks before the congress. Each entry is one item of
+// the checklist; the percentage is simply how many are satisfied, so every
+// item carries equal weight (a missing phone number is as much a gap as a
+// missing food preference, from a chasing point of view).
+const DELEGATE_PROFILE_FIELDS = [
+  { key: 'phone', label: 'Phone', has: (r) => !!r.phone },
+  { key: 'email', label: 'Email', has: (r) => !!r.email },
+  { key: 'arrival', label: 'Arrival details', has: (r) => !!(r.travel_mode && r.travel_datetime) },
+  { key: 'departure', label: 'Departure details', has: (r) => !!(r.departure_mode && r.departure_datetime) },
+  { key: 'food', label: 'Food preference', has: (r) => !!r.dietary_preference },
+  { key: 'sizes', label: 'Merchandise sizes', has: (r) => !!(r.shirt_size || r.tshirt_size) },
+  { key: 'photo', label: 'Photo', has: (r) => !!r.photo_url },
+  // Aadhaar/passport URLs are stripped from the API response for anyone who
+  // isn't a super admin, so counting them for other roles would understate
+  // every delegate. The checklist shrinks instead, keeping the percentage
+  // honest for whoever is looking at it.
+  { key: 'id_doc', label: 'ID document', superAdminOnly: true, has: (r) => !!(r.aadhaar_url || r.passport_url) },
+];
+const HOST_MEMBER_PROFILE_FIELDS = [
+  { key: 'phone', label: 'Phone', has: (r) => !!r.phone },
+  { key: 'email', label: 'Email', has: (r) => !!r.email },
+  { key: 'food', label: 'Food preference', has: (r) => !!r.dietary_preference },
+  { key: 'sizes', label: 'Merchandise sizes', has: (r) => !!(r.shirt_size || r.tshirt_size) },
+  { key: 'photo', label: 'Photo', has: (r) => !!r.photo_url },
+  { key: 'card', label: 'Business card', has: (r) => !!r.business_card_url },
+  { key: 'logo', label: 'Company logo', has: (r) => !!r.logo_url },
+];
+function activeProfileFields(fields) {
+  const isSuper = !!(CURRENT_USER && CURRENT_USER.role === 'super_admin');
+  return fields.filter((f) => !f.superAdminOnly || isSuper);
+}
+function profileCompletion(row, fields) {
+  const active = activeProfileFields(fields);
+  const missing = active.filter((f) => !f.has(row));
+  const done = active.length - missing.length;
+  return {
+    done,
+    total: active.length,
+    pct: active.length ? Math.round((done / active.length) * 100) : 100,
+    missing: missing.map((f) => f.label),
+  };
+}
+// Buckets used by the filter dropdown and the summary line.
+function completionBucket(pct) {
+  if (pct === 100) return 'complete';
+  if (pct === 0) return 'empty';
+  return 'partial';
+}
+function completionCell(c) {
+  const cls = c.pct === 100 ? 'paid' : (c.pct === 0 ? 'pending' : 'partial');
+  return `<span class="pill ${cls}">${c.pct}%</span>`
+    + (c.missing.length ? `<br><span class="hint">Missing: ${c.missing.join(', ')}</span>` : '');
+}
+// "176 delegates · 62% average · 41 complete, 88 partial, 47 nothing filled"
+function completionSummaryHtml(rows, fields, noun, shownCount) {
+  if (!rows.length) return '';
+  const stats = rows.map((r) => profileCompletion(r, fields));
+  const avg = Math.round(stats.reduce((n, s) => n + s.pct, 0) / stats.length);
+  const n = (b) => stats.filter((s) => completionBucket(s.pct) === b).length;
+  const filtered = shownCount !== undefined && shownCount !== rows.length;
+  return `
+    <div class="card" style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:10px 26px;align-items:center;">
+      <div><span style="font-size:22px;font-weight:700;color:var(--navy);">${rows.length}</span>
+        <span class="hint" style="margin-left:6px;">total ${noun}(s)</span></div>
+      <div><span style="font-size:22px;font-weight:700;color:var(--navy);">${avg}%</span>
+        <span class="hint" style="margin-left:6px;">average profile completion</span></div>
+      <div class="hint">
+        <span class="pill paid">${n('complete')} complete</span>
+        <span class="pill partial">${n('partial')} partly filled</span>
+        <span class="pill pending">${n('empty')} nothing filled</span>
+      </div>
+      ${filtered ? `<div class="hint" style="width:100%;">Showing ${shownCount} of ${rows.length} after filtering.</div>` : ''}
+    </div>`;
+}
+// Options shared by both modules' "Profile completion" filter.
+function completionFilterOptions() {
+  return [
+    ['', 'All'],
+    ['complete', 'Complete (100%)'],
+    ['incomplete', 'Incomplete (anything missing)'],
+    ['partial', 'Partly filled'],
+    ['empty', 'Nothing filled in'],
+  ];
+}
+function matchesCompletionFilter(value, pct) {
+  if (!value) return true;
+  const bucket = completionBucket(pct);
+  if (value === 'incomplete') return pct < 100;
+  return bucket === value;
+}
+
 // --- Edit-in-place modal ----------------------------------------------
 // The Add/Edit forms for Delegates and Host Members sit at the top of their
 // tab, so editing a record meant scrolling up, editing, then hunting for
@@ -532,6 +625,52 @@ function closeEditModal(opts) {
   else if (form.id === 'hmForm' && typeof window.cancelEditHm === 'function') window.cancelEditHm();
 }
 window.closeEditModal = closeEditModal;
+
+// Every module's edit function ends by bringing its form into view. Rather
+// than teaching each of the two dozen of them about the modal individually,
+// they all call this: it finds the form's own card and the heading inside it
+// (each card starts with a .section-title that the edit function has already
+// set to "Edit X — name"), and opens that card as a popup.
+function openEditModalForForm(form) {
+  if (!form) return;
+  const card = form.closest('.card');
+  if (!card) { form.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+  const titleEl = card.querySelector('.section-title');
+  openEditModal(card, titleEl, titleEl ? titleEl.textContent : 'Edit');
+}
+
+// Each module has its own "Cancel edit" button that resets its form; none of
+// them know about the modal. One delegated listener puts the card back
+// whenever any of them is clicked, so the popup closes without every module
+// needing its own wiring. The module's own handler still runs and does the
+// resetting — this only handles the returning-to-the-page part.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn || !EDIT_MODAL_ORIGIN) return;
+  if (/CancelEditBtn$/.test(btn.id || '')) closeEditModal({ keepFormState: true });
+}, true);
+
+// Closing after a *successful* save, without every module having to say so.
+// Each module's submit handler is async and clears form.dataset.editId only
+// once the request succeeded, so that flag is the reliable success signal —
+// far safer than closing on submit, which would hide a failed save and lose
+// what was typed. If the save fails, editId survives and the popup stays open
+// with the data intact.
+(() => {
+  const body = document.getElementById('editFormModalBody');
+  if (!body) return;
+  body.addEventListener('submit', (e) => {
+    const form = e.target;
+    if (!form || !form.dataset || !form.dataset.editId) return;
+    let tries = 0;
+    const check = () => setTimeout(() => {
+      if (!EDIT_MODAL_ORIGIN) return;             // already closed
+      if (!form.dataset.editId) { closeEditModal({ keepFormState: true }); return; }
+      if (++tries < 20) check();                  // give the request ~5s
+    }, 250);
+    check();
+  });
+})();
 
 function renderRecordCard(headerLeftHtml, headerRightHtml, fields, actionsHtml, cardId) {
   const fieldsHtml = fields
@@ -1331,6 +1470,16 @@ async function refreshParts(query) {
   const sortSelect = document.getElementById('partSortSelect');
   rows = sortParts(rows, sortSelect ? sortSelect.value : '');
 
+  // Completion summary is computed over everything the search returned, so
+  // the headline totals don't move when the completion filter is narrowed —
+  // only the "showing N of M" line does.
+  const completionFilter = document.getElementById('partCompletionFilter');
+  const completionValue = completionFilter ? completionFilter.value : '';
+  const allRows = rows;
+  rows = rows.filter((p) => matchesCompletionFilter(completionValue, profileCompletion(p, DELEGATE_PROFILE_FIELDS).pct));
+  const summaryEl = document.getElementById('partCompletionSummary');
+  if (summaryEl) summaryEl.innerHTML = completionSummaryHtml(allRows, DELEGATE_PROFILE_FIELDS, 'delegate', rows.length);
+
   // Group every delegate by registration_id so each card can show who else
   // shares that registration — the primary registrant <-> co-registrant
   // link the congress team wants to keep track of. A registration only ever
@@ -1353,6 +1502,7 @@ async function refreshParts(query) {
     const fields = [
       { label: 'Registration ID', value: `<strong>${p.participant_code || '-'}</strong>` },
       { label: 'Reg #', value: p.reg_number || '-' },
+      { label: 'Profile', value: completionCell(profileCompletion(p, DELEGATE_PROFILE_FIELDS)) },
       { label: 'Registration type', value: p.registration_category
         ? `${regCategoryLabel(p.registration_category)}${regIncludesAccommodation(p.registration_category) === false ? '<br><span class="hint">No accommodation included</span>' : ''}`
         : '<span class="hint">Not recorded</span>' },
@@ -1678,6 +1828,22 @@ document.getElementById('partSortSelect').addEventListener('change', () => {
   refreshParts(document.getElementById('partSearch').value);
 });
 
+// Both modules' completion filters are populated from one option list and
+// simply re-run their existing refresh, which does the filtering.
+(() => {
+  const opts = completionFilterOptions().map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  const partFilter = document.getElementById('partCompletionFilter');
+  if (partFilter) {
+    partFilter.innerHTML = opts;
+    partFilter.addEventListener('change', () => refreshParts(document.getElementById('partSearch').value));
+  }
+  const hmFilter = document.getElementById('hmCompletionFilter');
+  if (hmFilter) {
+    hmFilter.innerHTML = opts;
+    hmFilter.addEventListener('change', () => refreshHostMembers(document.getElementById('hmSearch').value));
+  }
+})();
+
 let searchTimer = null;
 document.getElementById('partSearch').addEventListener('input', (e) => {
   clearTimeout(searchTimer);
@@ -1803,7 +1969,7 @@ window.editItin = async (id) => {
   document.getElementById('itinFormTitle').textContent = 'Update itinerary item';
   document.getElementById('itinSubmitBtn').textContent = 'Update Item';
   document.getElementById('itinCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 window.cancelEditItin = () => {
   const form = document.getElementById('itinForm');
@@ -1906,7 +2072,7 @@ window.editAgendaEvent = async (id) => {
   document.getElementById('agendaFormTitle').textContent = `Update agenda event — ${a.title}`;
   document.getElementById('agendaSubmitBtn').textContent = 'Update Event';
   document.getElementById('agendaCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('agendaCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('agendaForm');
@@ -1975,7 +2141,7 @@ window.editPerformerGroup = async (id) => {
   document.getElementById('performerFormTitle').textContent = `Update performer / vendor group — ${p.name}`;
   document.getElementById('performerSubmitBtn').textContent = 'Update Group';
   document.getElementById('performerCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('performerCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('performerForm');
@@ -2052,9 +2218,14 @@ window.downloadPerformerGroupsListPdf = async () => {
 async function refreshHostMembers(query) {
   const rows = await jget(`${API}/hostmembers`);
   const q = (query || '').toLowerCase();
-  const filtered = q
+  const searched = q
     ? rows.filter((h) => [h.name, h.phone, h.company].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
     : rows;
+  const hmFilterEl = document.getElementById('hmCompletionFilter');
+  const hmFilterValue = hmFilterEl ? hmFilterEl.value : '';
+  const filtered = searched.filter((h) => matchesCompletionFilter(hmFilterValue, profileCompletion(h, HOST_MEMBER_PROFILE_FIELDS).pct));
+  const hmSummaryEl = document.getElementById('hmCompletionSummary');
+  if (hmSummaryEl) hmSummaryEl.innerHTML = completionSummaryHtml(searched, HOST_MEMBER_PROFILE_FIELDS, 'host member', filtered.length);
   document.getElementById('hmTableBody').innerHTML = filtered.map((h) => {
     const committeeNames = (h.committees || []).map((c) => c.name);
     const committeesLabel = committeeNames.length > 2
@@ -2062,6 +2233,7 @@ async function refreshHostMembers(query) {
       : (committeeNames.join(', ') || '-');
     const header = `${h.name}${h.designation ? ' <span class="hint">(' + h.designation + ')</span>' : ''}`;
     const fields = [
+      { label: 'Profile', value: completionCell(profileCompletion(h, HOST_MEMBER_PROFILE_FIELDS)) },
       { label: 'Phone', value: h.phone || '-' },
       { label: 'Leadership Role', value: h.leadership_role ? `<span class="pill paid">${h.leadership_role}</span>` : '-' },
       { label: 'Committees', value: `<span title="${committeeNames.join(', ')}">${committeesLabel}</span>` },
@@ -2554,7 +2726,7 @@ window.editVol = async (id) => {
   document.getElementById('volFormTitle').textContent = `Update volunteer — ${v.name}`;
   document.getElementById('volSubmitBtn').textContent = 'Update Volunteer';
   document.getElementById('volCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 window.cancelEditVol = () => {
   const form = document.getElementById('volForm');
@@ -3011,7 +3183,7 @@ window.reuseEcCampaign = async (id) => {
     }
 
     document.getElementById('ecPreviewPanel').style.display = 'none';
-    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    openEditModalForForm(form);
     toast('Loaded into the form — edit what you need, then save it as a new draft.', 5000);
   } catch (err) { toast(err.message); }
 };
@@ -3191,7 +3363,7 @@ window.editCommittee = (id) => {
   document.getElementById('committeeFormTitle').textContent = `Edit committee — ${c.name}`;
   document.getElementById('committeeSubmitBtn').textContent = 'Update Committee';
   document.getElementById('committeeCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 window.cancelEditCommittee = () => {
   const form = document.getElementById('committeeForm');
@@ -3482,7 +3654,7 @@ window.editVehicle = async (id) => {
   document.getElementById('vehicleFormTitle').textContent = `Edit vehicle — ${v.vehicle_code}`;
   document.getElementById('vehicleSubmitBtn').textContent = 'Update Vehicle';
   document.getElementById('vehicleCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 window.cancelEditVehicle = () => {
   const form = document.getElementById('vehicleForm');
@@ -4058,7 +4230,7 @@ window.editTrip = async (id) => {
   document.getElementById('tripFormTitle').textContent = 'Edit trip';
   document.getElementById('tripSubmitBtn').textContent = 'Update Trip';
   document.getElementById('tripCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 window.cancelEditTrip = () => {
   const form = document.getElementById('tripForm');
@@ -4219,7 +4391,7 @@ window.editTour = async (id) => {
   document.getElementById('tourFormTitle').textContent = `Edit ${tourTypeLabel().toLowerCase()} — ${t.name}`;
   document.getElementById('tourSubmitBtn').textContent = `Update ${tourTypeLabel()}`;
   document.getElementById('tourCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 window.cancelEditTour = () => {
   const form = document.getElementById('tourForm');
@@ -6830,7 +7002,7 @@ window.editChecklistTemplate = async (id) => {
   form.dataset.editId = id;
   document.getElementById('checklistTemplateSubmitBtn').textContent = 'Update template item';
   document.getElementById('checklistTemplateCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 window.deleteChecklistTemplate = async (id) => {
   if (!confirm('Delete this checklist template item? Existing checklists that already used it are unaffected.')) return;
@@ -7056,7 +7228,7 @@ window.editSponsor = async (id) => {
   document.getElementById('sponsorFormTitle').textContent = 'Edit sponsor';
   document.getElementById('sponsorSubmitBtn').textContent = 'Update Sponsor';
   document.getElementById('sponsorCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('sponsorCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('sponsorForm');
@@ -7129,7 +7301,7 @@ window.editSpeaker = async (id) => {
   document.getElementById('speakerFormTitle').textContent = 'Edit guest speaker';
   document.getElementById('speakerSubmitBtn').textContent = 'Update Speaker';
   document.getElementById('speakerCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('speakerCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('speakerForm');
@@ -7192,7 +7364,7 @@ window.editGv = async (id) => {
   document.getElementById('gvFormTitle').textContent = 'Edit guest visitor';
   document.getElementById('gvSubmitBtn').textContent = 'Update Guest Visitor';
   document.getElementById('gvCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('gvCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('gvForm');
@@ -7264,7 +7436,7 @@ window.editHotel = async (id) => {
   document.getElementById('hotelFormTitle').textContent = 'Edit hotel';
   document.getElementById('hotelSubmitBtn').textContent = 'Update Hotel';
   document.getElementById('hotelCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('hotelCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('hotelForm');
@@ -7424,7 +7596,7 @@ window.editInventoryItem = async (id) => {
   document.getElementById('inventoryFormTitle').textContent = 'Edit inventory item';
   document.getElementById('inventorySubmitBtn').textContent = 'Update item';
   document.getElementById('inventoryCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('inventoryCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('inventoryForm');
@@ -8637,7 +8809,7 @@ window.editStallHall = async (id) => {
   document.getElementById('stallHallFormTitle').textContent = 'Update hall';
   document.getElementById('stallHallSubmitBtn').textContent = 'Update Hall';
   document.getElementById('stallHallCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('stallHallCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('stallHallForm');
@@ -8711,7 +8883,7 @@ window.editStall = async (id) => {
   document.getElementById('stallFormTitle').textContent = 'Update stall';
   document.getElementById('stallSubmitBtn').textContent = 'Update Stall';
   document.getElementById('stallCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('stallCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('stallForm');
@@ -8850,7 +9022,7 @@ window.editStallBooking = async (id) => {
   document.getElementById('stallBookingFormTitle').textContent = `Update enquiry — ${b.company_name}`;
   document.getElementById('stallBookingSubmitBtn').textContent = 'Update Enquiry';
   document.getElementById('stallBookingCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('stallBookingCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('stallBookingForm');
@@ -9133,7 +9305,7 @@ window.editFinanceInward = async (id) => {
   document.getElementById('finInwardFormTitle').textContent = 'Update manual inward entry';
   document.getElementById('finInwardSubmitBtn').textContent = 'Update Entry';
   document.getElementById('finInwardCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('finInwardCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('finInwardForm');
@@ -9316,7 +9488,7 @@ window.editFinanceOutward = async (id) => {
   document.getElementById('finOutwardFormTitle').textContent = `Update payment request — ${r.payee_or_payer}`;
   document.getElementById('finOutwardSubmitBtn').textContent = 'Update Request';
   document.getElementById('finOutwardCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('finOutwardCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('finOutwardForm');
@@ -9520,7 +9692,7 @@ window.editFinancePurchase = async (id) => {
   document.getElementById('finPurchaseFormTitle').textContent = `Update purchase request — ${r.purchase_item_name}`;
   document.getElementById('finPurchaseSubmitBtn').textContent = 'Update Request';
   document.getElementById('finPurchaseCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('finPurchaseCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('finPurchaseForm');
@@ -9608,7 +9780,7 @@ window.editVendor = async (id) => {
   document.getElementById('vendorFormTitle').textContent = `Edit vendor — ${v.name}`;
   document.getElementById('vendorSubmitBtn').textContent = 'Update vendor';
   document.getElementById('vendorCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModalForForm(form);
 };
 document.getElementById('vendorCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('vendorForm');
