@@ -350,6 +350,10 @@ function activateTab(tabKey) {
   // (switching tabs, navigating away) — leaving it running in the
   // background would keep the device's camera indicator lit for no reason.
   if (tabKey !== 'my-scans' && typeof stopQrScanner === 'function') stopQrScanner();
+  // Refresh today's trip list every time the scanner panel is opened, so a
+  // trip added/edited mid-day (or one that just finished) shows up without
+  // needing a full page reload.
+  if (tabKey === 'my-scans' && typeof loadTransportTripsToday === 'function') loadTransportTripsToday();
 }
 
 document.getElementById('tabNav').addEventListener('click', (e) => {
@@ -872,7 +876,7 @@ const MODULE_CONFIG = {
       { name: 'notes', label: 'Notes', type: 'textarea' },
     ] },
   transport_planning: { label: 'Transport Planning', path: 'transport', hasArrivalsQueue: true, editable: true,
-    columns: [['trip_date', 'Date'], ['from_location', 'From'], ['to_location', 'To'], ['partner_name', 'Transporter'], ['passenger_count', 'Passengers'], ['status', 'Status']],
+    columns: [['trip_date', 'Date'], ['from_location', 'From'], ['to_location', 'To'], ['partner_name', 'Transporter'], ['passenger_count', 'Passengers'], ['boarded_count', 'Boarded'], ['status', 'Status']],
     // Per-row "Passengers" button (mirrors admin.js's manageTripPassengers)
     // opening the manifest panel below the table — see #tripPassengerCard
     // markup in tripPassengerCardHtml()/manageTripPassengers/
@@ -1416,7 +1420,7 @@ function tripPassengerCardHtml() {
       </form>
       <div class="table-scroll" style="margin-top:12px;">
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Phone</th><th>Pickup point</th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Phone</th><th>Pickup point</th><th>Boarded</th></tr></thead>
           <tbody id="tripPassengerTableBody"></tbody>
         </table>
       </div>
@@ -1462,8 +1466,9 @@ async function refreshTripPassengers() {
       <td>${p.participant_id ? 'Delegate' : 'Host member'}</td>
       <td>${escapeHtml(p.participant_phone || p.host_member_phone || '-')}</td>
       <td>${escapeHtml(p.pickup_point || '-')}</td>
+      <td>${p.boarded_at ? `✅ ${new Date(p.boarded_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : '<span class="hint">Not yet</span>'}</td>
     </tr>
-  `).join('') || '<tr><td colspan="4" class="empty">No passengers added yet</td></tr>';
+  `).join('') || '<tr><td colspan="5" class="empty">No passengers added yet</td></tr>';
 }
 function wireTripPassengerForm() {
   const sel = document.getElementById('tripPassengerTypeSelect');
@@ -3581,6 +3586,70 @@ window.decideFinanceApproval = async (approvalId, decision) => {
 let qrScannerInstance = null;
 let qrScannerRunning = false;
 
+// --- Transport: pick-a-trip-first ---------------------------------------
+// A transport-duty scanner (driver/transporter with a vehicle, a dedicated
+// scan_point='transport' desk, or admin) picks the exact trip they're
+// boarding for from this dropdown BEFORE scanning anyone — every scan is
+// then checked against that specific trip's passenger list on the server
+// (see badge.js's /transport-scan), not against a fixed vehicle_id on the
+// scanner's own profile, since one scanner may cover several vehicles/trips
+// across a day. Hidden entirely for logins with no transport cap — the
+// server 403s /transport-trips-today for them and the card just stays
+// hidden rather than showing an empty "select a trip" prompt that goes
+// nowhere.
+let SELECTED_SCAN_TRIP_ID = null;
+let SCAN_TRIPS_TODAY = [];
+async function loadTransportTripsToday() {
+  const card = document.getElementById('scanTripCard');
+  if (!card) return;
+  try {
+    SCAN_TRIPS_TODAY = await jget(`${API}/badge/transport-trips-today`);
+  } catch (e) {
+    if (e instanceof UnauthorizedError) return;
+    // Most likely a 403 (no transport cap) — just hide the card rather than
+    // surfacing an error for something this login was never meant to see.
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  const sel = document.getElementById('scanTripSelect');
+  const emptyHint = document.getElementById('scanTripEmptyHint');
+  if (!sel) return;
+  const previous = sel.value;
+  sel.innerHTML = '<option value="">-- select a trip --</option>' + SCAN_TRIPS_TODAY.map((t) => {
+    const time = t.depart_time ? `${t.depart_time} — ` : '';
+    const route = `${t.from_location} → ${t.to_location}`;
+    const vehicle = t.vehicle_code ? `${t.vehicle_code}${t.vehicle_type ? ' (' + vehicleTypeLabel(t.vehicle_type) + ')' : ''}` : 'no vehicle assigned';
+    const driver = t.driver_name ? ` · Driver: ${t.driver_name}` : '';
+    const seats = `${t.boarded_count || 0}/${t.passenger_count || 0} boarded`;
+    return `<option value="${t.id}">${time}${route} — ${vehicle}${driver} (${seats})</option>`;
+  }).join('');
+  if (previous && SCAN_TRIPS_TODAY.some((t) => String(t.id) === previous)) sel.value = previous;
+  SELECTED_SCAN_TRIP_ID = sel.value || null;
+  if (emptyHint) emptyHint.style.display = SCAN_TRIPS_TODAY.length ? 'none' : '';
+}
+document.getElementById('scanTripSelect')?.addEventListener('change', (e) => {
+  SELECTED_SCAN_TRIP_ID = e.target.value || null;
+});
+
+// --- Transport scan result popup ---------------------------------------
+// Every Transport Scan tap pops this up immediately (in addition to the
+// inline result text already shown in the scan card) so a match/mismatch/
+// unassigned result can't be missed in a busy boarding line.
+function showScanNotice(iconAndTone, html) {
+  const overlay = document.getElementById('scanNoticeOverlay');
+  if (!overlay) return;
+  document.getElementById('scanNoticeIcon').textContent = iconAndTone.icon;
+  const bodyEl = document.getElementById('scanNoticeBody');
+  bodyEl.innerHTML = html;
+  bodyEl.style.color = iconAndTone.tone === 'error' ? 'var(--red)' : 'inherit';
+  overlay.style.display = '';
+}
+window.closeScanNotice = () => {
+  const overlay = document.getElementById('scanNoticeOverlay');
+  if (overlay) overlay.style.display = 'none';
+};
+
 function extractBadgeToken(raw) {
   const text = (raw || '').trim();
   if (!text) return '';
@@ -3743,14 +3812,36 @@ function renderScanResult(d, token) {
   }
   if (caps.transport) {
     addButton('Transport Scan', async (e) => {
+      if (!SELECTED_SCAN_TRIP_ID) {
+        showResult('Select a trip from the dropdown above before scanning.', true);
+        return;
+      }
       e.target.disabled = true;
       try {
-        const r = await postAction('/transport-scan');
-        if (r.match) showResult(`✅ Correct vehicle. ${r.trip.from_location} → ${r.trip.to_location}${r.trip.depart_time ? ' · ' + r.trip.depart_time : ''}`);
-        else if (r.assigned === false) showResult(r.message || 'No transport assignment found for this person today.', true);
-        else {
+        const r = await postAction('/transport-scan', { trip_id: SELECTED_SCAN_TRIP_ID });
+        if (r.match) {
+          const t = r.trip;
+          const route = `${t.from_location} → ${t.to_location}${t.depart_time ? ' · ' + t.depart_time : ''}`;
+          if (r.alreadyBoarded) {
+            showResult(`Already boarded at ${new Date(r.boarded_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}.`);
+            showScanNotice({ icon: 'ℹ️' }, `<strong>Already boarded</strong><br>${route}<br>Marked at ${new Date(r.boarded_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}.`);
+          } else {
+            showResult(`✅ Boarded — correct vehicle. ${route}`);
+            showScanNotice({ icon: '✅' }, `<strong>Boarded</strong><br>${t.vehicle_code ? t.vehicle_code + ' — ' : ''}${route}`);
+          }
+        } else if (r.assigned === false) {
+          const msg = r.message || 'No transport assignment found for this person today.';
+          showResult(msg, true);
+          showScanNotice({ icon: '❌', tone: 'error' }, `<strong>Not assigned to any trip today</strong><br>${msg}`);
+        } else {
           const t = r.correctTrip;
-          showResult(`⚠️ Wrong vehicle. Should board ${t.vehicle_code || '?'}${t.driver_name ? ' (driver: ' + t.driver_name + ')' : ''} — ${t.from_location} → ${t.to_location}`, true);
+          const inline = `⚠️ Wrong vehicle. Should board ${t.vehicle_code || '?'}${t.driver_name ? ' (driver: ' + t.driver_name + ')' : ''} — ${t.from_location} → ${t.to_location}`;
+          showResult(inline, true);
+          showScanNotice({ icon: '⚠️', tone: 'error' }, `
+            <strong>Wrong vehicle</strong><br>
+            This passenger is allocated to <strong>${t.vehicle_code || 'a different vehicle'}</strong>${t.driver_name ? ' — driver ' + t.driver_name + (t.driver_phone ? ' (' + t.driver_phone + ')' : '') : ''}<br>
+            ${t.from_location} → ${t.to_location}${t.depart_time ? ' · ' + t.depart_time : ''}
+          `);
         }
       } catch (err) { if (!(err instanceof UnauthorizedError)) showResult(err.message, true); }
       finally { e.target.disabled = false; }

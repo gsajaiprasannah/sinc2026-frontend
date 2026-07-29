@@ -3715,7 +3715,7 @@ async function refreshTransportTrips() {
       <td>${t.purpose || '-'}</td>
       <td>${t.vehicle_code ? `${t.vehicle_code} <span class="hint">(${vehicleTypeLabel(t.vehicle_type)})</span>` : '<span class="hint">unassigned</span>'}</td>
       <td>${t.driver_name || '-'}</td>
-      <td>${capacityBadge(Number(t.passenger_count), t.seating_capacity)}</td>
+      <td>${capacityBadge(Number(t.passenger_count), t.seating_capacity)}${Number(t.passenger_count) ? `<br><span class="hint">${t.boarded_count || 0} boarded</span>` : ''}</td>
       <td>${tripStatusPill(t.status)}</td>
       <td class="sticky-actions">
         <button class="btn small" onclick="manageTripPassengers(${t.id}, '${(t.from_location + ' → ' + t.to_location).replace(/'/g, '')}')">Passengers</button>
@@ -4283,9 +4283,10 @@ async function refreshTripPassengers() {
       <td>${p.participant_id ? 'Delegate' : 'Host member'}</td>
       <td>${p.participant_phone || p.host_member_phone || '-'}</td>
       <td>${p.pickup_point || '-'}</td>
+      <td>${p.boarded_at ? `✅ ${new Date(p.boarded_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}${p.boarded_by_username ? ` <span class="hint">(${p.boarded_by_username})</span>` : ''}` : '<span class="hint">Not yet</span>'}</td>
       <td>${canDelete() ? `<button class="btn danger small" onclick="removeTripPassenger(${p.id})">Remove</button>` : ''}</td>
     </tr>
-  `).join('') || '<tr><td colspan="5" class="empty">No passengers added yet</td></tr>';
+  `).join('') || '<tr><td colspan="6" class="empty">No passengers added yet</td></tr>';
 }
 window.removeTripPassenger = async (passengerId) => {
   await jdel(`${API}/transport/${currentTripId}/passengers/${passengerId}`);

@@ -445,6 +445,17 @@
     <!-- ===== SHARED: Badge scanning history ("My Scans" / stall owner's ===== -->
     <!-- "My Visitors") — see refreshMyScans() in login.js. -->
     <section class="tab-panel" id="tab-my-scans">
+      <!-- Transport-duty-only: pick the exact trip (route + vehicle + driver) -->
+      <!-- being boarded right now, BEFORE scanning anyone. Hidden entirely for -->
+      <!-- logins with no transport scan-duty (loadTransportTripsToday() in -->
+      <!-- login.js only reveals it once the server confirms the cap). -->
+      <div class="card" id="scanTripCard" style="display:none;">
+        <div class="section-title" style="margin-top:0">Transport — select your trip</div>
+        <p class="hint" style="margin-top:-6px;">Pick the trip you're boarding passengers for. Every scan below is checked against this trip.</p>
+        <select id="scanTripSelect"><option value="">-- select a trip --</option></select>
+        <p class="hint" id="scanTripEmptyHint" style="display:none;margin-top:8px;">No transport trips are scheduled for today yet.</p>
+      </div>
+
       <!-- In-page camera QR scanner — decodes a badge's QR right here instead -->
       <!-- of needing the phone's own camera app to open badge.html. Falls -->
       <!-- back to a paste-a-link/token box for devices without camera access. -->
@@ -521,6 +532,17 @@
   <div style="position:relative;max-width:92vw;max-height:92vh;">
     <button type="button" class="modal-close" onclick="closeImageLightbox()" style="position:absolute;top:-8px;right:-8px;background:var(--card,#fff);border-radius:50%;box-shadow:0 4px 14px rgba(15,26,51,0.28);">&times;</button>
     <img id="imageLightboxImg" src="" alt="" style="max-width:92vw;max-height:92vh;border-radius:10px;display:block;box-shadow:0 24px 64px rgba(15,26,51,0.4);" />
+  </div>
+</div>
+
+<!-- Transport scan result — pops up right after every "Transport Scan" tap -->
+<!-- so a boarding match/mismatch/unassigned result can't be missed in a busy -->
+<!-- boarding line. See showScanNotice()/closeScanNotice() in login.js. -->
+<div class="modal-overlay" id="scanNoticeOverlay" style="display:none;z-index:410;" onclick="if(event.target===this) closeScanNotice()">
+  <div class="modal-card" style="max-width:420px;text-align:center;">
+    <div id="scanNoticeIcon" style="font-size:40px;line-height:1;margin-bottom:6px;"></div>
+    <div id="scanNoticeBody" style="font-size:15.5px;margin-bottom:16px;"></div>
+    <button type="button" class="btn gold" style="width:100%;" onclick="closeScanNotice()">OK</button>
   </div>
 </div>
 
