@@ -4112,12 +4112,18 @@ function renderScanResult(d, token) {
         const ev = r.event;
         const label = [ev.day_label, ev.time_label, ev.title].filter(Boolean).join(' — ');
         const timeStr = new Date(r.checked_in_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        const who = r.name ? escapeHtml(r.name) : 'This person';
         if (r.alreadyMarked) {
-          showResult(`Already marked present at ${timeStr}.`);
-          showScanNotice({ icon: 'ℹ️' }, `<strong>Already marked present</strong><br>${label}<br>Marked at ${timeStr}.`);
+          // Duplicate scan: no second row is ever written (the server checks
+          // for an existing event_attendance record before inserting, and the
+          // table's UNIQUE(itinerary_item_id, entity_type, entity_id)
+          // constraint backs that up at the DB level too) — this is purely a
+          // heads-up popup so the registration desk knows not to scan again.
+          showResult(`⚠️ ${who} is already marked present (at ${timeStr}). No duplicate recorded.`, true);
+          showScanNotice({ icon: '⚠️' }, `<strong>Already scanned</strong><br>${who} was already marked present for<br>${label}<br>at ${timeStr}. No duplicate was recorded.`);
         } else {
-          showResult(`✅ Marked present — ${label}`);
-          showScanNotice({ icon: '✅' }, `<strong>Marked present</strong><br>${label}`);
+          showResult(`✅ Marked present — ${who} — ${label}`);
+          showScanNotice({ icon: '✅' }, `<strong>Marked present</strong><br>${who}<br>${label}`);
         }
       } catch (err) { if (!(err instanceof UnauthorizedError)) showResult(err.message, true); }
       finally { e.target.disabled = false; }
