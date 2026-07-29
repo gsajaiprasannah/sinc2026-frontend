@@ -1094,6 +1094,7 @@ function switchAdminTab(tab) {
   if (tab === 'pretours' || tab === 'posttours') setTourType(tab === 'posttours' ? 'post' : 'pre');
   if (tab === 'settings') refreshUsersAdmin();
   if (tab === 'activitylog') { refreshActivityLog(); refreshScanActivity(); }
+  if (tab === 'attendance') refreshAttendance();
   // On phone/tablet widths the sidebar overlays the content, so tuck it away
   // again once a section has been picked (matches the standard mobile pattern).
   if (window.innerWidth < 860 && adminShell) {
@@ -1999,6 +2000,122 @@ document.getElementById('itinForm').addEventListener('submit', async (e) => {
   } catch (err) { toast(err.message); }
 });
 
+// --- Attendance (registration-desk QR scanning against itinerary slots) --
+// The list, the per-event attendee drill-down, and the manual mark form all
+// read straight off /api/attendance, which itself is built from
+// itinerary_items (see server/routes/attendance.js) — nothing here is
+// duplicated or hardcoded, so an edit made in the Itinerary section above
+// (renaming a slot, changing its time, adding a brand-new one) shows up here
+// on the very next refresh with no extra step.
+let currentAttendanceItemId = null;
+function attendancePctPill(present, total) {
+  if (!total) return '<span class="hint">-</span>';
+  const pct = Math.round((present / total) * 100);
+  const cls = pct >= 100 ? 'paid' : pct === 0 ? 'pending' : 'in_progress';
+  return `${present}/${total} <span class="pill ${cls}">${pct}%</span>`;
+}
+async function refreshAttendance() {
+  const rows = await jget(`${API}/attendance`);
+  document.getElementById('attendanceTableBody').innerHTML = rows.map((r) => `
+    <tr>
+      <td>${r.day_label}</td>
+      <td>${r.time_label || '-'}</td>
+      <td>${r.title}</td>
+      <td>${attendancePctPill(r.delegate_present, r.total_delegates)}</td>
+      <td>${attendancePctPill(r.host_member_present, r.total_host_members)}</td>
+      <td><button class="btn small" onclick="manageAttendance(${r.id}, '${itinerarySlotLabel(r).replace(/'/g, "\\'")}')">View attendees</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">No itinerary items yet — add one in the Itinerary tab first</td></tr>';
+}
+window.manageAttendance = async (itemId, label) => {
+  currentAttendanceItemId = itemId;
+  document.getElementById('attendanceDetailLabel').textContent = label;
+  document.getElementById('attendanceDetailCard').style.display = '';
+  await refreshAttendanceDetail();
+  document.getElementById('attendanceDetailCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+async function refreshAttendanceDetail() {
+  if (!currentAttendanceItemId) return;
+  const { attendees } = await jget(`${API}/attendance/${currentAttendanceItemId}/attendees`);
+  document.getElementById('attendanceDetailTableBody').innerHTML = (attendees || []).map((a) => `
+    <tr>
+      <td>${a.name || '-'}</td>
+      <td>${a.entity_type === 'host_member' ? 'Host member' : 'Delegate'}</td>
+      <td>${a.club_or_company || '-'}</td>
+      <td>${new Date(a.checked_in_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+      <td>${a.checked_in_by_username || '<span class="hint">badge scan</span>'}</td>
+      <td><button class="btn danger small" onclick="unmarkAttendance(${a.id})">Remove</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="empty">Nobody marked present yet</td></tr>';
+}
+window.unmarkAttendance = async (attendanceId) => {
+  await jdel(`${API}/attendance/${currentAttendanceItemId}/attendees/${attendanceId}`);
+  toast('Attendance record removed');
+  refreshAttendanceDetail();
+  refreshAttendance();
+};
+document.getElementById('attendanceMarkTypeSelect').addEventListener('change', (e) => {
+  const isHm = e.target.value === 'host_member';
+  document.getElementById('attendanceMarkParticipantSelect').style.display = isHm ? 'none' : '';
+  document.getElementById('attendanceMarkHmSelect').style.display = isHm ? '' : 'none';
+});
+document.getElementById('attendanceMarkForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!currentAttendanceItemId) { toast('Select an event first — click "View attendees" on a row below.'); return; }
+  const isHm = document.getElementById('attendanceMarkTypeSelect').value === 'host_member';
+  const entityId = isHm
+    ? document.getElementById('attendanceMarkHmSelect').value
+    : document.getElementById('attendanceMarkParticipantSelect').value;
+  if (!entityId) { toast('Choose a delegate or a host member'); return; }
+  try {
+    await jpost(`${API}/attendance/${currentAttendanceItemId}/attendees`, { entity_type: isHm ? 'host_member' : 'participant', entity_id: entityId });
+    toast('Marked present');
+    refreshAttendanceDetail();
+    refreshAttendance();
+  } catch (err) { toast(err.message); }
+});
+window.downloadAttendanceSummaryPdf = async () => {
+  try {
+    const rows = await jget(`${API}/attendance`);
+    const doc = pdfDoc();
+    let y = await pdfLetterhead(doc, 'Attendance Summary', `${rows.length} itinerary slot(s)`);
+    y = pdfTable(doc, y, [
+      { label: 'Day', width: 70 },
+      { label: 'Time', width: 60 },
+      { label: 'Title', width: 170 },
+      { label: 'Delegates', width: 90 },
+      { label: 'Host members', width: 90 },
+    ], rows.map((r) => [
+      r.day_label, r.time_label || '-', r.title,
+      r.total_delegates ? `${r.delegate_present}/${r.total_delegates}` : '-',
+      r.total_host_members ? `${r.host_member_present}/${r.total_host_members}` : '-',
+    ]));
+    pdfFinalize(doc);
+    doc.save('attendance-summary.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadAttendanceDetailPdf = async () => {
+  if (!currentAttendanceItemId) return;
+  try {
+    const { item, attendees } = await jget(`${API}/attendance/${currentAttendanceItemId}/attendees`);
+    const doc = pdfDoc();
+    let y = await pdfLetterhead(doc, `Attendance — ${item.title}`, itinerarySlotLabel(item));
+    y = pdfTable(doc, y, [
+      { label: 'Name', width: 150 },
+      { label: 'Type', width: 80 },
+      { label: 'Club / Company', width: 130 },
+      { label: 'Checked in', width: 130 },
+    ], (attendees || []).map((a) => [
+      a.name || '-',
+      a.entity_type === 'host_member' ? 'Host member' : 'Delegate',
+      a.club_or_company || '-',
+      new Date(a.checked_in_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
+    ]));
+    pdfFinalize(doc);
+    doc.save(`attendance-${(item.title || 'event').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+
 // --- Agenda Builder (event management within an Itinerary slot) ----------
 // One itinerary slot (e.g. "Inaugural Ceremony") contains an ordered flow of
 // individual events (Prayer Song, National Anthem, dance performances...),
@@ -2267,7 +2384,7 @@ async function refreshHostMembers(query) {
 
   // Keep every other tab's host-member dropdowns in sync with the latest list.
   const opts = rows.map((h) => `<option value="${h.id}">${h.name}${h.company ? ' (' + h.company + ')' : ''}</option>`).join('');
-  ['committeeHmSelect', 'assignHmSelect', 'taskHmSelect', 'createUserHmSelect', 'partSpocHmSelect', 'tripPassengerHmSelect', 'tourPartHmSelect', 'roomHmSelect', 'sponsorHmSelect', 'speakerHmSelect', 'gvHmSelect'].forEach((id) => {
+  ['committeeHmSelect', 'assignHmSelect', 'taskHmSelect', 'createUserHmSelect', 'partSpocHmSelect', 'tripPassengerHmSelect', 'tourPartHmSelect', 'roomHmSelect', 'sponsorHmSelect', 'speakerHmSelect', 'gvHmSelect', 'attendanceMarkHmSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '<option value="">-- select --</option>' + opts;
   });
@@ -3444,7 +3561,7 @@ async function refreshAssignmentDropdowns() {
     const noRoom = regIncludesAccommodation(p.registration_category) === false;
     return `<option value="${p.id}" data-no-room="${noRoom}">${p.name} — ${p.participant_code || ''} (${p.club_name || 'no club'})${noRoom ? ' — CONGRESS ONLY, no room included' : ''}</option>`;
   }).join('');
-  ['assignPartSelect', 'tripPassengerParticipantSelect', 'tourPartParticipantSelect'].forEach((id) => {
+  ['assignPartSelect', 'tripPassengerParticipantSelect', 'tourPartParticipantSelect', 'attendanceMarkParticipantSelect'].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = opts;
   });
@@ -9235,6 +9352,7 @@ function loadAllData() {
   refreshMediaAdmin();
   refreshHappeningsAdmin();
   refreshItinerary();
+  refreshAttendance();
   refreshHostMembers();
   refreshHostPayments();
   refreshCommittees();

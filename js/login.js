@@ -355,6 +355,7 @@ function activateTab(tabKey) {
   // needing a full page reload.
   if (tabKey === 'my-scans' && typeof loadTransportTripsToday === 'function') loadTransportTripsToday();
   if (tabKey === 'my-scans' && typeof loadGoodiesChecklist === 'function') loadGoodiesChecklist();
+  if (tabKey === 'my-scans' && typeof loadItineraryEvents === 'function') loadItineraryEvents();
 }
 
 document.getElementById('tabNav').addEventListener('click', (e) => {
@@ -1046,6 +1047,20 @@ const MODULE_CONFIG = {
         { name: 'title', label: 'Title', required: true }, { name: 'description', label: 'Description', type: 'textarea' },
         { name: 'sort_order', label: 'Sort order', type: 'number' },
       ] },
+    // Read-only attendance report — no add/edit form of its own (fields: []),
+    // since the actual "marking present" happens either via badge scan at the
+    // registration desk or the custom Mark Present form inside
+    // attendanceCardHtml() below (wired via extraPanelHtml/extraPanelWire,
+    // same pattern as Trip Passengers/Agenda). Counts and the per-event
+    // drill-down both come straight from itinerary_items, so this always
+    // reflects whatever slots exist in the Itinerary Slots section above.
+    { path: 'attendance', label: 'Attendance', columns: [
+        ['day_label', 'Day'], ['time_label', 'Time'], ['title', 'Title'],
+        ['delegate_present', 'Delegates present'], ['total_delegates', 'Total delegates'],
+        ['host_member_present', 'Host members present'], ['total_host_members', 'Total host members'],
+      ], fields: [],
+      extraRowAction: (r) => `<button type="button" class="btn small" onclick="openAttendance(${r.id}, '${(itinerarySlotLabelHost(r)).replace(/'/g, '')}')">View attendees</button>`,
+      extraPanelHtml: attendanceCardHtml, extraPanelWire: wireAttendanceForm },
     { path: 'performer-groups', label: 'Performer / Vendor Groups', editable: true,
       columns: [['name', 'Name'], ['category', 'Category'], ['contact_person', 'Contact'], ['fee_amount', 'Fee'], ['payment_status', 'Payment']],
       fields: [
@@ -2345,6 +2360,116 @@ function wireAgendaForm() {
         e.target.reset();
         toast('Agenda event added');
         await refreshAgenda();
+      } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+    });
+  }
+}
+
+// --- Attendance drill-down (Itinerary module's "Attendance" section) -----
+// Per-event "who's here" list plus a Mark Present form — the committee-side
+// equivalent of the registration desk's badge scan. Read-only otherwise: no
+// Remove button, same reasoning as Trip Passengers above (DELETE is globally
+// gated to super_admin on the server, so a committee login could never use
+// one anyway).
+let currentAttendanceEventId = null;
+let currentAttendanceEventLabel = '';
+function attendanceCardHtml() {
+  return `
+    <div class="card" id="attendanceHostCard" style="margin-top:14px; display:none;">
+      <div class="section-title" style="margin-top:0">Attendees — <span id="attendanceHostLabel"></span></div>
+      <form id="attendanceHostForm">
+        <div class="form-grid cols-3">
+          <div class="field"><label>Type</label>
+            <select id="attendanceHostTypeSelect">
+              <option value="participant">Delegate</option>
+              <option value="host_member">Host member</option>
+            </select>
+          </div>
+          <div class="field"><label>Delegate</label><select id="attendanceHostParticipantSelect"></select></div>
+          <div class="field"><label>Host member</label><select id="attendanceHostHmSelect" style="display:none;"></select></div>
+        </div>
+        <button class="btn gold small" type="submit">Mark present</button>
+      </form>
+      <div class="table-scroll" style="margin-top:12px;">
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Club / Company</th><th>Checked in</th></tr></thead>
+          <tbody id="attendanceHostTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+window.openAttendance = async (itineraryItemId, label) => {
+  currentAttendanceEventId = itineraryItemId;
+  currentAttendanceEventLabel = label;
+  const card = document.getElementById('attendanceHostCard');
+  if (!card) return;
+  document.getElementById('attendanceHostLabel').textContent = label;
+  card.style.display = '';
+  await refreshAttendanceHostOptions();
+  await refreshAttendanceHost();
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+async function refreshAttendanceHostOptions() {
+  try {
+    const [participants, hostMembers] = await Promise.all([
+      jget(`${API}/portal-modules/attendance/participants-lite`),
+      jget(`${API}/portal-modules/attendance/host-members-lite`),
+    ]);
+    const pSelect = document.getElementById('attendanceHostParticipantSelect');
+    const hSelect = document.getElementById('attendanceHostHmSelect');
+    if (pSelect) pSelect.innerHTML = participants.map((p) => `<option value="${p.id}">${escapeHtml(p.name)} — ${escapeHtml(p.participant_code || '')} (${escapeHtml(p.club_name || 'no club')})</option>`).join('');
+    if (hSelect) hSelect.innerHTML = hostMembers.map((h) => `<option value="${h.id}">${escapeHtml(h.name)}${h.company ? ' (' + escapeHtml(h.company) + ')' : ''}</option>`).join('');
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+}
+async function refreshAttendanceHost() {
+  if (!currentAttendanceEventId) return;
+  let attendees = [];
+  try {
+    const data = await jget(`${API}/portal-modules/attendance/${currentAttendanceEventId}/attendees`);
+    attendees = data.attendees || [];
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); return; }
+  document.getElementById('attendanceHostTableBody').innerHTML = attendees.map((a) => `
+    <tr>
+      <td>${escapeHtml(a.name || '-')}</td>
+      <td>${a.entity_type === 'host_member' ? 'Host member' : 'Delegate'}</td>
+      <td>${escapeHtml(a.club_or_company || '-')}</td>
+      <td>${new Date(a.checked_in_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="4" class="empty">Nobody marked present yet</td></tr>';
+}
+function wireAttendanceForm() {
+  const sel = document.getElementById('attendanceHostTypeSelect');
+  if (sel && !sel.dataset.wired) {
+    sel.dataset.wired = '1';
+    sel.addEventListener('change', (e) => {
+      const isHm = e.target.value === 'host_member';
+      document.getElementById('attendanceHostParticipantSelect').style.display = isHm ? 'none' : '';
+      document.getElementById('attendanceHostHmSelect').style.display = isHm ? '' : 'none';
+    });
+  }
+  const form = document.getElementById('attendanceHostForm');
+  if (form && !form.dataset.wired) {
+    form.dataset.wired = '1';
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!currentAttendanceEventId) { toast('Click "View attendees" on an event above first'); return; }
+      const isHm = document.getElementById('attendanceHostTypeSelect').value === 'host_member';
+      const entityId = isHm
+        ? document.getElementById('attendanceHostHmSelect').value
+        : document.getElementById('attendanceHostParticipantSelect').value;
+      if (!entityId) { toast('Choose a delegate or a host member'); return; }
+      try {
+        await jpost(`${API}/portal-modules/attendance/${currentAttendanceEventId}/attendees`, { entity_type: isHm ? 'host_member' : 'participant', entity_id: entityId });
+        toast('Marked present');
+        await refreshAttendanceHost();
+        // Re-render the section table so the present-count columns stay in
+        // sync, then re-open this same panel (renderHostModuleSection wipes
+        // and rebuilds #hostModuleBody, including this card).
+        const cfg = MODULE_CONFIG.itinerary;
+        const section = cfg.sections.find((s) => s.path === 'attendance');
+        await renderHostModuleSection(cfg, section);
+        await window.openAttendance(currentAttendanceEventId, currentAttendanceEventLabel);
       } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
     });
   }
@@ -3689,6 +3814,40 @@ document.getElementById('scanTripSelect')?.addEventListener('change', (e) => {
   SELECTED_SCAN_TRIP_ID = e.target.value || null;
 });
 
+// --- Registration desk: pick-the-event-first, same idea as transport's -----
+// pick-the-trip-first above. Options come straight from GET /badge/
+// itinerary-events, which reads the live itinerary_items table (the same one
+// the Itinerary module edits) — so a slot renamed, retimed, or newly added
+// there shows up here immediately, with nothing to keep in sync by hand.
+let SELECTED_SCAN_EVENT_ID = null;
+async function loadItineraryEvents() {
+  const card = document.getElementById('scanEventCard');
+  if (!card) return;
+  let events;
+  try {
+    events = await jget(`${API}/badge/itinerary-events`);
+  } catch (e) {
+    if (e instanceof UnauthorizedError) return;
+    // Most likely a 403 (no registration scan-duty) — hide the card rather
+    // than surfacing an error for something this login was never meant to see.
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  const sel = document.getElementById('scanEventSelect');
+  if (!sel) return;
+  const previous = sel.value;
+  sel.innerHTML = '<option value="">-- select an event --</option>' + events.map((ev) => {
+    const label = [ev.day_label, ev.time_label, ev.title].filter(Boolean).join(' — ');
+    return `<option value="${ev.id}">${escapeHtml(label)} (${ev.present_count} present so far)</option>`;
+  }).join('');
+  if (previous && events.some((ev) => String(ev.id) === previous)) sel.value = previous;
+  SELECTED_SCAN_EVENT_ID = sel.value || null;
+}
+document.getElementById('scanEventSelect')?.addEventListener('change', (e) => {
+  SELECTED_SCAN_EVENT_ID = e.target.value || null;
+});
+
 // --- Goodies: "My Deliveries" proactive checklist -----------------------
 // Shows a courier (host member/volunteer handed goods to distribute, or
 // admin/super_admin) their full delivery run up front — every item
@@ -3936,6 +4095,29 @@ function renderScanResult(d, token) {
             This passenger is allocated to <strong>${t.vehicle_code || 'a different vehicle'}</strong>${t.driver_name ? ' — driver ' + t.driver_name + (t.driver_phone ? ' (' + t.driver_phone + ')' : '') : ''}<br>
             ${t.from_location} → ${t.to_location}${t.depart_time ? ' · ' + t.depart_time : ''}
           `);
+        }
+      } catch (err) { if (!(err instanceof UnauthorizedError)) showResult(err.message, true); }
+      finally { e.target.disabled = false; }
+    });
+  }
+  if (caps.registration) {
+    addButton('Mark Event Attendance', async (e) => {
+      if (!SELECTED_SCAN_EVENT_ID) {
+        showResult('Select an event from the dropdown above before scanning.', true);
+        return;
+      }
+      e.target.disabled = true;
+      try {
+        const r = await postAction('/attendance-scan', { itinerary_item_id: SELECTED_SCAN_EVENT_ID });
+        const ev = r.event;
+        const label = [ev.day_label, ev.time_label, ev.title].filter(Boolean).join(' — ');
+        const timeStr = new Date(r.checked_in_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+        if (r.alreadyMarked) {
+          showResult(`Already marked present at ${timeStr}.`);
+          showScanNotice({ icon: 'ℹ️' }, `<strong>Already marked present</strong><br>${label}<br>Marked at ${timeStr}.`);
+        } else {
+          showResult(`✅ Marked present — ${label}`);
+          showScanNotice({ icon: '✅' }, `<strong>Marked present</strong><br>${label}`);
         }
       } catch (err) { if (!(err instanceof UnauthorizedError)) showResult(err.message, true); }
       finally { e.target.disabled = false; }

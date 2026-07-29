@@ -466,6 +466,17 @@
         <div id="goodiesChecklistBody"></div>
       </div>
 
+      <!-- Registration-desk-duty-only: pick which itinerary slot attendance --
+      -- is being marked for BEFORE scanning anyone — see loadItineraryEvents()
+      -- in login.js. Options come straight from the live Itinerary module, so
+      -- editing/adding a slot there shows up here immediately. Hidden entirely
+      -- for logins with no registration scan-duty. -->
+      <div class="card" id="scanEventCard" style="display:none;">
+        <div class="section-title" style="margin-top:0">Attendance — select the event</div>
+        <p class="hint" style="margin-top:-6px;">Pick which itinerary slot you're taking attendance for. Every scan below marks the person present at this event.</p>
+        <select id="scanEventSelect"><option value="">-- select an event --</option></select>
+      </div>
+
       <!-- In-page camera QR scanner — decodes a badge's QR right here instead -->
       <!-- of needing the phone's own camera app to open badge.html. Falls -->
       <!-- back to a paste-a-link/token box for devices without camera access. -->
