@@ -6260,9 +6260,9 @@ function renderPdfFieldPicker() {
 
   document.getElementById('pdfFieldModalExtras').innerHTML = (cfg.extras || []).map((x) => `
     <div class="field" style="margin-top:12px;">
-      <label style="display:flex;align-items:center;gap:8px;font-weight:600;">
-        <input type="checkbox" class="pdf-extra-box" id="${x.id}" ${x.checked ? 'checked' : ''} />
-        ${x.label}
+      <label style="display:flex;align-items:flex-start;gap:8px;font-weight:600;">
+        <input type="checkbox" class="pdf-extra-box" id="${x.id}" style="flex-shrink:0;margin-top:3px;" ${x.checked ? 'checked' : ''} />
+        <span style="flex:1;min-width:0;">${x.label}</span>
       </label>
     </div>
   `).join('');
