@@ -35,6 +35,12 @@ let pendingPhoto = null;
 let pendingCard = null;
 let pendingLogo = null;
 
+// Tracks whether a photo/card/logo exists (already-saved or freshly picked),
+// since those live outside the form's own inputs and need to feed the
+// completion bar too. Reset per-record in openRecord(), flipped true the
+// moment a file is picked or an existing upload is confirmed.
+let fileState = { photo: false, card: false, logo: false };
+
 function showLookup() {
   current = null;
   pendingPhoto = null;
@@ -44,6 +50,40 @@ function showLookup() {
   document.getElementById('pickCard').style.display = 'none';
   document.getElementById('editCard').style.display = 'none';
   document.getElementById('lookupError').style.display = 'none';
+}
+
+// What counts as "filled" on this page, scoped to what's actually shown —
+// Delegates don't get a logo section here, so their checklist is shorter.
+// Mirrors the same idea as the admin panel's profile-completion checklist,
+// just computed live from the form in front of the person instead of from
+// a saved database row.
+function profileChecklist() {
+  const form = document.getElementById('editForm');
+  const items = [
+    { label: 'Email', has: () => !!form.elements.email.value.trim() },
+    { label: 'Food preference', has: () => !!(form.elements.dietary_preference && form.elements.dietary_preference.value) },
+    { label: 'Shirt/T-shirt size', has: () => !!(form.elements.shirt_size.value || form.elements.tshirt_size.value) },
+    { label: 'Photo', has: () => fileState.photo },
+    { label: 'Business card', has: () => fileState.card },
+  ];
+  const canHaveLogo = current && (current.type === 'host_member' || current.type === 'volunteer');
+  if (canHaveLogo) items.push({ label: 'Company logo', has: () => fileState.logo });
+  return items;
+}
+
+function updateCompletion() {
+  if (!current) return;
+  const items = profileChecklist();
+  const missing = items.filter((f) => !f.has());
+  const pct = items.length ? Math.round(((items.length - missing.length) / items.length) * 100) : 100;
+  document.getElementById('profileCompletionPct').textContent = pct + '%';
+  const bar = document.getElementById('profileCompletionBar');
+  bar.style.width = pct + '%';
+  bar.style.background = pct === 100 ? 'var(--green)' : (pct === 0 ? 'var(--red)' : 'var(--gold)');
+  const missEl = document.getElementById('profileCompletionMissing');
+  missEl.textContent = missing.length
+    ? `Still to fill: ${missing.map((f) => f.label).join(', ')}`
+    : 'All set — thank you for completing your details!';
 }
 
 function showPicker(matches, phone) {
@@ -96,11 +136,18 @@ function openRecord(match) {
   // Delegates have no logo_url column (see publicProfile.js), so the whole
   // section is hidden rather than offering an upload that would be rejected.
   const logoSection = document.getElementById('logoSection');
+  const canHaveLogo = match.type === 'host_member' || match.type === 'volunteer';
   if (logoSection) {
-    const canHaveLogo = match.type === 'host_member' || match.type === 'volunteer';
     logoSection.style.display = canHaveLogo ? '' : 'none';
     if (canHaveLogo) renderPreview('logoPreviewWrap', match.logo_url, 'company logo');
   }
+
+  fileState = {
+    photo: !!match.photo_url,
+    card: !!match.business_card_url,
+    logo: canHaveLogo && !!match.logo_url,
+  };
+  updateCompletion();
 }
 
 // The "which nights / why" box is only meaningful once a room is actually
@@ -224,6 +271,7 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
 
     btn.textContent = '✓ Saved';
     toast('All changes saved — thank you!', 3000);
+    updateCompletion();
     setTimeout(() => { btn.textContent = originalLabel; }, 2000);
   } catch (err) {
     toast(err.message, 4000);
@@ -252,6 +300,8 @@ document.getElementById('photoInput').addEventListener('change', (e) => {
   if (!file) return;
   pendingPhoto = file;
   renderPendingPreview('photoPreviewWrap', file, 'photo');
+  fileState.photo = true;
+  updateCompletion();
 });
 
 document.getElementById('cardUploadBtn').addEventListener('click', () => document.getElementById('cardInput').click());
@@ -261,6 +311,8 @@ document.getElementById('cardInput').addEventListener('change', (e) => {
   if (!file) return;
   pendingCard = file;
   renderPendingPreview('cardPreviewWrap', file, 'business card');
+  fileState.card = true;
+  updateCompletion();
 });
 
 document.getElementById('logoUploadBtn').addEventListener('click', () => document.getElementById('logoInput').click());
@@ -270,6 +322,8 @@ document.getElementById('logoInput').addEventListener('change', (e) => {
   if (!file) return;
   pendingLogo = file;
   renderPendingPreview('logoPreviewWrap', file, 'company logo');
+  fileState.logo = true;
+  updateCompletion();
 });
 
 document.getElementById('startOverBtn').addEventListener('click', showLookup);
@@ -277,3 +331,9 @@ document.getElementById('startOverBtn').addEventListener('click', showLookup);
 const hotelStayBox = document.getElementById('hotelStayRequired');
 if (hotelStayBox) hotelStayBox.addEventListener('change', applyHotelStayVisibility);
 wireDrinkPrefExclusivity();
+
+// Live-update the completion bar as the person types/selects — this is
+// meant to feel instant, not wait for a save.
+const editFormEl = document.getElementById('editForm');
+editFormEl.addEventListener('input', updateCompletion);
+editFormEl.addEventListener('change', updateCompletion);

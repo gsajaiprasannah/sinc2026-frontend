@@ -50,6 +50,11 @@ let pendingPassport = null;
 let currentAadhaarUrl = null;
 let currentPassportUrl = null;
 
+// Photo, like the ID documents above, lives outside the plain-text form
+// fields, so its "have I filled this in" state is tracked separately for
+// the completion bar.
+let fileState = { photo: false };
+
 function showLookup() {
   current = null;
   pendingPhoto = null;
@@ -62,6 +67,42 @@ function showLookup() {
   document.getElementById('pickCard').style.display = 'none';
   document.getElementById('editCard').style.display = 'none';
   document.getElementById('lookupError').style.display = 'none';
+}
+
+// Same idea as the admin panel's profile-completion checklist, computed
+// live from this form so a Delegate filling it in sees their progress move
+// as they go, rather than only finding out afterwards from an admin view
+// they'll never see.
+function travelChecklist() {
+  const form = document.getElementById('editForm');
+  const aadhaarNum = (form.elements.aadhaar_number.value || '').replace(/\D/g, '');
+  const passportNum = (form.elements.passport_number.value || '').trim();
+  const aadhaarComplete = aadhaarNum.length === 12 && (currentAadhaarUrl || pendingAadhaar);
+  const passportComplete = passportNum.length >= 5 && (currentPassportUrl || pendingPassport);
+  return [
+    { label: 'Email', has: () => !!form.elements.email.value.trim() },
+    { label: 'Arrival details', has: () => !!(form.elements.travel_mode.value && form.elements.travel_datetime.value) },
+    { label: 'Departure details', has: () => !!(form.elements.departure_mode.value && form.elements.departure_datetime.value) },
+    { label: 'Food preference', has: () => !!form.elements.dietary_preference.value },
+    { label: 'Shirt/T-shirt size', has: () => !!(form.elements.shirt_size.value || form.elements.tshirt_size.value) },
+    { label: 'Photo', has: () => fileState.photo },
+    { label: 'ID document (Aadhaar/Passport)', has: () => aadhaarComplete || passportComplete },
+  ];
+}
+
+function updateCompletion() {
+  if (!current) return;
+  const items = travelChecklist();
+  const missing = items.filter((f) => !f.has());
+  const pct = Math.round(((items.length - missing.length) / items.length) * 100);
+  document.getElementById('profileCompletionPct').textContent = pct + '%';
+  const bar = document.getElementById('profileCompletionBar');
+  bar.style.width = pct + '%';
+  bar.style.background = pct === 100 ? 'var(--green)' : (pct === 0 ? 'var(--red)' : 'var(--gold)');
+  const missEl = document.getElementById('profileCompletionMissing');
+  missEl.textContent = missing.length
+    ? `Still to fill: ${missing.map((f) => f.label).join(', ')}`
+    : 'All set — thank you for completing your details!';
 }
 
 function showPicker(matches, phone) {
@@ -199,6 +240,7 @@ function openRecord(match) {
   pendingPassport = null;
   currentAadhaarUrl = match.aadhaar_url || null;
   currentPassportUrl = match.passport_url || null;
+  fileState = { photo: !!match.photo_url };
   document.getElementById('lookupCard').style.display = 'none';
   document.getElementById('pickCard').style.display = 'none';
   document.getElementById('editCard').style.display = '';
@@ -242,6 +284,7 @@ function openRecord(match) {
     applyIdDocTypeVisibility();
   }
   updateIdDocHint();
+  updateCompletion();
 }
 
 function applyIdDocTypeVisibility() {
@@ -371,6 +414,7 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
       pendingPassport = null;
       updateIdDocHint();
     }
+    updateCompletion();
 
     const body = Object.fromEntries(new FormData(e.target).entries());
     body.name = current.name;
@@ -403,6 +447,7 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
       renderPreview('cardPreviewWrap', cd.business_card_url, 'business card');
       pendingCard = null;
     }
+    updateCompletion();
 
     // Pre-tour signup can fail on its own (e.g. the tour filled up between
     // page load and Save) without the rest of this page's changes being
@@ -445,6 +490,8 @@ document.getElementById('photoInput').addEventListener('change', (e) => {
   if (!file) return;
   pendingPhoto = file;
   renderPendingPreview('photoPreviewWrap', file, 'photo');
+  fileState.photo = true;
+  updateCompletion();
 });
 
 document.getElementById('cardUploadBtn').addEventListener('click', () => document.getElementById('cardInput').click());
@@ -466,6 +513,7 @@ document.getElementById('aadhaarInput').addEventListener('change', (e) => {
   pendingAadhaar = file;
   renderPendingDocPreview('aadhaarPreviewWrap', file, 'Aadhaar scan');
   updateIdDocHint();
+  updateCompletion();
 });
 
 document.getElementById('passportUploadBtn').addEventListener('click', () => document.getElementById('passportInput').click());
@@ -476,6 +524,13 @@ document.getElementById('passportInput').addEventListener('change', (e) => {
   pendingPassport = file;
   renderPendingDocPreview('passportPreviewWrap', file, 'Passport scan');
   updateIdDocHint();
+  updateCompletion();
 });
 
 document.getElementById('startOverBtn').addEventListener('click', showLookup);
+
+// Live-update the completion bar as the person types/selects — this is
+// meant to feel instant, not wait for a save.
+const editFormEl = document.getElementById('editForm');
+editFormEl.addEventListener('input', updateCompletion);
+editFormEl.addEventListener('change', updateCompletion);
