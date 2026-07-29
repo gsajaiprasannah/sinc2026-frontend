@@ -4198,6 +4198,10 @@ const SCAN_POINT_LABEL_SELF = {
   gate: 'Gate', hotel_checkin: 'Hotel Check-in', hotel_checkout: 'Hotel Check-out',
   transport: 'Transport', food_counter: 'Food Counter', stall: 'Stall Visit', goodies: 'Goodies Delivery'
 };
+// Cache of whatever refreshMyScans() last rendered, so the Download PDF/
+// Excel buttons below export exactly what's on screen (respecting the
+// scan_point filter) without a second round-trip to the server.
+let LAST_MY_SCANS_ROWS = [];
 async function refreshMyScans() {
   const body = document.getElementById('myScansBody');
   if (!body) return;
@@ -4211,6 +4215,7 @@ async function refreshMyScans() {
     if (!(e instanceof UnauthorizedError)) body.innerHTML = `<p class="hint">${e.message}</p>`;
     return;
   }
+  LAST_MY_SCANS_ROWS = rows;
   body.innerHTML = rows.map((r) => `
     <div class="card" style="margin-bottom:8px;padding:10px 14px;">
       <strong>${r.entity_name || 'Unknown'}</strong>
@@ -4224,6 +4229,68 @@ async function refreshMyScans() {
   `).join('') || '<p class="hint">No one scanned yet.</p>';
 }
 document.getElementById('myScansFilter')?.addEventListener('change', refreshMyScans);
+
+// --- Download "Who you've scanned" as PDF / Excel -------------------------
+// Built for stall owners (download every visitor to their stall — name,
+// club/company, phone, time), but works the same for any scan-duty role's
+// own history since it just exports whatever refreshMyScans() last rendered.
+// This portal has none of the admin panel's letterhead/branding PDF
+// machinery (that lives in admin.js only), so this stays a plain, simple
+// table — a self-service export, not an official document.
+function myScansExportColumns() {
+  return [
+    { label: 'Name', get: (r) => r.entity_name || '-' },
+    { label: 'Type', get: (r) => (r.entity_type === 'host_member' ? 'Host member' : 'Delegate') },
+    { label: 'Club / Company', get: (r) => r.entity_club_or_company || '-' },
+    { label: 'Phone', get: (r) => r.entity_phone || '-' },
+    { label: 'Scanned at', get: (r) => new Date(r.checked_in_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) },
+  ];
+}
+window.downloadMyScansPdf = () => {
+  if (!LAST_MY_SCANS_ROWS.length) { toast('Nothing to export yet.'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const columns = myScansExportColumns();
+  const marginX = 40;
+  const tableWidth = 515;
+  const colWidth = tableWidth / columns.length;
+  let y = 50;
+  doc.setFont(undefined, 'bold'); doc.setFontSize(16);
+  doc.text('My Scans', marginX, y);
+  doc.setFont(undefined, 'normal'); doc.setFontSize(9.5);
+  y += 16;
+  doc.text(`Generated ${new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} · ${LAST_MY_SCANS_ROWS.length} record(s)`, marginX, y);
+  y += 20;
+  doc.setFont(undefined, 'bold'); doc.setFontSize(9);
+  columns.forEach((c, i) => doc.text(c.label, marginX + i * colWidth, y));
+  y += 4;
+  doc.setLineWidth(0.5);
+  doc.line(marginX, y, marginX + tableWidth, y);
+  y += 14;
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
+  LAST_MY_SCANS_ROWS.forEach((r) => {
+    if (y > 780) { doc.addPage(); y = 50; }
+    columns.forEach((c, i) => {
+      const lines = doc.splitTextToSize(String(c.get(r)), colWidth - 6);
+      doc.text(lines[0] || '-', marginX + i * colWidth, y);
+    });
+    y += 16;
+  });
+  doc.save('my-scans.pdf');
+};
+window.downloadMyScansXlsx = () => {
+  if (!LAST_MY_SCANS_ROWS.length) { toast('Nothing to export yet.'); return; }
+  const columns = myScansExportColumns();
+  const data = LAST_MY_SCANS_ROWS.map((r) => {
+    const obj = {};
+    columns.forEach((c) => { obj[c.label] = c.get(r); });
+    return obj;
+  });
+  const ws = window.XLSX.utils.json_to_sheet(data);
+  const wb = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(wb, ws, 'My Scans');
+  window.XLSX.writeFile(wb, 'my-scans.xlsx');
+};
 
 // ================= BOOT =================
 tryResumeSession();

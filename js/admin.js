@@ -1095,6 +1095,7 @@ function switchAdminTab(tab) {
   if (tab === 'settings') refreshUsersAdmin();
   if (tab === 'activitylog') { refreshActivityLog(); refreshScanActivity(); }
   if (tab === 'attendance') refreshAttendance();
+  if (tab === 'stallreport') refreshStallReport();
   // On phone/tablet widths the sidebar overlays the content, so tuck it away
   // again once a section has been picked (matches the standard mobile pattern).
   if (window.innerWidth < 860 && adminShell) {
@@ -5273,6 +5274,24 @@ async function downloadListReportPdf(title, subtitle, columns, rows, filename) {
   pdfFinalize(doc);
   doc.save(filename);
 }
+// Generic "download the same list as a styled Excel workbook" helper —
+// mirrors downloadListReportPdf's column-getter shape ({label, get}) so any
+// module wiring up a PDF export gets an Excel one for free by passing the
+// same columns/rows to both. Uses SheetJS (loaded via CDN in admin.html) —
+// the first Excel export in this codebase; every "Download" button before
+// this one only ever produced a PDF via the jsPDF helpers above.
+function downloadListReportXlsx(sheetName, columns, rows, filename) {
+  const data = rows.map((r) => {
+    const obj = {};
+    columns.forEach((c) => { obj[c.label] = c.get(r); });
+    return obj;
+  });
+  const ws = window.XLSX.utils.json_to_sheet(data);
+  ws['!cols'] = columns.map((c) => ({ wch: Math.max(10, Math.round((c.width || 80) / 6)) }));
+  const wb = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+  window.XLSX.writeFile(wb, filename);
+}
 // Generic "download one record as a styled detail sheet" helper. `sections`
 // is an array of { label, pairs } and/or { label, table: { columns, rows } }.
 async function downloadDetailPdf(title, subtitle, sections, filename) {
@@ -9258,6 +9277,89 @@ window.downloadStallBookingsListPdf = async () => {
   } catch (err) { toast(err.message); }
 };
 
+// --- Stall Report: visit counts + per-booking visitor drill-down --------
+// Nested under the Stalls sidebar group, below Halls & Stalls / Enquiries &
+// Bookings — reads server/routes/stallBookings.js's /visits-summary and
+// /:id/visits, which in turn read the same attendance_log rows written by
+// a stall_owner's "Log Stall Visit" scan action. Nothing here is a separate
+// ledger; it's purely a report over scans that already happened.
+const STALL_REPORT_COLUMNS = [
+  { label: 'Company', width: 130, get: (r) => r.company_name },
+  { label: 'Contact', width: 90, get: (r) => r.contact_person },
+  { label: 'Hall', width: 80, get: (r) => r.hall_name || '-' },
+  { label: 'Stall #', width: 60, get: (r) => r.stall_number || '-' },
+  { label: 'Status', width: 60, get: (r) => STALL_STATUS_LABEL[r.status] || r.status },
+  { label: 'Visits', width: 50, get: (r) => r.visit_count, align: 'right' },
+];
+let currentStallReportBookingId = null;
+async function refreshStallReport() {
+  const rows = await jget(`${API}/stall-bookings/visits-summary`);
+  document.getElementById('stallReportTableBody').innerHTML = rows.map((r) => `
+    <tr>
+      <td><strong>${r.company_name}</strong></td>
+      <td>${r.contact_person || '-'}</td>
+      <td>${r.hall_name || '-'}</td>
+      <td>${r.stall_number || '-'}</td>
+      <td><span class="pill ${r.status}">${STALL_STATUS_LABEL[r.status] || r.status}</span></td>
+      <td>${r.visit_count}</td>
+      <td><button class="btn small" onclick="manageStallVisits(${r.id}, '${(r.company_name || '').replace(/'/g, "\\'")}')">View visitors</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" class="empty">No stall bookings yet</td></tr>';
+}
+window.manageStallVisits = async (bookingId, label) => {
+  currentStallReportBookingId = bookingId;
+  document.getElementById('stallReportDetailLabel').textContent = label;
+  document.getElementById('stallReportDetailCard').style.display = '';
+  await refreshStallVisitDetail();
+  document.getElementById('stallReportDetailCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+async function refreshStallVisitDetail() {
+  if (!currentStallReportBookingId) return;
+  const { visits } = await jget(`${API}/stall-bookings/${currentStallReportBookingId}/visits`);
+  document.getElementById('stallReportDetailTableBody').innerHTML = (visits || []).map((v) => `
+    <tr>
+      <td>${v.name || '-'}</td>
+      <td>${v.entity_type === 'host_member' ? 'Host member' : 'Delegate'}</td>
+      <td>${v.club_or_company || '-'}</td>
+      <td>${v.phone || '-'}</td>
+      <td>${new Date(v.checked_in_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="empty">Nobody has visited this stall yet</td></tr>';
+}
+const STALL_VISITOR_COLUMNS = [
+  { label: 'Name', width: 130, get: (v) => v.name || '-' },
+  { label: 'Type', width: 80, get: (v) => (v.entity_type === 'host_member' ? 'Host member' : 'Delegate') },
+  { label: 'Club / Company', width: 120, get: (v) => v.club_or_company || '-' },
+  { label: 'Phone', width: 90, get: (v) => v.phone || '-' },
+  { label: 'Visited at', width: 110, get: (v) => new Date(v.checked_in_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) },
+];
+window.downloadStallReportSummaryPdf = async () => {
+  try {
+    const rows = await jget(`${API}/stall-bookings/visits-summary`);
+    await downloadListReportPdf('Stall Report — Visits by Stall', `${rows.length} stall booking(s)`, STALL_REPORT_COLUMNS, rows, 'stall-report-summary.pdf');
+  } catch (err) { toast(err.message); }
+};
+window.downloadStallReportSummaryXlsx = async () => {
+  try {
+    const rows = await jget(`${API}/stall-bookings/visits-summary`);
+    downloadListReportXlsx('Stall Report', STALL_REPORT_COLUMNS, rows, 'stall-report-summary.xlsx');
+  } catch (err) { toast(err.message); }
+};
+window.downloadStallVisitorsPdf = async () => {
+  if (!currentStallReportBookingId) return;
+  try {
+    const { booking, visits } = await jget(`${API}/stall-bookings/${currentStallReportBookingId}/visits`);
+    await downloadListReportPdf(`Stall Visitors — ${booking.company_name}`, `${booking.hall_name ? booking.hall_name + ' — ' : ''}${booking.stall_number || ''} · ${(visits || []).length} visit(s)`, STALL_VISITOR_COLUMNS, visits || [], `stall-visitors-${(booking.company_name || 'stall').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`);
+  } catch (err) { toast(err.message); }
+};
+window.downloadStallVisitorsXlsx = async () => {
+  if (!currentStallReportBookingId) return;
+  try {
+    const { booking, visits } = await jget(`${API}/stall-bookings/${currentStallReportBookingId}/visits`);
+    downloadListReportXlsx('Visitors', STALL_VISITOR_COLUMNS, visits || [], `stall-visitors-${(booking.company_name || 'stall').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.xlsx`);
+  } catch (err) { toast(err.message); }
+};
+
 // Receipt for a stall booking's payment — same letterhead/badge/watermark
 // treatment as the delegate and host-member receipts. No natural receipt
 // number exists for a booking the way registrations have reg_number, so one
@@ -9390,6 +9492,7 @@ function loadAllData() {
   refreshStallHalls();
   refreshStalls();
   refreshStallBookings();
+  refreshStallReport();
   refreshExhibitorsDirectory();
   refreshPerformerGroups();
   refreshFinanceSummary();

@@ -127,6 +127,7 @@
           <div class="admin-nav">
             <button data-tab="stallhalls">Halls &amp; Stalls</button>
             <button data-tab="stallbookings">Enquiries &amp; Bookings</button>
+            <button data-tab="stallreport">Stall Report</button>
           </div>
         </details>
         <details class="nav-group" open>
@@ -2188,6 +2189,40 @@
     </div>
   </section>
 
+  <!-- STALLS: STALL REPORT TAB -->
+  <section class="tab-panel" id="tab-stallreport">
+    <p class="hint" style="margin-top:0;">Who visited which stall and when — built from stall owners' badge scans (Stall Owner login → "Log Stall Visit"). One row per exhibitor booking; click "View visitors" for the full list with timestamps.</p>
+    <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:0;">
+      <span>Visits by stall</span>
+      <span>
+        <button class="btn small" onclick="downloadStallReportSummaryPdf()">Download PDF</button>
+        <button class="btn small" onclick="downloadStallReportSummaryXlsx()">Download Excel</button>
+      </span>
+    </div>
+    <div class="card table-scroll">
+      <table>
+        <thead><tr><th>Company</th><th>Contact</th><th>Hall</th><th>Stall #</th><th>Status</th><th>Visits</th><th></th></tr></thead>
+        <tbody id="stallReportTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card" id="stallReportDetailCard" style="margin-top:14px; display:none;">
+      <div class="section-title" style="margin-top:0;display:flex;justify-content:space-between;align-items:center;">
+        <span>Visitors — <span id="stallReportDetailLabel"></span></span>
+        <span>
+          <button class="btn small" onclick="downloadStallVisitorsPdf()">Download PDF</button>
+          <button class="btn small" onclick="downloadStallVisitorsXlsx()">Download Excel</button>
+        </span>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Name</th><th>Type</th><th>Club / Company</th><th>Phone</th><th>Visited at</th></tr></thead>
+          <tbody id="stallReportDetailTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <!-- FINANCE OVERVIEW TAB -->
   <section class="tab-panel" id="tab-financeoverview">
     <p class="hint" style="margin-top:0;">One-screen snapshot of all money in and out of the congress. Inward pulls automatically from Registrations, Host Members, Stall Bookings, and Pre Tours, plus any manual entries. Outward covers payment requests and goodies purchases once approved and paid.</p>
@@ -2782,6 +2817,7 @@
 <script src="js/config.js"></script>
 <!-- Client-side PDF generation for Transport/Pre Tour manifests (no backend involved) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.0.0/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
 <!-- Bulk badge ZIP export (for handing badges off to a print vendor) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
