@@ -1096,6 +1096,7 @@ function switchAdminTab(tab) {
   if (tab === 'activitylog') { refreshActivityLog(); refreshScanActivity(); }
   if (tab === 'attendance') refreshAttendance();
   if (tab === 'stallreport') refreshStallReport();
+  if (tab === 'transportreport') refreshTransportReport();
   // On phone/tablet widths the sidebar overlays the content, so tuck it away
   // again once a section has been picked (matches the standard mobile pattern).
   if (window.innerWidth < 860 && adminShell) {
@@ -5416,6 +5417,96 @@ window.downloadTransportTripsListPdf = async () => {
     ], rows, 'transport-trips.pdf');
   } catch (err) { toast(err.message); }
 };
+// --- Transport Report: full trip history (defaults to completed trips),
+// one row per trip in the summary table, with each trip's own passenger
+// manifest folded into the PDF export. Distinct from the Transport Planning
+// tab's "All trips" list (which shows every status, unfiltered, with no
+// passenger detail in the PDF) and from the scanner's live boarded-so-far
+// panel (which is per-trip, in-the-moment, not a downloadable record).
+function transportReportQuery() {
+  const status = document.getElementById('transportReportStatus').value;
+  const dateFrom = document.getElementById('transportReportDateFrom').value;
+  const dateTo = document.getElementById('transportReportDateTo').value;
+  const qs = new URLSearchParams();
+  if (status) qs.set('status', status);
+  if (dateFrom) qs.set('date_from', dateFrom);
+  if (dateTo) qs.set('date_to', dateTo);
+  return qs.toString();
+}
+window.refreshTransportReport = async () => {
+  const trips = await jget(`${API}/transport/report/full?${transportReportQuery()}`);
+  document.getElementById('transportReportSummaryLabel').textContent = `${trips.length} trip(s)`;
+  document.getElementById('transportReportTableBody').innerHTML = trips.map((t) => {
+    const total = (t.passengers || []).length;
+    const boarded = (t.passengers || []).filter((p) => p.boarded_at).length;
+    return `
+    <tr>
+      <td>${t.trip_date || '-'}</td>
+      <td>${t.depart_time || '-'}</td>
+      <td>${t.from_location} → ${t.to_location}</td>
+      <td>${t.vehicle_code ? `${t.vehicle_code} <span class="hint">(${vehicleTypeLabel(t.vehicle_type)})</span>` : '<span class="hint">unassigned</span>'}</td>
+      <td>${t.driver_name || '-'}</td>
+      <td>${t.transporter_name || '-'}</td>
+      <td>${tripStatusPill(t.status)}</td>
+      <td>${total}</td>
+      <td>${boarded}/${total}</td>
+    </tr>
+  `;
+  }).join('') || '<tr><td colspan="9" class="empty">No trips match these filters</td></tr>';
+};
+// Per-trip block for the Transport Report PDF — deliberately separate from
+// pdfAddTripBlock() above (used by the single-trip manifest and Pre Tour
+// PDFs), since /transport/report/full returns passengers shaped differently
+// (flat name/phone/entity_type/boarded_at, no pickup_point) and this report
+// also needs the transporter name and a boarded timestamp per passenger.
+function pdfAddTransportReportTripBlock(doc, y, trip) {
+  y = pdfMaybeNewPage(doc, y, 90);
+  y = pdfSectionLabel(doc, y, `${trip.from_location} → ${trip.to_location}  ·  ${trip.trip_date || 'No date set'}${trip.depart_time ? ' ' + trip.depart_time : ''}`);
+  y = pdfKeyValues(doc, y, [
+    ['Vehicle', trip.vehicle_code ? `${trip.vehicle_code} — ${vehicleTypeLabel(trip.vehicle_type)}${trip.vehicle_model ? ' (' + trip.vehicle_model + ')' : ''}` : 'Unassigned'],
+    ['Driver', trip.driver_name ? `${trip.driver_name} — ${trip.driver_phone || 'no phone on file'}` : 'Unassigned'],
+    ['Transporter', trip.transporter_name || '-'],
+    ['Status', (trip.status || '').replace('_', ' ')],
+  ]);
+  const passengerRows = (trip.passengers || []).map((p, i) => [
+    i + 1,
+    p.name || 'Unknown',
+    p.entity_type === 'participant' ? 'Delegate' : p.entity_type === 'host_member' ? 'Host Member' : 'Guest',
+    p.phone || '-',
+    p.boarded_at ? new Date(p.boarded_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Not boarded',
+  ]);
+  y = pdfTable(doc, y, [
+    { label: '#', width: 22 },
+    { label: 'Name', width: 145 },
+    { label: 'Type', width: 75 },
+    { label: 'Mobile', width: 95 },
+    { label: 'Boarded at', width: 135 },
+  ], passengerRows);
+  return y + 10;
+}
+window.downloadTransportReportPdf = async () => {
+  try {
+    const status = document.getElementById('transportReportStatus').value;
+    const dateFrom = document.getElementById('transportReportDateFrom').value;
+    const dateTo = document.getElementById('transportReportDateTo').value;
+    const trips = await jget(`${API}/transport/report/full?${transportReportQuery()}`);
+    const doc = pdfDoc();
+    const statusLabel = status ? status.replace('_', ' ') : 'all statuses';
+    const rangeLabel = (dateFrom || dateTo) ? `  ·  ${dateFrom || 'earliest'} to ${dateTo || 'latest'}` : '';
+    let y = await pdfLetterhead(doc, 'Transport Report', `${trips.length} trip(s) — ${statusLabel}${rangeLabel}`);
+    if (!trips.length) {
+      pdfSetColor(doc, 'setTextColor', PDF_BRAND.greyLight);
+      doc.setFont(undefined, 'normal'); doc.setFontSize(10);
+      doc.text('No trips match these filters.', PDF_MARGIN, y + 6);
+      doc.setTextColor(0, 0, 0);
+    } else {
+      for (const trip of trips) y = pdfAddTransportReportTripBlock(doc, y, trip);
+    }
+    pdfFinalize(doc);
+    doc.save('transport-report.pdf');
+  } catch (err) { toast(err.message); }
+};
+
 window.downloadPreToursListPdf = async () => {
   try {
     const rows = await jget(`${API}/pretours`);
@@ -9545,6 +9636,7 @@ function loadAllData() {
   wireLocationDropdowns();
   refreshTransportTrips();
   refreshTransportQueue();
+  refreshTransportReport();
   refreshPreTours();
   refreshHotels();
   refreshRooms();
