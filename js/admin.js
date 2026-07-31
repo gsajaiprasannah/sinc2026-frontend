@@ -1549,11 +1549,43 @@ async function refreshParts(query) {
           <span class="record-group-title">${g.club}</span>
           <span class="hint">${g.rows.length} delegate(s)</span>
         </div>
-        ${g.rows.map(renderPartCard).join('')}
+        ${renderPartCardsPaired(g.rows, renderPartCard)}
       `).join('')
-    : rows.map(renderPartCard).join('');
+    : renderPartCardsPaired(rows, renderPartCard);
 
   document.getElementById('partsTableBody').innerHTML = html || '<p class="empty">No delegates yet</p>';
+}
+// Walks a (already filtered/sorted) list of delegate rows and, wherever both
+// halves of a double registration are present in that same list, renders
+// them as one .record-card-pair — Primary on the left, Co-registrant on the
+// right — instead of two separate full-width cards. Singles (or a double
+// whose other half got filtered out by search/completion) fall back to a
+// normal standalone card, unchanged. Pairing is resolved within whatever
+// list is passed in, so "Group by club" only pairs two people who share
+// both a registration AND that club section.
+function renderPartCardsPaired(list, renderCard) {
+  const localByReg = {};
+  list.forEach((p) => {
+    if (!p.registration_id) return;
+    (localByReg[p.registration_id] = localByReg[p.registration_id] || []).push(p);
+  });
+  const rendered = new Set();
+  const out = [];
+  list.forEach((p) => {
+    if (rendered.has(p.id)) return;
+    const group = p.registration_id ? localByReg[p.registration_id] : null;
+    if (group && group.length === 2) {
+      const [a, b] = group;
+      const primary = Number(a.is_primary) === 1 ? a : b;
+      const coReg = primary === a ? b : a;
+      rendered.add(a.id); rendered.add(b.id);
+      out.push(`<div class="record-card-pair">${renderCard(primary)}${renderCard(coReg)}</div>`);
+    } else {
+      rendered.add(p.id);
+      out.push(renderCard(p));
+    }
+  });
+  return out.join('');
 }
 window.deletePart = async (id) => { await jdel(`${API}/participants/${id}`); toast('Delegate deleted'); refreshParts(); };
 

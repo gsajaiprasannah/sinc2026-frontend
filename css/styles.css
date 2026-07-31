@@ -510,6 +510,21 @@ tr:nth-child(even) .sticky-col-left { background: #fff; }
   padding: 14px 16px;
   background: #fff;
 }
+/* Pairs a primary registrant's card with their co-registrant's card side by
+   side (Delegates tab) — a single item within .record-card-list's own
+   flex-column, so it slots into the existing gap rhythm untouched. Falls
+   back to stacked (single column) below 900px so neither card gets
+   squeezed. Registrations with only one delegate skip this wrapper
+   entirely and render as a normal full-width .record-card. */
+.record-card-pair {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: start;
+}
+@media (min-width: 900px) {
+  .record-card-pair { grid-template-columns: 1fr 1fr; }
+}
 /* Section heading that separates record cards when a list is grouped
    (e.g. the Delegates tab's "Group by club" view). */
 .record-group-heading {
