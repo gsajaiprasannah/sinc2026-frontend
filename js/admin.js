@@ -623,6 +623,7 @@ function closeEditModal(opts) {
   if (!form || !form.dataset.editId) return;
   if (form.id === 'partForm' && typeof window.cancelEditPart === 'function') window.cancelEditPart();
   else if (form.id === 'hmForm' && typeof window.cancelEditHm === 'function') window.cancelEditHm();
+  else if (form.id === 'regForm' && typeof window.cancelEditReg === 'function') window.cancelEditReg();
 }
 window.closeEditModal = closeEditModal;
 
@@ -1319,18 +1320,20 @@ function updatePartRegOccupancyHint(skipAutoSetPrimary) {
 document.getElementById('partRegSelect').addEventListener('change', () => updatePartRegOccupancyHint(false));
 window.deleteReg = async (id) => { await jdel(`${API}/registrations/${id}`); toast('Registration deleted'); refreshRegs(); };
 
-// Loads an existing registration into the Add/Update form so its payment
-// (amount paid/due, mode, status, reference) or occupancy/club can be
-// corrected — the table previously only offered Receipt/Delete, with no way
-// to fix a payment once it was saved. reg_number stays read-only either way:
-// it's auto-generated on create and the backend's PUT doesn't accept
-// changing it, so there's nothing to edit there.
+// Loads an existing registration into the Add/Update form and pops it up in
+// the shared edit-in-place modal (same one Delegates/Host Members use) so
+// payment (amount paid/due, mode, status, reference), occupancy, and club
+// can all be corrected without leaving the registrations list — the table
+// previously only offered Receipt/Delete, with no way to fix a payment once
+// it was saved. reg_number stays read-only either way: it's auto-generated
+// on create and the backend's PUT doesn't accept changing it.
 let EDITING_REG_ID = null;
 window.editReg = (id) => {
   const r = REGS_CACHE.find((x) => x.id === id);
   if (!r) return;
   EDITING_REG_ID = id;
   const form = document.getElementById('regForm');
+  form.dataset.editId = id;
   form.reg_number.value = r.reg_number;
   document.getElementById('regCombinedSelect').innerHTML = regCombinedOptionsHtml(
     regCombinedValue(r.registration_category, r.reg_type), '-- select registration type --'
@@ -1341,20 +1344,26 @@ window.editReg = (id) => {
   form.payment_mode.value = r.payment_mode || '';
   form.payment_status.value = r.payment_status;
   form.payment_ref.value = r.payment_ref || '';
-  document.getElementById('regFormTitle').textContent = `Update registration ${r.reg_number}`;
+  const title = `Update registration ${r.reg_number}`;
+  document.getElementById('regFormTitle').textContent = title;
   document.getElementById('regSubmitBtn').textContent = 'Update Registration';
   document.getElementById('regCancelEditBtn').style.display = '';
-  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openEditModal(form.closest('.card'), document.getElementById('regFormTitle'), title);
 };
 function resetRegForm() {
   EDITING_REG_ID = null;
-  document.getElementById('regForm').reset();
+  const form = document.getElementById('regForm');
+  form.reset();
+  delete form.dataset.editId;
   document.getElementById('regCombinedSelect').innerHTML = regCombinedOptionsHtml('', '-- select registration type --');
   document.getElementById('regFormTitle').textContent = 'Add registration';
   document.getElementById('regSubmitBtn').textContent = 'Save Registration';
   document.getElementById('regCancelEditBtn').style.display = 'none';
   loadNextRegNumber();
+  // Puts the form card back on the page if it was opened in the modal.
+  closeEditModal({ keepFormState: true });
 }
+window.cancelEditReg = resetRegForm;
 document.getElementById('regCancelEditBtn').addEventListener('click', resetRegForm);
 
 async function loadNextRegNumber() {
