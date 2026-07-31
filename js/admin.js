@@ -1244,7 +1244,7 @@ async function refreshRegs() {
       <td>₹${r.amount_due}</td>
       <td><span class="pill ${r.payment_status}">${r.payment_status}</span></td>
       <td>${r.participant_count}</td>
-      <td><button class="btn small" onclick="downloadReceiptPdf(${r.id})">Receipt</button> ${canDelete() ? `<button class="btn danger small" onclick="deleteReg(${r.id})">Delete</button>` : ''}</td>
+      <td><button class="btn small" onclick="editReg(${r.id})">Update Payment</button> <button class="btn small" onclick="downloadReceiptPdf(${r.id})">Receipt</button> ${canDelete() ? `<button class="btn danger small" onclick="deleteReg(${r.id})">Delete</button>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="9" class="empty">No registrations yet</td></tr>';
 
@@ -1319,6 +1319,44 @@ function updatePartRegOccupancyHint(skipAutoSetPrimary) {
 document.getElementById('partRegSelect').addEventListener('change', () => updatePartRegOccupancyHint(false));
 window.deleteReg = async (id) => { await jdel(`${API}/registrations/${id}`); toast('Registration deleted'); refreshRegs(); };
 
+// Loads an existing registration into the Add/Update form so its payment
+// (amount paid/due, mode, status, reference) or occupancy/club can be
+// corrected — the table previously only offered Receipt/Delete, with no way
+// to fix a payment once it was saved. reg_number stays read-only either way:
+// it's auto-generated on create and the backend's PUT doesn't accept
+// changing it, so there's nothing to edit there.
+let EDITING_REG_ID = null;
+window.editReg = (id) => {
+  const r = REGS_CACHE.find((x) => x.id === id);
+  if (!r) return;
+  EDITING_REG_ID = id;
+  const form = document.getElementById('regForm');
+  form.reg_number.value = r.reg_number;
+  document.getElementById('regCombinedSelect').innerHTML = regCombinedOptionsHtml(
+    regCombinedValue(r.registration_category, r.reg_type), '-- select registration type --'
+  );
+  form.club_id.value = r.club_id || '';
+  form.amount_paid.value = r.amount_paid;
+  form.amount_due.value = r.amount_due;
+  form.payment_mode.value = r.payment_mode || '';
+  form.payment_status.value = r.payment_status;
+  form.payment_ref.value = r.payment_ref || '';
+  document.getElementById('regFormTitle').textContent = `Update registration ${r.reg_number}`;
+  document.getElementById('regSubmitBtn').textContent = 'Update Registration';
+  document.getElementById('regCancelEditBtn').style.display = '';
+  form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+function resetRegForm() {
+  EDITING_REG_ID = null;
+  document.getElementById('regForm').reset();
+  document.getElementById('regCombinedSelect').innerHTML = regCombinedOptionsHtml('', '-- select registration type --');
+  document.getElementById('regFormTitle').textContent = 'Add registration';
+  document.getElementById('regSubmitBtn').textContent = 'Save Registration';
+  document.getElementById('regCancelEditBtn').style.display = 'none';
+  loadNextRegNumber();
+}
+document.getElementById('regCancelEditBtn').addEventListener('click', resetRegForm);
+
 async function loadNextRegNumber() {
   const field = document.getElementById('regNumberField');
   if (!field) return;
@@ -1346,17 +1384,24 @@ document.getElementById('regForm').addEventListener('submit', async (e) => {
   delete body.reg_combined;
   Object.assign(body, split);
   try {
-    await jpost(`${API}/registrations`, body);
-    e.target.reset();
-    const combinedEl = document.getElementById('regCombinedSelect');
-    if (combinedEl) combinedEl.innerHTML = regCombinedOptionsHtml('', '-- select registration type --');
-    toast('Registration saved');
-    refreshRegs();
-    loadNextRegNumber();
+    if (EDITING_REG_ID) {
+      await jput(`${API}/registrations/${EDITING_REG_ID}`, body);
+      toast('Registration updated');
+      resetRegForm();
+      refreshRegs();
+    } else {
+      await jpost(`${API}/registrations`, body);
+      e.target.reset();
+      const combinedEl = document.getElementById('regCombinedSelect');
+      if (combinedEl) combinedEl.innerHTML = regCombinedOptionsHtml('', '-- select registration type --');
+      toast('Registration saved');
+      refreshRegs();
+      loadNextRegNumber();
+    }
   } catch (err) {
     // Someone else grabbed this number first (rare race) — fetch a fresh one and let the admin retry.
     toast(err.message);
-    loadNextRegNumber();
+    if (!EDITING_REG_ID) loadNextRegNumber();
   }
 });
 
@@ -2370,7 +2415,8 @@ async function refreshHostMembers(query) {
   const rows = await jget(`${API}/hostmembers`);
   const q = (query || '').toLowerCase();
   const searched = q
-    ? rows.filter((h) => [h.name, h.phone, h.company].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
+    ? rows.filter((h) => [h.name, h.phone, h.email, h.company, h.designation, h.category, h.leadership_role, h.notes]
+        .filter(Boolean).some((v) => String(v).toLowerCase().includes(q)))
     : rows;
   const hmFilterEl = document.getElementById('hmCompletionFilter');
   const hmFilterValue = hmFilterEl ? hmFilterEl.value : '';

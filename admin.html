@@ -261,7 +261,7 @@
   <section class="tab-panel" id="tab-registrations">
     <div class="two-col">
       <div class="card">
-        <div class="section-title" style="margin-top:0">Add registration</div>
+        <div class="section-title" style="margin-top:0" id="regFormTitle">Add registration</div>
         <form id="regForm">
           <div class="form-grid cols-2">
             <div class="field"><label>Registration number *</label><input id="regNumberField" name="reg_number" required readonly placeholder="Loading..." style="background:#f0f2f5;" /><span class="hint">Auto-generated to prevent duplicates.</span></div>
@@ -287,7 +287,8 @@
             </div>
             <div class="field"><label>Payment reference</label><input name="payment_ref" /></div>
           </div>
-          <button class="btn gold" type="submit">Save Registration</button>
+          <button class="btn gold" type="submit" id="regSubmitBtn">Save Registration</button>
+          <button type="button" class="btn outline" id="regCancelEditBtn" style="display:none;">Cancel edit</button>
         </form>
       </div>
       <div class="card">
@@ -528,7 +529,7 @@
     </div>
     <div id="partCompletionSummary"></div>
     <div class="form-grid cols-3">
-      <div class="field"><input id="partSearch" placeholder="Search by name, phone, reg#, or club..." /></div>
+      <div class="field"><input id="partSearch" placeholder="Search by name, phone, WhatsApp, email, designation, SPOC, reg#, or club..." /></div>
       <div class="field"><label>Profile completion</label>
         <select id="partCompletionFilter"></select>
       </div>
@@ -781,7 +782,7 @@
     </div>
     <div id="hmCompletionSummary"></div>
     <div class="form-grid cols-2">
-      <div class="field"><input id="hmSearch" placeholder="Search by name, phone, or company..." /></div>
+      <div class="field"><input id="hmSearch" placeholder="Search by name, phone, email, company, designation, category, or notes..." /></div>
       <div class="field"><label>Profile completion</label>
         <select id="hmCompletionFilter"></select>
       </div>
