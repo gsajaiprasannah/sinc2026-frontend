@@ -456,6 +456,14 @@
         <p class="hint" id="scanTripEmptyHint" style="display:none;margin-top:8px;">No transport trips are scheduled for today yet.</p>
       </div>
 
+      <!-- Live "who's boarded so far" for whichever trip is selected above --
+      -- refreshed on trip change and after every scan, so a transport-duty
+      -- login can see this without needing Transport Planning module access. -->
+      <div class="card" id="scanTripBoardedCard" style="display:none;">
+        <div class="section-title" style="margin-top:0">Boarded so far - <span id="scanTripBoardedCount"></span></div>
+        <div id="scanTripBoardedBody"></div>
+      </div>
+
       <!-- Goodies/inventory-duty-only: what's currently in MY hand and who -->
       <!-- it's for — a proactive checklist so a courier knows their full -->
       <!-- delivery run up front, not just whoever they happen to scan next. -->

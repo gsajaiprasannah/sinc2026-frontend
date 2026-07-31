@@ -1366,7 +1366,7 @@
     </div>
     <div class="card table-scroll">
       <table>
-        <thead><tr><th>Date</th><th>Time</th><th>Route</th><th>Purpose</th><th>Vehicle</th><th>Driver</th><th>Passengers</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Time</th><th>Route</th><th>Purpose</th><th>Vehicle</th><th>Driver</th><th>Passengers</th><th>Status</th><th>Transporter</th><th></th></tr></thead>
         <tbody id="tripTableBody"></tbody>
       </table>
     </div>
@@ -1379,12 +1379,17 @@
             <select id="tripPassengerTypeSelect">
               <option value="participant">Delegate</option>
               <option value="host_member">Host member</option>
+              <option value="guest">Other / Guest</option>
             </select>
           </div>
           <div class="field"><label>Delegate</label><select id="tripPassengerParticipantSelect"></select></div>
           <div class="field"><label>Host member</label><select id="tripPassengerHmSelect" style="display:none;"></select></div>
+          <div class="field" id="tripPassengerGuestNameWrap" style="display:none;"><label>Guest name</label><input id="tripPassengerGuestName" placeholder="e.g. vendor staff, walk-in guest" /></div>
         </div>
-        <div class="field"><label>Pickup point</label><input id="tripPassengerPickup" placeholder="Lobby / Room 204 / ..." /></div>
+        <div class="form-grid cols-2">
+          <div class="field" id="tripPassengerGuestPhoneWrap" style="display:none;"><label>Guest phone</label><input id="tripPassengerGuestPhone" placeholder="optional" /></div>
+          <div class="field"><label>Pickup point</label><input id="tripPassengerPickup" placeholder="Lobby / Room 204 / ..." /></div>
+        </div>
         <button class="btn gold" type="submit">Add passenger</button>
       </form>
       <div class="table-scroll" style="margin-top:12px;">

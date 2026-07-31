@@ -3835,6 +3835,9 @@ async function refreshTransportTrips() {
       <td>${t.driver_name || '-'}</td>
       <td>${capacityBadge(Number(t.passenger_count), t.seating_capacity)}${Number(t.passenger_count) ? `<br><span class="hint">${t.boarded_count || 0} boarded</span>` : ''}</td>
       <td>${tripStatusPill(t.status)}</td>
+      <td>${t.transporter_approved_at
+        ? `<span class="pill paid">✅ Approved</span><br><span class="hint">${new Date(t.transporter_approved_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>`
+        : '<span class="pill pending">Pending</span>'}</td>
       <td class="sticky-actions">
         <button class="btn small" onclick="manageTripPassengers(${t.id}, '${(t.from_location + ' → ' + t.to_location).replace(/'/g, '')}')">Passengers</button>
         <button class="btn small" onclick="downloadTripPdf(${t.id})">PDF</button>
@@ -3842,7 +3845,7 @@ async function refreshTransportTrips() {
         ${canDelete() ? `<button class="btn danger small" onclick="deleteTrip(${t.id})">Delete</button>` : ''}
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="9" class="empty">No trips planned yet</td></tr>';
+  `).join('') || '<tr><td colspan="10" class="empty">No trips planned yet</td></tr>';
 }
 // --- Arrivals & Departures to Plan ------------------------------------
 // The queue endpoints now return one row per delegate; the pooling happens
@@ -4397,12 +4400,15 @@ async function refreshTripPassengers() {
   const trip = await jget(`${API}/transport/${currentTripId}`);
   document.getElementById('tripPassengerTableBody').innerHTML = (trip.passengers || []).map((p) => `
     <tr>
-      <td>${p.participant_name || p.host_member_name}</td>
-      <td>${p.participant_id ? 'Delegate' : 'Host member'}</td>
-      <td>${p.participant_phone || p.host_member_phone || '-'}</td>
+      <td>${p.participant_name || p.host_member_name || p.guest_name}</td>
+      <td>${p.participant_id ? 'Delegate' : p.host_member_id ? 'Host member' : 'Guest'}</td>
+      <td>${p.participant_phone || p.host_member_phone || p.guest_phone || '-'}</td>
       <td>${p.pickup_point || '-'}</td>
       <td>${p.boarded_at ? `✅ ${new Date(p.boarded_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}${p.boarded_by_username ? ` <span class="hint">(${p.boarded_by_username})</span>` : ''}` : '<span class="hint">Not yet</span>'}</td>
-      <td>${canDelete() ? `<button class="btn danger small" onclick="removeTripPassenger(${p.id})">Remove</button>` : ''}</td>
+      <td>
+        <button class="btn small" onclick="toggleTripPassengerBoarded(${p.id}, ${!p.boarded_at})">${p.boarded_at ? 'Unmark' : 'Mark boarded'}</button>
+        ${canDelete() ? `<button class="btn danger small" onclick="removeTripPassenger(${p.id})">Remove</button>` : ''}
+      </td>
     </tr>
   `).join('') || '<tr><td colspan="6" class="empty">No passengers added yet</td></tr>';
 }
@@ -4412,24 +4418,40 @@ window.removeTripPassenger = async (passengerId) => {
   refreshTripPassengers();
   refreshTransportTrips();
 };
+// Manual boarded/not-boarded toggle — the only way a guest passenger (no
+// badge, never scannable) ever gets marked boarded, and a quick correction
+// for anyone whose badge won't scan.
+window.toggleTripPassengerBoarded = async (passengerId, boarded) => {
+  try {
+    await jput(`${API}/transport/${currentTripId}/passengers/${passengerId}/board`, { boarded });
+    refreshTripPassengers();
+    refreshTransportTrips();
+  } catch (err) { toast(err.message); }
+};
 document.getElementById('tripPassengerTypeSelect').addEventListener('change', (e) => {
-  const isHm = e.target.value === 'host_member';
-  document.getElementById('tripPassengerParticipantSelect').style.display = isHm ? 'none' : '';
-  document.getElementById('tripPassengerHmSelect').style.display = isHm ? '' : 'none';
+  const type = e.target.value;
+  document.getElementById('tripPassengerParticipantSelect').style.display = type === 'participant' ? '' : 'none';
+  document.getElementById('tripPassengerHmSelect').style.display = type === 'host_member' ? '' : 'none';
+  document.getElementById('tripPassengerGuestNameWrap').style.display = type === 'guest' ? '' : 'none';
+  document.getElementById('tripPassengerGuestPhoneWrap').style.display = type === 'guest' ? '' : 'none';
 });
 document.getElementById('tripPassengerForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (!currentTripId) { toast('Select a trip first — click "Passengers" on a row below.'); return; }
-  const isHm = document.getElementById('tripPassengerTypeSelect').value === 'host_member';
+  const type = document.getElementById('tripPassengerTypeSelect').value;
   const body = {
-    participant_id: isHm ? null : (document.getElementById('tripPassengerParticipantSelect').value || null),
-    host_member_id: isHm ? (document.getElementById('tripPassengerHmSelect').value || null) : null,
+    participant_id: type === 'participant' ? (document.getElementById('tripPassengerParticipantSelect').value || null) : null,
+    host_member_id: type === 'host_member' ? (document.getElementById('tripPassengerHmSelect').value || null) : null,
+    guest_name: type === 'guest' ? document.getElementById('tripPassengerGuestName').value.trim() : null,
+    guest_phone: type === 'guest' ? document.getElementById('tripPassengerGuestPhone').value.trim() : null,
     pickup_point: document.getElementById('tripPassengerPickup').value
   };
-  if (!body.participant_id && !body.host_member_id) { toast('Choose a delegate or a host member'); return; }
+  if (!body.participant_id && !body.host_member_id && !body.guest_name) { toast('Choose a delegate, a host member, or enter a guest name'); return; }
   try {
     await jpost(`${API}/transport/${currentTripId}/passengers`, body);
     document.getElementById('tripPassengerPickup').value = '';
+    document.getElementById('tripPassengerGuestName').value = '';
+    document.getElementById('tripPassengerGuestPhone').value = '';
     toast('Passenger added');
     refreshTripPassengers();
     refreshTransportTrips();
@@ -5317,9 +5339,9 @@ function pdfAddTripBlock(doc, y, trip) {
   ]);
   const passengerRows = (trip.passengers || []).map((p, i) => [
     i + 1,
-    p.participant_name || p.host_member_name,
-    p.participant_id ? 'Delegate' : 'Host Member',
-    p.participant_phone || p.host_member_phone,
+    p.participant_name || p.host_member_name || p.guest_name,
+    p.participant_id ? 'Delegate' : p.host_member_id ? 'Host Member' : 'Guest',
+    p.participant_phone || p.host_member_phone || p.guest_phone,
     p.pickup_point
   ]);
   y = pdfTable(doc, y, [

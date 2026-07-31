@@ -1426,17 +1426,22 @@ function tripPassengerCardHtml() {
             <select id="tripPassengerTypeSelect">
               <option value="participant">Delegate</option>
               <option value="host_member">Host member</option>
+              <option value="guest">Other / Guest</option>
             </select>
           </div>
           <div class="field"><label>Delegate</label><select id="tripPassengerParticipantSelect"></select></div>
           <div class="field"><label>Host member</label><select id="tripPassengerHmSelect" style="display:none;"></select></div>
+          <div class="field" id="tripPassengerGuestNameWrap" style="display:none;"><label>Guest name</label><input id="tripPassengerGuestName" placeholder="e.g. vendor staff, walk-in guest" /></div>
         </div>
-        <div class="field"><label>Pickup point</label><input id="tripPassengerPickup" data-location-suggest="1" placeholder="Lobby / Room 204 / ..." /></div>
+        <div class="form-grid cols-2">
+          <div class="field" id="tripPassengerGuestPhoneWrap" style="display:none;"><label>Guest phone</label><input id="tripPassengerGuestPhone" placeholder="optional" /></div>
+          <div class="field"><label>Pickup point</label><input id="tripPassengerPickup" data-location-suggest="1" placeholder="Lobby / Room 204 / ..." /></div>
+        </div>
         <button class="btn gold small" type="submit">Add passenger</button>
       </form>
       <div class="table-scroll" style="margin-top:12px;">
         <table>
-          <thead><tr><th>Name</th><th>Type</th><th>Phone</th><th>Pickup point</th><th>Boarded</th></tr></thead>
+          <thead><tr><th>Name</th><th>Type</th><th>Phone</th><th>Pickup point</th><th>Boarded</th><th></th></tr></thead>
           <tbody id="tripPassengerTableBody"></tbody>
         </table>
       </div>
@@ -1478,22 +1483,36 @@ async function refreshTripPassengers() {
   }
   document.getElementById('tripPassengerTableBody').innerHTML = (trip.passengers || []).map((p) => `
     <tr>
-      <td>${escapeHtml(p.participant_name || p.host_member_name || '-')}</td>
-      <td>${p.participant_id ? 'Delegate' : 'Host member'}</td>
-      <td>${escapeHtml(p.participant_phone || p.host_member_phone || '-')}</td>
+      <td>${escapeHtml(p.participant_name || p.host_member_name || p.guest_name || '-')}</td>
+      <td>${p.participant_id ? 'Delegate' : p.host_member_id ? 'Host member' : 'Guest'}</td>
+      <td>${escapeHtml(p.participant_phone || p.host_member_phone || p.guest_phone || '-')}</td>
       <td>${escapeHtml(p.pickup_point || '-')}</td>
       <td>${p.boarded_at ? `✅ ${new Date(p.boarded_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : '<span class="hint">Not yet</span>'}</td>
+      <td><button type="button" class="btn small" onclick="toggleTripPassengerBoarded(${p.id}, ${!p.boarded_at})">${p.boarded_at ? 'Unmark' : 'Mark boarded'}</button></td>
     </tr>
-  `).join('') || '<tr><td colspan="5" class="empty">No passengers added yet</td></tr>';
+  `).join('') || '<tr><td colspan="6" class="empty">No passengers added yet</td></tr>';
 }
+// Manual boarded/not-boarded toggle — same reasoning as the admin panel's
+// version: it's the only way a guest passenger (no badge, never scannable)
+// ever gets marked boarded, and a quick correction for anyone whose badge
+// won't scan. A PUT, not a DELETE, so — unlike Remove above — this one IS
+// usable from the committee portal.
+window.toggleTripPassengerBoarded = async (passengerId, boarded) => {
+  try {
+    await jput(`${API}/portal-modules/transport/${currentTripPassengerId}/passengers/${passengerId}/board`, { boarded });
+    await refreshTripPassengers();
+  } catch (err) { if (!(err instanceof UnauthorizedError)) toast(err.message); }
+};
 function wireTripPassengerForm() {
   const sel = document.getElementById('tripPassengerTypeSelect');
   if (sel && !sel.dataset.wired) {
     sel.dataset.wired = '1';
     sel.addEventListener('change', (e) => {
-      const isHm = e.target.value === 'host_member';
-      document.getElementById('tripPassengerParticipantSelect').style.display = isHm ? 'none' : '';
-      document.getElementById('tripPassengerHmSelect').style.display = isHm ? '' : 'none';
+      const type = e.target.value;
+      document.getElementById('tripPassengerParticipantSelect').style.display = type === 'participant' ? '' : 'none';
+      document.getElementById('tripPassengerHmSelect').style.display = type === 'host_member' ? '' : 'none';
+      document.getElementById('tripPassengerGuestNameWrap').style.display = type === 'guest' ? '' : 'none';
+      document.getElementById('tripPassengerGuestPhoneWrap').style.display = type === 'guest' ? '' : 'none';
     });
   }
   const form = document.getElementById('tripPassengerForm');
@@ -1502,17 +1521,21 @@ function wireTripPassengerForm() {
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!currentTripPassengerId) { toast('Select a trip first — click "Passengers" on a row above.'); return; }
-      const isHm = document.getElementById('tripPassengerTypeSelect').value === 'host_member';
+      const type = document.getElementById('tripPassengerTypeSelect').value;
       const body = {
-        participant_id: isHm ? null : (document.getElementById('tripPassengerParticipantSelect').value || null),
-        host_member_id: isHm ? (document.getElementById('tripPassengerHmSelect').value || null) : null,
+        participant_id: type === 'participant' ? (document.getElementById('tripPassengerParticipantSelect').value || null) : null,
+        host_member_id: type === 'host_member' ? (document.getElementById('tripPassengerHmSelect').value || null) : null,
+        guest_name: type === 'guest' ? document.getElementById('tripPassengerGuestName').value.trim() : null,
+        guest_phone: type === 'guest' ? document.getElementById('tripPassengerGuestPhone').value.trim() : null,
         pickup_point: document.getElementById('tripPassengerPickup').value
       };
-      if (!body.participant_id && !body.host_member_id) { toast('Choose a delegate or a host member'); return; }
+      if (!body.participant_id && !body.host_member_id && !body.guest_name) { toast('Choose a delegate, a host member, or enter a guest name'); return; }
       try {
         await jpost(`${API}/portal-modules/transport/${currentTripPassengerId}/passengers`, body);
         if (body.pickup_point) ensureTransportPoint(body.pickup_point);
         document.getElementById('tripPassengerPickup').value = '';
+        document.getElementById('tripPassengerGuestName').value = '';
+        document.getElementById('tripPassengerGuestPhone').value = '';
         toast('Passenger added');
         await refreshTripPassengers();
         // Re-render the trip table so the Passengers count badge stays in
@@ -3401,9 +3424,26 @@ function renderTransporterTrips(trips) {
           </select>
         </div>
       </div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:10px;">
+        ${t.transporter_approved_at
+          ? `<span class="pill paid">✅ Approved ${new Date(t.transporter_approved_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+             <button type="button" class="btn small outline" onclick="setTripApproval(${t.id}, false)">Withdraw approval</button>`
+          : `<button type="button" class="btn small gold" onclick="setTripApproval(${t.id}, true)">Approve this trip</button>`}
+      </div>
     </div>
   `).join('');
 }
+// Simple acknowledgement — "I've seen this trip and I'm accepting it" —
+// separate from the operational status above, so admin/committee can see
+// whether the vendor has actually confirmed each trip rather than just
+// inferring it from status.
+window.setTripApproval = async (tripId, approved) => {
+  try {
+    await jput(`${API}/transporter-portal/trips/${tripId}/approve`, { approved });
+    toast(approved ? 'Trip approved' : 'Approval withdrawn');
+    loadTransporterMe();
+  } catch (err) { toast(err.message); }
+};
 
 window.assignDriver = async (tripId, driverId) => {
   try {
@@ -3809,10 +3849,42 @@ async function loadTransportTripsToday() {
   if (previous && SCAN_TRIPS_TODAY.some((t) => String(t.id) === previous)) sel.value = previous;
   SELECTED_SCAN_TRIP_ID = sel.value || null;
   if (emptyHint) emptyHint.style.display = SCAN_TRIPS_TODAY.length ? 'none' : '';
+  refreshScanTripBoarded();
 }
 document.getElementById('scanTripSelect')?.addEventListener('change', (e) => {
   SELECTED_SCAN_TRIP_ID = e.target.value || null;
+  refreshScanTripBoarded();
 });
+// "Boarded so far" for whichever trip is currently selected — re-fetched on
+// trip change and after every scan (see the caps.transport button below), so
+// it never shows stale counts. Hides itself if no trip is selected, or if the
+// server 403s (shouldn't happen here since #scanTripCard already gates on the
+// same requireCap('transport'), but kept consistent with every other panel's
+// hide-on-403 behaviour in this file).
+async function refreshScanTripBoarded() {
+  const card = document.getElementById('scanTripBoardedCard');
+  if (!card) return;
+  if (!SELECTED_SCAN_TRIP_ID) { card.style.display = 'none'; return; }
+  let data;
+  try {
+    data = await jget(`${API}/badge/transport-trip/${SELECTED_SCAN_TRIP_ID}/passengers`);
+  } catch (e) {
+    if (!(e instanceof UnauthorizedError)) card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  const passengers = data.passengers || [];
+  const boarded = passengers.filter((p) => p.boarded_at);
+  document.getElementById('scanTripBoardedCount').textContent = `${boarded.length}/${passengers.length}`;
+  document.getElementById('scanTripBoardedBody').innerHTML = passengers.map((p) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border,#eee);">
+      <span>${escapeHtml(p.name || 'Unknown')}${p.phone ? ' <span class="hint">· ' + escapeHtml(p.phone) + '</span>' : ''}</span>
+      <span>${p.boarded_at
+        ? `✅ ${new Date(p.boarded_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+        : '<span class="hint">Not yet</span>'}</span>
+    </div>
+  `).join('') || '<p class="hint">No passengers added to this trip yet.</p>';
+}
 
 // --- Registration desk: pick-the-event-first, same idea as transport's -----
 // pick-the-trip-first above. Options come straight from GET /badge/
@@ -4096,6 +4168,7 @@ function renderScanResult(d, token) {
             ${t.from_location} → ${t.to_location}${t.depart_time ? ' · ' + t.depart_time : ''}
           `);
         }
+        refreshScanTripBoarded();
       } catch (err) { if (!(err instanceof UnauthorizedError)) showResult(err.message, true); }
       finally { e.target.disabled = false; }
     });
