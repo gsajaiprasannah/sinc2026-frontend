@@ -1230,6 +1230,24 @@ function regIncludesAccommodation(category) {
 // has a primary registrant, how many delegates it already holds) can be
 // recomputed without another round trip every time the dropdown changes.
 let REGS_CACHE = [];
+// Registrations previously only showed a bare participant count — the office
+// had to open the Delegates tab and search by reg# just to see who a booking
+// actually belonged to. r.participants already comes back from the API
+// (json_agg of {id, name, is_primary}, primary first), so this just renders
+// it: primary on its own line, co-registrant(s) below marked "co-reg". Each
+// name jumps to that delegate's own card on the Delegates tab.
+function registrantsCellHtml(participants) {
+  const list = participants || [];
+  if (!list.length) return '<span class="hint">no delegate linked yet</span>';
+  return list.map((p) => {
+    const label = Number(p.is_primary) === 1 ? '' : ' <span class="hint">(co-reg)</span>';
+    return `<a href="javascript:void(0)" onclick="jumpToRegistrant(${p.id})">${p.name || '(unnamed)'}</a>${label}`;
+  }).join('<br>');
+}
+window.jumpToRegistrant = (participantId) => {
+  switchAdminTab('participants');
+  setTimeout(() => highlightPartCard(participantId), 50);
+};
 async function refreshRegs() {
   const regs = await jget(`${API}/registrations`);
   REGS_CACHE = regs;
@@ -1241,10 +1259,10 @@ async function refreshRegs() {
         ? `${regCategoryLabel(r.registration_category)}${regIncludesAccommodation(r.registration_category) === false ? ' <span class="hint">(no room)</span>' : ''}`
         : '<span class="hint">Not recorded</span>'}</td>
       <td>${r.club_name || '-'}</td>
+      <td>${registrantsCellHtml(r.participants)}</td>
       <td>₹${r.amount_paid}</td>
       <td>₹${r.amount_due}</td>
       <td><span class="pill ${r.payment_status}">${r.payment_status}</span></td>
-      <td>${r.participant_count}</td>
       <td><button class="btn small" onclick="editReg(${r.id})">Update Payment</button> <button class="btn small" onclick="downloadReceiptPdf(${r.id})">Receipt</button> ${canDelete() ? `<button class="btn danger small" onclick="deleteReg(${r.id})">Delete</button>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="9" class="empty">No registrations yet</td></tr>';
