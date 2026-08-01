@@ -3419,7 +3419,7 @@ async function refreshEcHistory() {
       <td>${c.name}</td>
       <td>${AUDIENCE_LABELS[c.audience_type] || c.audience_type}${c.recipient_ids ? ' <span class="hint">(hand-picked)</span>' : ''}</td>
       <td>${c.attempted_count}</td>
-      <td>${c.sent_count} / ${c.failed_count}</td>
+      <td>${c.sent_count} / ${c.failed_count > 0 ? `<a href="javascript:void(0)" class="pill cancelled" onclick="ecResendFailed(${c.id}, ${c.failed_count})" title="Resend to just these failed recipients">${c.failed_count} failed — Resend</a>` : c.failed_count}</td>
       <td>${ecStatusPill(c.status)}</td>
       <td>${new Date(c.created_at).toLocaleString()}</td>
       <td class="sticky-actions">
@@ -3457,7 +3457,9 @@ async function renderEcRecipientsPanel(id) {
           <tr>
             <td>${r.name || '-'}</td>
             <td>${r.email}</td>
-            <td>${ecStatusPill(r.status)}</td>
+            <td>${r.status === 'failed'
+              ? `<a href="javascript:void(0)" class="pill cancelled" onclick="ecResendFailed(${id})" title="Resend to all failed recipients in this campaign">failed — Resend</a>`
+              : ecStatusPill(r.status)}</td>
             <td class="hint">${r.error || ''}</td>
           </tr>
         `).join('') || '<tr><td colspan="4" class="empty">No recipients yet — click Send.</td></tr>'}
@@ -3482,6 +3484,25 @@ window.ecSendCampaign = async (id, recipientCount) => {
     openEcRecipientPanels.add(id);
     refreshEcHistory();
     // Poll a few times so sent/failed counts update live without a manual refresh.
+    let polls = 0;
+    const timer = setInterval(async () => {
+      polls++;
+      await refreshEcHistory();
+      if (polls >= 10) clearInterval(timer);
+    }, 4000);
+  } catch (err) { toast(err.message); }
+};
+
+// Retries just the recipients who bounced/errored on the last send — e.g.
+// after fixing a typo'd address on file, or if Resend had a transient
+// hiccup — instead of re-sending to people who already got the mail.
+window.ecResendFailed = async (id, failedCount) => {
+  if (!confirm(`Resend to ${failedCount ? `the ${failedCount} failed recipient(s)` : 'the failed recipients'} of this campaign?`)) return;
+  try {
+    const result = await jpost(`${API}/email-campaigns/${id}/resend-failed`, {});
+    toast(`Resending to ${result.recipient_count} recipient(s)...`);
+    openEcRecipientPanels.add(id);
+    refreshEcHistory();
     let polls = 0;
     const timer = setInterval(async () => {
       polls++;
@@ -5925,6 +5946,38 @@ const DELEGATE_REPORT_SECTIONS = [
             ['Not recorded', String(unknown), `${Math.round((unknown / (rows.length || 1)) * 1000) / 10}%`],
           ],
         },
+        // Occupancy (Single/Double King/Double Twin) — a room-planning count,
+        // so it's shown per REGISTRATION (booking), not per delegate: a Double
+        // King booking with both seats filled is still one room to reserve.
+        // Delegates is also shown alongside for a headcount cross-check.
+        (() => {
+          const regCountOf = (list) => new Set(list.map((r) => r.registration_id).filter(Boolean)).size;
+          const OCCUPANCY_ORDER = ['single', 'double_king', 'double_twin', 'double', 'congress_only'];
+          const totalRegs = regCountOf(rows) || 1;
+          const seen = new Set();
+          const bodyRows = [];
+          OCCUPANCY_ORDER.forEach((t) => {
+            const list = rows.filter((r) => r.reg_type === t);
+            seen.add(t);
+            if (!list.length) return;
+            const regs = regCountOf(list);
+            bodyRows.push([REG_TYPE_LABEL[t] || t, String(regs), String(list.length), `${Math.round((regs / totalRegs) * 1000) / 10}%`]);
+          });
+          const other = rows.filter((r) => !seen.has(r.reg_type));
+          if (other.length) {
+            const regs = regCountOf(other);
+            bodyRows.push(['Not recorded', String(regs), String(other.length), `${Math.round((regs / totalRegs) * 1000) / 10}%`]);
+          }
+          bodyRows.push(['TOTAL', String(regCountOf(rows)), String(rows.length), '100%']);
+          return {
+            label: 'Occupancy (room type)',
+            columns: [
+              { label: 'Occupancy type', width: 190 }, { label: 'Rooms/Registrations', width: 130, align: 'right' },
+              { label: 'Delegates', width: 90, align: 'right' }, { label: 'Share of rooms', width: 125, align: 'right' },
+            ],
+            rows: bodyRows,
+          };
+        })(),
       ];
     }
   },
