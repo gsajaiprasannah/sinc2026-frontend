@@ -495,6 +495,19 @@ const DELEGATE_PROFILE_FIELDS = [
   // honest for whoever is looking at it.
   { key: 'id_doc', label: 'ID document', superAdminOnly: true, has: (r) => !!(r.aadhaar_url || r.passport_url) },
 ];
+// Narrower than DELEGATE_PROFILE_FIELDS above: this is specifically "has this
+// delegate submitted the my-travel.html self-service form" (the one the
+// reminder email points them to), not general record completeness — phone/
+// email are captured at registration and photo/ID live on a different form,
+// so none of those count here. Arrival/departure each need every leg detail
+// (mode, number, date-time, point), and sizes needs all three garments, since
+// a half-filled leg or size still leaves the office chasing that person.
+const DELEGATE_FORM_FIELDS = [
+  { key: 'arrival', label: 'Arrival details', has: (r) => !!(r.travel_mode && r.travel_number && r.travel_datetime && r.arrival_point) },
+  { key: 'departure', label: 'Departure details', has: (r) => !!(r.departure_mode && r.departure_number && r.departure_datetime && r.departure_point) },
+  { key: 'food', label: 'Food preference', has: (r) => !!r.dietary_preference },
+  { key: 'sizes', label: 'Merchandise sizes (shirt, T-shirt, waist)', has: (r) => !!(r.shirt_size && r.tshirt_size && r.waist_size) },
+];
 const HOST_MEMBER_PROFILE_FIELDS = [
   { key: 'phone', label: 'Phone', has: (r) => !!r.phone },
   { key: 'email', label: 'Email', has: (r) => !!r.email },
@@ -6302,8 +6315,32 @@ const DELEGATE_PDF_FIELDS = [
     get: (r) => pdfLines([['', r.spoc_host_member_name || r.spoc_name], ['Ph', r.spoc_host_member_phone || r.spoc_phone]]) },
 
   { key: 'payment_status', label: 'Payment', group: 'Other', width: 55, get: (r) => r.payment_status },
+  // Same yardstick as the "Profile completion" filter/summary above the
+  // table — so a filtered export (Complete / Incomplete) shows exactly why
+  // each row landed where it did.
+  { key: 'profile_pct', label: 'Profile completion %', group: 'Other', width: 60,
+    get: (r) => `${profileCompletion(r, DELEGATE_PROFILE_FIELDS).pct}%` },
+  { key: 'profile_missing', label: 'Profile — what\'s missing', group: 'Other', width: 130,
+    get: (r) => profileCompletion(r, DELEGATE_PROFILE_FIELDS).missing.join(', ') || '-' },
 ];
 const DELEGATE_PDF_DEFAULT_KEYS = ['participant_code', 'name', 'role', 'phone', 'dietary_preference', 'sizes', 'arrival', 'departure'];
+// Maps the Delegates tab's "Profile completion" filter value to a short
+// filename suffix, so exporting while filtered produces a self-describing
+// file (delegates-directory-complete.xlsx) instead of a generic name that
+// looks like it has everyone.
+const COMPLETION_FILTER_FILE_SUFFIX = { complete: '-complete', incomplete: '-incomplete', partial: '-partial', empty: '-empty' };
+// Reads the Delegates tab's live "Profile completion" filter selection and
+// narrows `rows` to match, so "Download PDF"/"Download Excel" produce
+// exactly the Complete or Incomplete list currently selected on screen
+// instead of always exporting every delegate regardless of that filter.
+function applyDelegateCompletionFilter(rows) {
+  const value = document.getElementById('partCompletionFilter')?.value || '';
+  const filtered = value
+    ? rows.filter((r) => matchesCompletionFilter(value, profileCompletion(r, DELEGATE_PROFILE_FIELDS).pct))
+    : rows;
+  const label = (completionFilterOptions().find(([v]) => v === value) || [])[1];
+  return { rows: filtered, value, label: value ? label : null };
+}
 
 // Same idea for Host Members. Committees come back from /hostmembers as a
 // json_agg array of {id,name}, hence the join in that field's getter.
@@ -6604,7 +6641,11 @@ window.runXlsxFieldPicker = () => {
 async function downloadDelegatesListPdf(fields, columns, groupByClub) {
   try {
     const keys = fields.map((f) => f.key);
-    const rows = await jget(`${API}/participants`);
+    const all = await jget(`${API}/participants`);
+    // Honor whatever the "Profile completion" filter is currently set to on
+    // the Delegates tab, so picking Complete/Incomplete there and exporting
+    // gives exactly that list rather than always everyone.
+    const { rows, value: filterValue, label: filterLabel } = applyDelegateCompletionFilter(all);
     // Annotate each delegate with whoever else shares their registration, so
     // the "Travelling with" column can show the partner by name.
     const byReg = new Map();
@@ -6621,12 +6662,13 @@ async function downloadDelegatesListPdf(fields, columns, groupByClub) {
 
     const doc = pdfDoc();
     const groups = groupByClub ? groupPartsByClub(rows) : null;
+    const filterSuffix = filterLabel ? ` — Profile completion: ${filterLabel}` : '';
     let y = await pdfLetterhead(
       doc,
       'Delegates Directory',
       groups
-        ? `${rows.length} delegate(s) across ${groups.length} club(s)`
-        : `${rows.length} delegate(s)`
+        ? `${rows.length} delegate(s) across ${groups.length} club(s)${filterSuffix}`
+        : `${rows.length} delegate(s)${filterSuffix}`
     );
     // Overall tallies for the whole report, directly under the title.
     y = pdfSummaryLine(doc, y, delegateCountSummary(rows, keys));
@@ -6645,7 +6687,7 @@ async function downloadDelegatesListPdf(fields, columns, groupByClub) {
       y = pdfTable(doc, y, columns, clubRegistrations(rows).map(toRow));
     }
     pdfFinalize(doc);
-    doc.save('delegates-directory.pdf');
+    doc.save(`delegates-directory${COMPLETION_FILTER_FILE_SUFFIX[filterValue] || ''}.pdf`);
   } catch (err) { toast(err.message); }
 }
 // Same field-picker selection, one flat sheet (no club grouping — that's a
@@ -6653,7 +6695,8 @@ async function downloadDelegatesListPdf(fields, columns, groupByClub) {
 // Club themselves once it's a ticked column).
 async function downloadDelegatesListXlsx(fields) {
   try {
-    const rows = await jget(`${API}/participants`);
+    const all = await jget(`${API}/participants`);
+    const { rows, value: filterValue } = applyDelegateCompletionFilter(all);
     const byReg = new Map();
     rows.forEach((r) => {
       if (!r.registration_id) return;
@@ -6664,9 +6707,39 @@ async function downloadDelegatesListXlsx(fields) {
       const mates = (byReg.get(r.registration_id) || []).filter((m) => m.id !== r.id);
       r._travelling_with = mates.map((m) => m.name).join(', ');
     });
-    downloadListReportXlsx('Delegates', fields, rows, 'delegates-directory.xlsx');
+    downloadListReportXlsx('Delegates', fields, rows, `delegates-directory${COMPLETION_FILTER_FILE_SUFFIX[filterValue] || ''}.xlsx`);
   } catch (err) { toast(err.message); }
 }
+
+// Two named lists off the my-travel.html self-service form specifically —
+// who's fully submitted it (arrival + departure legs, food preference, all
+// three sizes) and who still has something outstanding — as separate Excel
+// files, since chasing the pending list is a different task from confirming
+// the completed one.
+window.downloadDelegateFormCompletionLists = async () => {
+  try {
+    const rows = await jget(`${API}/participants`);
+    const complete = [];
+    const pending = [];
+    rows.forEach((r) => {
+      const c = profileCompletion(r, DELEGATE_FORM_FIELDS);
+      (c.pct === 100 ? complete : pending).push({ ...r, _formMissing: c.missing.join(', ') || '-' });
+    });
+    const cols = [
+      { label: 'Reg ID', get: (r) => r.participant_code, width: 62 },
+      { label: 'Name', get: (r) => r.name, width: 110 },
+      { label: 'Club', get: (r) => r.club_name, width: 90 },
+      { label: 'Phone', get: (r) => r.phone, width: 70 },
+      { label: 'Email', get: (r) => r.email, width: 120 },
+      { label: 'Reg #', get: (r) => r.reg_number, width: 62 },
+      { label: 'Missing', get: (r) => r._formMissing, width: 130 },
+    ];
+    downloadListReportXlsx('Form completed', cols, complete, 'delegates-form-completed.xlsx');
+    downloadListReportXlsx('Form pending', cols, pending, 'delegates-form-pending.xlsx');
+    toast(`Downloaded 2 files — ${complete.length} completed, ${pending.length} pending their my-travel.html form.`, 6000);
+  } catch (err) { toast(err.message); }
+};
+
 window.downloadDelegateDetailPdf = async (id) => {
   try {
     const rows = await jget(`${API}/participants`);
