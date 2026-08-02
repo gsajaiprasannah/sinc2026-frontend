@@ -581,6 +581,43 @@ function matchesCompletionFilter(value, pct) {
   return bucket === value;
 }
 
+// --- Sex (M/F) ----------------------------------------------------------
+// Stored as 'M'/'F' or NULL on both participants and host_members. NULL is a
+// first-class value here, not a gap to be papered over: it means "nobody has
+// confirmed this yet", which matters because sex drives gender-segregated
+// twin-sharing room allocation. The list filter therefore offers an explicit
+// "Not set" option so the office can work through exactly those records.
+const SEX_LABEL = { M: 'Male', F: 'Female' };
+function sexLabel(v) { return SEX_LABEL[v] || 'Not set'; }
+function sexPill(v) {
+  const cls = v === 'M' ? 'billed' : v === 'F' ? 'partial' : 'pending';
+  return `<span class="pill ${cls}">${sexLabel(v)}</span>`;
+}
+function sexFilterOptions() {
+  return [['', 'All'], ['M', 'Male'], ['F', 'Female'], ['none', 'Not set']];
+}
+function matchesSexFilter(value, sex) {
+  if (!value) return true;
+  if (value === 'none') return !sex;
+  return sex === value;
+}
+// Suggests M/F from an honorific already in the name ("Mrs Aruna Anand"),
+// mirroring server/lib/sex.js so the admin UI and the server agree. Only
+// unambiguous titles count — "Dr" and bare names return '' rather than a guess.
+function sexFromName(name) {
+  const m = /^\s*(mr|mrs|ms|miss|smt|shri|sri)\.?\s+/i.exec(String(name || ''));
+  if (!m) return '';
+  return ['mrs', 'ms', 'miss', 'smt'].includes(m[1].toLowerCase()) ? 'F' : 'M';
+}
+// "112 Male · 48 Female · 16 Not set" — used above both list pages.
+function sexSummaryHtml(rows) {
+  if (!rows.length) return '';
+  const n = (v) => rows.filter((r) => (v === 'none' ? !r.sex : r.sex === v)).length;
+  return `<span class="pill billed">${n('M')} male</span>
+    <span class="pill partial">${n('F')} female</span>
+    <span class="pill pending">${n('none')} sex not set</span>`;
+}
+
 // --- Edit-in-place modal ----------------------------------------------
 // The Add/Edit forms for Delegates and Host Members sit at the top of their
 // tab, so editing a record meant scrolling up, editing, then hunting for
@@ -1563,10 +1600,16 @@ async function refreshParts(query) {
   // only the "showing N of M" line does.
   const completionFilter = document.getElementById('partCompletionFilter');
   const completionValue = completionFilter ? completionFilter.value : '';
+  const sexFilter = document.getElementById('partSexFilter');
+  const sexValue = sexFilter ? sexFilter.value : '';
   const allRows = rows;
-  rows = rows.filter((p) => matchesCompletionFilter(completionValue, profileCompletion(p, DELEGATE_PROFILE_FIELDS).pct));
+  rows = rows.filter((p) => matchesCompletionFilter(completionValue, profileCompletion(p, DELEGATE_PROFILE_FIELDS).pct)
+    && matchesSexFilter(sexValue, p.sex));
   const summaryEl = document.getElementById('partCompletionSummary');
-  if (summaryEl) summaryEl.innerHTML = completionSummaryHtml(allRows, DELEGATE_PROFILE_FIELDS, 'delegate', rows.length);
+  if (summaryEl) {
+    summaryEl.innerHTML = completionSummaryHtml(allRows, DELEGATE_PROFILE_FIELDS, 'delegate', rows.length)
+      + `<div class="card" style="margin-bottom:12px;">${sexSummaryHtml(allRows)}</div>`;
+  }
 
   // Group every delegate by registration_id so each card can show who else
   // shares that registration — the primary registrant <-> co-registrant
@@ -1590,6 +1633,7 @@ async function refreshParts(query) {
     const fields = [
       { label: 'Registration ID', value: `<strong>${p.participant_code || '-'}</strong>` },
       { label: 'Reg #', value: p.reg_number || '-' },
+      { label: 'Sex', value: sexPill(p.sex) },
       { label: 'Profile', value: completionCell(profileCompletion(p, DELEGATE_PROFILE_FIELDS)) },
       { label: 'Registration type', value: p.registration_category
         ? `${regCategoryLabel(p.registration_category)}${regIncludesAccommodation(p.registration_category) === false ? '<br><span class="hint">No accommodation included</span>' : ''}`
@@ -1691,7 +1735,7 @@ window.highlightPartCard = (id) => {
 };
 
 const PART_FORM_FIELDS = [
-  'name', 'phone', 'whatsapp', 'email', 'address', 'club_id', 'registration_id', 'designation', 'is_primary',
+  'name', 'phone', 'whatsapp', 'email', 'address', 'club_id', 'registration_id', 'designation', 'is_primary', 'sex',
   'business_profile', 'dietary_preference', 'special_requests',
   'travel_mode', 'travel_number', 'travel_datetime', 'arrival_point',
   'departure_mode', 'departure_number', 'departure_datetime', 'departure_point',
@@ -1962,6 +2006,33 @@ document.getElementById('partSortSelect').addEventListener('change', () => {
     hmFilter.innerHTML = opts;
     hmFilter.addEventListener('change', () => refreshHostMembers(document.getElementById('hmSearch').value));
   }
+
+  // Same pattern for the Male / Female / Not set filter on both modules.
+  const sexOpts = sexFilterOptions().map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  const partSex = document.getElementById('partSexFilter');
+  if (partSex) {
+    partSex.innerHTML = sexOpts;
+    partSex.addEventListener('change', () => refreshParts(document.getElementById('partSearch').value));
+  }
+  const hmSex = document.getElementById('hmSexFilter');
+  if (hmSex) {
+    hmSex.innerHTML = sexOpts;
+    hmSex.addEventListener('change', () => refreshHostMembers(document.getElementById('hmSearch').value));
+  }
+
+  // Convenience: typing a name that already carries an honorific ("Mrs Aruna
+  // Anand") pre-selects the matching sex, but only while the dropdown is
+  // still blank — so it never overrides a value someone chose deliberately,
+  // and it stays a visible suggestion the user can change before saving.
+  [['partForm'], ['hmForm']].forEach(([formId]) => {
+    const form = document.getElementById(formId);
+    if (!form || !form.elements.name || !form.elements.sex) return;
+    form.elements.name.addEventListener('blur', () => {
+      if (form.elements.sex.value) return;
+      const guess = sexFromName(form.elements.name.value);
+      if (guess) form.elements.sex.value = guess;
+    });
+  });
 })();
 
 let searchTimer = null;
@@ -2460,9 +2531,15 @@ async function refreshHostMembers(query) {
     : rows;
   const hmFilterEl = document.getElementById('hmCompletionFilter');
   const hmFilterValue = hmFilterEl ? hmFilterEl.value : '';
-  const filtered = searched.filter((h) => matchesCompletionFilter(hmFilterValue, profileCompletion(h, HOST_MEMBER_PROFILE_FIELDS).pct));
+  const hmSexEl = document.getElementById('hmSexFilter');
+  const hmSexValue = hmSexEl ? hmSexEl.value : '';
+  const filtered = searched.filter((h) => matchesCompletionFilter(hmFilterValue, profileCompletion(h, HOST_MEMBER_PROFILE_FIELDS).pct)
+    && matchesSexFilter(hmSexValue, h.sex));
   const hmSummaryEl = document.getElementById('hmCompletionSummary');
-  if (hmSummaryEl) hmSummaryEl.innerHTML = completionSummaryHtml(searched, HOST_MEMBER_PROFILE_FIELDS, 'host member', filtered.length);
+  if (hmSummaryEl) {
+    hmSummaryEl.innerHTML = completionSummaryHtml(searched, HOST_MEMBER_PROFILE_FIELDS, 'host member', filtered.length)
+      + `<div class="card" style="margin-bottom:12px;">${sexSummaryHtml(searched)}</div>`;
+  }
   document.getElementById('hmTableBody').innerHTML = filtered.map((h) => {
     const committeeNames = (h.committees || []).map((c) => c.name);
     const committeesLabel = committeeNames.length > 2
@@ -2470,6 +2547,7 @@ async function refreshHostMembers(query) {
       : (committeeNames.join(', ') || '-');
     const header = `${h.name}${h.designation ? ' <span class="hint">(' + h.designation + ')</span>' : ''}`;
     const fields = [
+      { label: 'Sex', value: sexPill(h.sex) },
       { label: 'Profile', value: completionCell(profileCompletion(h, HOST_MEMBER_PROFILE_FIELDS)) },
       { label: 'Phone', value: h.phone || '-' },
       { label: 'Leadership Role', value: h.leadership_role ? `<span class="pill paid">${h.leadership_role}</span>` : '-' },
@@ -2523,7 +2601,7 @@ window.createHostLogin = async (id, name) => {
   } catch (err) { toast(err.message); }
 };
 
-const HM_FORM_FIELDS = ['name', 'phone', 'email', 'company', 'designation', 'category', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date', 'notes', 'leadership_role', 'shirt_size', 'tshirt_size', 'waist_size'];
+const HM_FORM_FIELDS = ['name', 'phone', 'email', 'company', 'designation', 'category', 'sex', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date', 'notes', 'leadership_role', 'shirt_size', 'tshirt_size', 'waist_size'];
 window.editHm = async (id) => {
   const h = await jget(`${API}/hostmembers/${id}`);
   const form = document.getElementById('hmForm');
@@ -5995,6 +6073,45 @@ const DELEGATE_REPORT_SECTIONS = [
     }
   },
   {
+    key: 'sex', label: 'Male / Female split', default: true,
+    build: (rows) => {
+      const denom = rows.length || 1;
+      const row = (label, fn) => {
+        const c = rows.filter(fn).length;
+        return [label, String(c), `${Math.round((c / denom) * 1000) / 10}%`];
+      };
+      const blocks = [{
+        columns: [{ label: 'Sex', width: 300 }, { label: 'Delegates', width: 90, align: 'right' }, { label: 'Share', width: 125, align: 'right' }],
+        rows: [
+          row('Male', (r) => r.sex === 'M'),
+          row('Female', (r) => r.sex === 'F'),
+          row('Not set', (r) => !r.sex),
+          ['TOTAL', String(rows.length), '100%'],
+        ],
+      }];
+      // Per-club split too, since rooming and kit distribution are both run
+      // club-wise. Only rendered once some sex data exists, so the section
+      // isn't a wall of zeroes before anyone has filled it in.
+      if (rows.some((r) => r.sex)) {
+        const groups = groupPartsByClub(rows);
+        const cell = (list, v) => String(list.filter((r) => (v === 'none' ? !r.sex : r.sex === v)).length);
+        blocks.push({
+          label: 'By club',
+          columns: [
+            { label: 'Club', width: 175 }, { label: 'Male', width: 80, align: 'right' },
+            { label: 'Female', width: 85, align: 'right' }, { label: 'Not set', width: 85, align: 'right' },
+            { label: 'Total', width: 90, align: 'right' },
+          ],
+          rows: [
+            ...groups.map((g) => [g.club, cell(g.rows, 'M'), cell(g.rows, 'F'), cell(g.rows, 'none'), String(g.rows.length)]),
+            ['TOTAL', cell(rows, 'M'), cell(rows, 'F'), cell(rows, 'none'), String(rows.length)],
+          ],
+        });
+      }
+      return blocks;
+    }
+  },
+  {
     key: 'food', label: 'Meal preferences', default: true,
     build: (rows) => [tallyBlock('Food preference', rows, (r) => r.dietary_preference, {
       blankLabel: 'No preference', order: ['Vegetarian', 'Non-vegetarian', 'No preference'],
@@ -6084,6 +6201,25 @@ const HOST_MEMBER_REPORT_SECTIONS = [
           m('Company logo uploaded', (r) => r.logo_url),
           m('Sizes given', (r) => r.shirt_size || r.tshirt_size || r.waist_size),
           m('Hotel stay requested', (r) => r.hotel_stay_required),
+        ],
+      }];
+    }
+  },
+  {
+    key: 'sex', label: 'Male / Female split', default: true,
+    build: (rows) => {
+      const denom = rows.length || 1;
+      const row = (label, fn) => {
+        const c = rows.filter(fn).length;
+        return [label, String(c), `${Math.round((c / denom) * 1000) / 10}%`];
+      };
+      return [{
+        columns: [{ label: 'Sex', width: 300 }, { label: 'Host members', width: 90, align: 'right' }, { label: 'Share', width: 125, align: 'right' }],
+        rows: [
+          row('Male', (r) => r.sex === 'M'),
+          row('Female', (r) => r.sex === 'F'),
+          row('Not set', (r) => !r.sex),
+          ['TOTAL', String(rows.length), '100%'],
         ],
       }];
     }
@@ -6281,6 +6417,7 @@ window.runReportPicker = async () => {
 const DELEGATE_PDF_FIELDS = [
   { key: 'participant_code', label: 'Reg ID', group: 'Identity', width: 62, get: (r) => r.participant_code },
   { key: 'name', label: 'Name', group: 'Identity', width: 110, get: (r) => r.name },
+  { key: 'sex', label: 'Sex', group: 'Identity', width: 45, get: (r) => r.sex || '' },
   { key: 'designation', label: 'Designation', group: 'Identity', width: 90, get: (r) => r.designation },
   { key: 'club_name', label: 'Club', group: 'Identity', width: 85, get: (r) => r.club_name },
   { key: 'role', label: 'Role', group: 'Identity', width: 55, get: (r) => (Number(r.is_primary) === 1 ? 'Primary' : 'Co-reg') },
@@ -6329,23 +6466,32 @@ const DELEGATE_PDF_DEFAULT_KEYS = ['participant_code', 'name', 'role', 'phone', 
 // file (delegates-directory-complete.xlsx) instead of a generic name that
 // looks like it has everyone.
 const COMPLETION_FILTER_FILE_SUFFIX = { complete: '-complete', incomplete: '-incomplete', partial: '-partial', empty: '-empty' };
+const SEX_FILTER_FILE_SUFFIX = { M: '-male', F: '-female', none: '-sex-not-set' };
 // Reads the Delegates tab's live "Profile completion" filter selection and
 // narrows `rows` to match, so "Download PDF"/"Download Excel" produce
 // exactly the Complete or Incomplete list currently selected on screen
 // instead of always exporting every delegate regardless of that filter.
 function applyDelegateCompletionFilter(rows) {
   const value = document.getElementById('partCompletionFilter')?.value || '';
-  const filtered = value
+  const sexValue = document.getElementById('partSexFilter')?.value || '';
+  let filtered = value
     ? rows.filter((r) => matchesCompletionFilter(value, profileCompletion(r, DELEGATE_PROFILE_FIELDS).pct))
     : rows;
-  const label = (completionFilterOptions().find(([v]) => v === value) || [])[1];
-  return { rows: filtered, value, label: value ? label : null };
+  // The Sex filter narrows the export the same way, so "show me the female
+  // delegates" on screen and "download that list" agree.
+  if (sexValue) filtered = filtered.filter((r) => matchesSexFilter(sexValue, r.sex));
+  const parts = [];
+  if (value) parts.push((completionFilterOptions().find(([v]) => v === value) || [])[1]);
+  if (sexValue) parts.push((sexFilterOptions().find(([v]) => v === sexValue) || [])[1] + ' only');
+  const suffix = (COMPLETION_FILTER_FILE_SUFFIX[value] || '') + (SEX_FILTER_FILE_SUFFIX[sexValue] || '');
+  return { rows: filtered, value: suffix, label: parts.length ? parts.join(', ') : null };
 }
 
 // Same idea for Host Members. Committees come back from /hostmembers as a
 // json_agg array of {id,name}, hence the join in that field's getter.
 const HOST_MEMBER_PDF_FIELDS = [
   { key: 'name', label: 'Name', group: 'Identity', width: 120, get: (r) => r.name },
+  { key: 'sex', label: 'Sex', group: 'Identity', width: 45, get: (r) => r.sex || '' },
   { key: 'designation', label: 'Designation', group: 'Identity', width: 95, get: (r) => r.designation },
   { key: 'leadership_role', label: 'Leadership role', group: 'Identity', width: 95, get: (r) => r.leadership_role },
   { key: 'company', label: 'Company', group: 'Identity', width: 110, get: (r) => r.company },
@@ -6687,7 +6833,7 @@ async function downloadDelegatesListPdf(fields, columns, groupByClub) {
       y = pdfTable(doc, y, columns, clubRegistrations(rows).map(toRow));
     }
     pdfFinalize(doc);
-    doc.save(`delegates-directory${COMPLETION_FILTER_FILE_SUFFIX[filterValue] || ''}.pdf`);
+    doc.save(`delegates-directory${filterValue || ''}.pdf`);
   } catch (err) { toast(err.message); }
 }
 // Same field-picker selection, one flat sheet (no club grouping — that's a
@@ -6707,7 +6853,7 @@ async function downloadDelegatesListXlsx(fields) {
       const mates = (byReg.get(r.registration_id) || []).filter((m) => m.id !== r.id);
       r._travelling_with = mates.map((m) => m.name).join(', ');
     });
-    downloadListReportXlsx('Delegates', fields, rows, `delegates-directory${COMPLETION_FILTER_FILE_SUFFIX[filterValue] || ''}.xlsx`);
+    downloadListReportXlsx('Delegates', fields, rows, `delegates-directory${filterValue || ''}.xlsx`);
   } catch (err) { toast(err.message); }
 }
 

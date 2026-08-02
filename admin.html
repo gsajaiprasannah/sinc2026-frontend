@@ -339,6 +339,13 @@
             </select>
           </div>
           <div class="field"><label>Designation</label><input name="designation" placeholder="President / Member / Spouse" /></div>
+          <div class="field"><label>Sex</label>
+            <select name="sex">
+              <option value="">— Not set —</option>
+              <option value="M">Male</option>
+              <option value="F">Female</option>
+            </select>
+          </div>
           <div class="field"><label>Primary registrant?</label>
             <select name="is_primary" id="partIsPrimarySelect"><option value="1">Yes</option><option value="0">No (co-registrant)</option></select>
           </div>
@@ -456,6 +463,13 @@
           <div class="field"><label>Email</label><input name="email" type="email" /></div>
           <div class="field"><label>Company</label><input name="company" /></div>
           <div class="field"><label>Designation</label><input name="designation" /></div>
+          <div class="field"><label>Sex</label>
+            <select name="sex">
+              <option value="">— Not set —</option>
+              <option value="M">Male</option>
+              <option value="F">Female</option>
+            </select>
+          </div>
           <div class="field"><label>Category</label><input name="category" placeholder="Hotel / Travel / Transport / Other" /></div>
           <div class="field">
             <label>Leadership role</label>
@@ -510,7 +524,7 @@
 
     <div class="card" style="margin-top:14px;">
       <div class="section-title" style="margin-top:0">Bulk upload (CSV)</div>
-      <p class="hint">Columns: <code>name, phone, whatsapp, email, address, club_name, reg_number, is_primary, designation, business_profile, dietary_preference, drink_preference, special_requests, travel_mode, travel_number, travel_datetime, arrival_point, departure_mode, departure_number, departure_datetime, departure_point, pickup_by, pickup_vehicle, pickup_phone, spoc_name, spoc_phone, notes</code></p>
+      <p class="hint">Columns: <code>name, phone, whatsapp, email, address, club_name, reg_number, is_primary, designation, sex, business_profile, dietary_preference, drink_preference, special_requests, travel_mode, travel_number, travel_datetime, arrival_point, departure_mode, departure_number, departure_datetime, departure_point, pickup_by, pickup_vehicle, pickup_phone, spoc_name, spoc_phone, notes</code><br><code>sex</code> accepts M / F / Male / Female (leave blank if unknown).</p>
       <form id="partCsvForm">
         <input type="file" name="file" accept=".csv" required />
         <button class="btn" type="submit" style="margin-top:10px;">Upload CSV</button>
@@ -533,6 +547,9 @@
       <div class="field"><input id="partSearch" placeholder="Search by name, phone, WhatsApp, email, designation, SPOC, reg#, or club..." /></div>
       <div class="field"><label>Profile completion</label>
         <select id="partCompletionFilter"></select>
+      </div>
+      <div class="field"><label>Sex</label>
+        <select id="partSexFilter"></select>
       </div>
       <div class="field"><label>Sort by</label>
         <select id="partSortSelect">
@@ -782,10 +799,13 @@
       </div>
     </div>
     <div id="hmCompletionSummary"></div>
-    <div class="form-grid cols-2">
+    <div class="form-grid cols-3">
       <div class="field"><input id="hmSearch" placeholder="Search by name, phone, email, company, designation, category, or notes..." /></div>
       <div class="field"><label>Profile completion</label>
         <select id="hmCompletionFilter"></select>
+      </div>
+      <div class="field"><label>Sex</label>
+        <select id="hmSexFilter"></select>
       </div>
     </div>
     <div class="card">
