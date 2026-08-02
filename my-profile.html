@@ -119,6 +119,48 @@
 
       <div class="field"><label>Special requests</label><textarea name="special_requests" rows="3" placeholder="Any dietary allergies, accessibility needs, or other requests..."></textarea></div>
 
+      <!-- Host Members only — the spouse dinner and goodies columns exist on
+           host_members alone, so openRecord() hides this block for Delegates
+           and Volunteers. -->
+      <div id="spouseSection">
+        <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Bringing your spouse to dinner?</div>
+        <p class="hint" style="margin-top:-6px;">
+          Your spouse is welcome to join you at the congress dinners. Please tick the nights they will attend
+          so we can confirm the headcount with the hotel.
+          <strong>Children are not permitted at any of the dinners.</strong>
+        </p>
+        <div class="field">
+          <label>Spouse's full name</label>
+          <input name="spouse_name" placeholder="Leave blank if your spouse is not joining" />
+        </div>
+        <div class="field">
+          <label>Which dinners will your spouse attend?</label>
+          <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px;">
+            <label class="check-inline"><input type="checkbox" id="spouseAug12" /> Wednesday, 12 August 2026 — Inaugural Dinner</label>
+            <label class="check-inline"><input type="checkbox" id="spouseAug13" /> Thursday, 13 August 2026 — Dinner</label>
+            <label class="check-inline"><input type="checkbox" id="spouseAug14" /> Friday, 14 August 2026 — Dinner</label>
+          </div>
+          <p class="hint" id="spouseNameWarning" style="margin:8px 0 0;color:var(--red);display:none;">
+            Please add your spouse's name above so we can print their badge.
+          </p>
+        </div>
+
+        <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Goodies for participants</div>
+        <p class="hint" style="margin-top:-6px;">
+          Some host members like to contribute a small gift for every delegate's congress kit.
+          Entirely optional — this is just to gauge interest, and someone from the team will follow up on the details.
+        </p>
+        <div class="field">
+          <label class="check-inline">
+            <input type="checkbox" id="goodiesOffer" /> Yes, I would like to give away goodies to all participants
+          </label>
+        </div>
+        <div class="field" id="goodiesDetailsWrap" style="display:none;">
+          <label>What are you thinking of offering?</label>
+          <textarea name="goodies_details" rows="2" placeholder="e.g. 300 branded notebooks, or a voucher from my hotel — rough idea is fine"></textarea>
+        </div>
+      </div>
+
       <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Your photo</div>
       <div id="photoPreviewWrap" style="margin-bottom:8px;"></div>
       <input type="file" id="photoInput" accept="image/*" style="display:none;" />

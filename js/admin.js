@@ -2563,6 +2563,14 @@ async function refreshHostMembers(query) {
         ? `<span class="pill pending">Required</span>${h.hotel_stay_notes ? '<br><span class="hint">' + h.hotel_stay_notes + '</span>' : ''}`
         : '<span class="hint">Not required</span>' },
       { label: 'Special requests', value: h.special_requests || '-' },
+      // Same reasoning as Hotel stay: most members bring nobody, so the line
+      // only earns its place on the card when a spouse is actually coming.
+      { label: 'Spouse at dinner', value: spouseNightsText(h)
+        ? `<span class="pill paid">${escapeHtmlAdmin(spouseNightsText(h))}</span>${h.spouse_name ? '<br><span class="hint">' + escapeHtmlAdmin(h.spouse_name) + '</span>' : '<br><span class="hint" style="color:var(--red);">name not given</span>'}`
+        : '<span class="hint">-</span>' },
+      { label: 'Goodies offer', value: h.goodies_offer
+        ? `<span class="pill paid">Yes</span>${h.goodies_details ? '<br><span class="hint">' + escapeHtmlAdmin(h.goodies_details) + '</span>' : ''}`
+        : '<span class="hint">-</span>' },
       { label: 'Photo', value: photoCell('host_member', h) },
       { label: 'Card', value: cardCell('host_member', h) },
       { label: 'Company logo', value: logoCell(h) },
@@ -2601,12 +2609,20 @@ window.createHostLogin = async (id, name) => {
   } catch (err) { toast(err.message); }
 };
 
-const HM_FORM_FIELDS = ['name', 'phone', 'email', 'company', 'designation', 'category', 'sex', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date', 'notes', 'leadership_role', 'shirt_size', 'tshirt_size', 'waist_size'];
+const HM_FORM_FIELDS = ['name', 'phone', 'email', 'company', 'designation', 'category', 'sex', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date', 'notes', 'leadership_role', 'shirt_size', 'tshirt_size', 'waist_size', 'spouse_name', 'goodies_details'];
+// Checkbox-backed columns. Kept apart from HM_FORM_FIELDS because they need
+// .checked rather than .value on prefill, and because an unchecked box is
+// omitted from FormData entirely — so they're also written explicitly on save
+// (see saveHmForm), otherwise unticking one could never clear it.
+const HM_FORM_BOOLS = ['spouse_dinner_aug12', 'spouse_dinner_aug13', 'spouse_dinner_aug14', 'goodies_offer'];
 window.editHm = async (id) => {
   const h = await jget(`${API}/hostmembers/${id}`);
   const form = document.getElementById('hmForm');
   HM_FORM_FIELDS.forEach((f) => {
     if (form.elements[f]) form.elements[f].value = h[f] !== null && h[f] !== undefined ? h[f] : '';
+  });
+  HM_FORM_BOOLS.forEach((f) => {
+    if (form.elements[f]) form.elements[f].checked = h[f] === true || h[f] === 'true';
   });
   form.dataset.editId = id;
   document.getElementById('hmFormTitle').textContent = `Edit host member — ${h.name}`;
@@ -2628,6 +2644,16 @@ window.cancelEditHm = () => {
 document.getElementById('hmCancelEditBtn').addEventListener('click', (e) => { e.preventDefault(); window.cancelEditHm(); });
 async function saveHmForm(form, force) {
   const body = Object.fromEntries(new FormData(form).entries());
+  // FormData drops unchecked boxes, so every boolean is written explicitly —
+  // otherwise unticking "12 Aug" would send nothing and the server, which
+  // skips undefined keys, would leave the old value in place.
+  HM_FORM_BOOLS.forEach((f) => {
+    body[f] = !!(form.elements[f] && form.elements[f].checked);
+  });
+  // Keep the stored answer self-consistent, matching my-profile.html: no
+  // nights means no spouse, and no offer means no offer description.
+  if (!body.spouse_dinner_aug12 && !body.spouse_dinner_aug13 && !body.spouse_dinner_aug14) body.spouse_name = '';
+  if (!body.goodies_offer) body.goodies_details = '';
   if (force) body.force = true;
   const editId = form.dataset.editId;
   try {
@@ -6516,9 +6542,33 @@ const HOST_MEMBER_PDF_FIELDS = [
   { key: 'payment_mode', label: 'Mode', group: 'Payment', width: 60, get: (r) => r.payment_mode },
   { key: 'payment_date', label: 'Paid on', group: 'Payment', width: 65, get: (r) => r.payment_date },
 
+  // Spouse dinner attendance. "Nights" is the field the hotel actually needs —
+  // it collapses the three booleans into "12, 13" so a catering list stays
+  // readable; the individual nights are also pickable for a per-night count.
+  { key: 'spouse_name', label: 'Spouse', group: 'Spouse', width: 110, get: (r) => r.spouse_name },
+  { key: 'spouse_nights', label: 'Spouse dinners', group: 'Spouse', width: 90,
+    get: (r) => spouseNightsText(r) },
+  { key: 'spouse_dinner_aug12', label: '12 Aug', group: 'Spouse', width: 45, get: (r) => (r.spouse_dinner_aug12 ? 'Yes' : '') },
+  { key: 'spouse_dinner_aug13', label: '13 Aug', group: 'Spouse', width: 45, get: (r) => (r.spouse_dinner_aug13 ? 'Yes' : '') },
+  { key: 'spouse_dinner_aug14', label: '14 Aug', group: 'Spouse', width: 45, get: (r) => (r.spouse_dinner_aug14 ? 'Yes' : '') },
+
+  { key: 'goodies_offer', label: 'Offers goodies', group: 'Goodies', width: 60, get: (r) => (r.goodies_offer ? 'Yes' : '') },
+  { key: 'goodies_details', label: 'Goodies offered', group: 'Goodies', width: 130, get: (r) => r.goodies_details },
+
   { key: 'logo_on_file', label: 'Logo on file', group: 'Other', width: 60, get: (r) => (r.logo_url ? 'Yes' : 'No') },
   { key: 'notes', label: 'Notes', group: 'Other', width: 120, get: (r) => r.notes },
 ];
+
+// "12, 13, 14 Aug" from the three booleans — the form the catering desk reads.
+// Empty (not "None") when no nights are ticked, so a printed list doesn't fill
+// with noise for the majority who aren't bringing anyone.
+function spouseNightsText(r) {
+  const nights = [];
+  if (r.spouse_dinner_aug12) nights.push('12');
+  if (r.spouse_dinner_aug13) nights.push('13');
+  if (r.spouse_dinner_aug14) nights.push('14');
+  return nights.length ? `${nights.join(', ')} Aug` : '';
+}
 const HOST_MEMBER_PDF_DEFAULT_KEYS = ['name', 'company', 'phone', 'committees', 'sizes', 'payment_status'];
 
 // Tallies one delegate list into "Label N" chunks for the summary line that
@@ -8990,6 +9040,163 @@ document.getElementById('exportBtn').addEventListener('click', async () => {
   a.click();
   URL.revokeObjectURL(url);
 });
+
+// --- Bulk Import: spreadsheet-driven UPDATE of delegates / host members ---
+// Two-step on purpose. Preview parses and diffs server-side and shows exactly
+// what would change; nothing is written until Apply. The same file is posted
+// again for Apply rather than being cached server-side, so there's no upload
+// state to expire and two admins can't collide on a shared slot.
+
+const BI_MATCH_HINT = {
+  delegates: 'Matched on <strong>Reg Number</strong> + <strong>Is Primary</strong> (1 = primary registrant, 0 = co-registrant). A registration holding only one delegate does not need the Is Primary column.',
+  hostmembers: 'Matched on <strong>Email</strong>, falling back to <strong>Phone</strong> when the member has no email on file.'
+};
+let BI_FIELDS = null;
+
+function biTargetValue() {
+  return document.getElementById('biTarget').value;
+}
+
+function biResetPreview() {
+  document.getElementById('biResultCard').style.display = 'none';
+  document.getElementById('biDiffTable').querySelector('tbody').innerHTML = '';
+  document.getElementById('biSummary').innerHTML = '';
+  document.getElementById('biErrors').innerHTML = '';
+}
+
+async function biRenderHelp() {
+  const target = biTargetValue();
+  document.getElementById('biMatchHint').innerHTML = BI_MATCH_HINT[target] || '';
+  if (!BI_FIELDS) {
+    try { BI_FIELDS = await jget(`${API}/bulk-import/fields`); } catch (_) { return; }
+  }
+  const cfg = BI_FIELDS[target];
+  if (!cfg) return;
+  const pill = (f, isKey) =>
+    `<code style="display:inline-block;margin:2px 4px 2px 0;padding:2px 6px;border-radius:4px;` +
+    `background:${isKey ? 'var(--accent-soft)' : '#f1f1f4'};">${escapeHtmlAdmin(f)}</code>`;
+  document.getElementById('biFieldList').innerHTML =
+    `<div style="margin-bottom:6px;"><strong>Used to find the record:</strong><br>${cfg.key.map((f) => pill(f, true)).join('')}</div>` +
+    `<div><strong>Can be updated:</strong><br>${cfg.editable.map((f) => pill(f, false)).join('')}</div>`;
+}
+
+function biRenderPlan(plan) {
+  const card = document.getElementById('biResultCard');
+  const tbody = document.getElementById('biDiffTable').querySelector('tbody');
+  const fieldCount = plan.changes.reduce((n, c) => n + c.fields.length, 0);
+
+  const bits = [
+    `<strong>${plan.changes.length}</strong> record(s) will change (${fieldCount} field${fieldCount === 1 ? '' : 's'})`,
+    `${plan.unchangedCount} row(s) already match`,
+    `${plan.errors.length} problem row(s)`
+  ];
+  document.getElementById('biSummary').innerHTML =
+    `<p class="hint" style="margin-top:0;">${bits.join(' &middot; ')} — from ${plan.totalRows} data row(s).` +
+    (plan.ignoredColumns.length
+      ? ` Ignored column(s): ${plan.ignoredColumns.map((c) => `<code>${escapeHtmlAdmin(c)}</code>`).join(', ')}.`
+      : '') +
+    `</p>`;
+
+  document.getElementById('biErrors').innerHTML = plan.errors.length
+    ? `<div class="card" style="border-left:4px solid #c0392b;background:#fdf3f2;">
+         <strong>These rows will block the import.</strong>
+         <p class="hint" style="margin:6px 0 0;">Nothing is written unless every row resolves — fix the sheet and preview again.</p>
+         <ul style="margin:8px 0 0;padding-left:20px;">
+           ${plan.errors.slice(0, 100).map((e) => `<li>Row ${e.row}: ${escapeHtmlAdmin(e.message)}</li>`).join('')}
+         </ul>
+         ${plan.errors.length > 100 ? `<p class="hint">…and ${plan.errors.length - 100} more.</p>` : ''}
+       </div>`
+    : '';
+
+  tbody.innerHTML = plan.changes.length
+    ? plan.changes.map((c) => c.fields.map((f, i) => `
+        <tr>
+          <td>${i === 0 ? c.row : ''}</td>
+          <td>${i === 0 ? escapeHtmlAdmin(c.label) + (c.matchedVia ? ` <span class="hint">(by ${escapeHtmlAdmin(c.matchedVia)})</span>` : '') : ''}</td>
+          <td><code>${escapeHtmlAdmin(f.field)}</code></td>
+          <td class="hint">${escapeHtmlAdmin(f.before) || '<em>empty</em>'}</td>
+          <td><strong>${escapeHtmlAdmin(f.after)}</strong></td>
+        </tr>`).join('')).join('')
+    : '<tr><td colspan="5" class="empty">Nothing to change</td></tr>';
+
+  const applyBtn = document.getElementById('biApplyBtn');
+  applyBtn.disabled = plan.errors.length > 0 || plan.changes.length === 0;
+  applyBtn.textContent = plan.errors.length
+    ? 'Fix the problem rows first'
+    : `Apply ${plan.changes.length} change${plan.changes.length === 1 ? '' : 's'}`;
+  card.style.display = '';
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function biSend(path) {
+  const file = document.getElementById('biFile').files[0];
+  if (!file) { toast('Choose a .xlsx or .csv file first.'); return null; }
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('target', biTargetValue());
+  const r = await fetch(`${API}/bulk-import/${path}`, { method: 'POST', headers: authHeaders(), body: fd });
+  if (r.status === 401) { handleUnauthorized(); throw new Error('Please log in again.'); }
+  const data = await parseJsonResponse(r);
+  if (!r.ok) { const e = new Error(data.error || `Request failed (HTTP ${r.status})`); e.data = data; throw e; }
+  return data;
+}
+
+document.getElementById('biTarget').addEventListener('change', () => { biResetPreview(); biRenderHelp(); });
+
+document.getElementById('biTemplateBtn').addEventListener('click', async () => {
+  const target = biTargetValue();
+  const r = await fetch(`${API}/bulk-import/template?target=${encodeURIComponent(target)}`, { headers: authHeaders() });
+  if (!r.ok) { toast('Could not download the template.'); return; }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sinc2026-${target}-import-template.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('biPreviewBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('biPreviewBtn');
+  btn.disabled = true; btn.textContent = 'Reading…';
+  try {
+    const plan = await biSend('preview');
+    if (plan) biRenderPlan(plan);
+  } catch (e) {
+    biResetPreview();
+    toast(e.message, 5000);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Preview changes';
+  }
+});
+
+document.getElementById('biApplyBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('biApplyBtn');
+  if (!confirm('Apply these changes to the live database?')) return;
+  btn.disabled = true; btn.textContent = 'Applying…';
+  try {
+    const res = await biSend('apply');
+    toast(`Updated ${res.updated} record(s), ${res.fieldsChanged} field(s).`, 4000);
+    biResetPreview();
+    document.getElementById('biFile').value = '';
+    // Refresh whichever list the import touched so the change is visible the
+    // moment the operator switches back to it.
+    if (biTargetValue() === 'delegates') refreshParts();
+    else refreshHostMembers();
+  } catch (e) {
+    // A 422 carries the re-derived plan — the data changed since Preview.
+    if (e.data && e.data.plan) biRenderPlan(e.data.plan);
+    toast(e.message, 6000);
+    btn.disabled = false; btn.textContent = 'Apply changes';
+  }
+});
+
+document.getElementById('biCancelBtn').addEventListener('click', () => {
+  biResetPreview();
+  document.getElementById('biFile').value = '';
+});
+
+biRenderHelp();
 
 // --- Settings: one-click host club data import (super_admin only) ---
 document.getElementById('seedHostDataBtn').addEventListener('click', async () => {

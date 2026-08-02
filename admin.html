@@ -168,6 +168,7 @@
         <details class="nav-group" open>
           <summary class="nav-group-label">Tools <span class="chevron">›</span></summary>
           <div class="admin-nav">
+            <button data-tab="bulkimport">Bulk Import</button>
             <button data-tab="export">Voice Agent Export</button>
             <button data-tab="activitylog" id="activityLogTabBtn" style="display:none;">Activity Log</button>
             <button data-tab="settings" id="settingsTabBtn" style="display:none;">Settings</button>
@@ -488,6 +489,26 @@
           </div>
         </div>
         <p class="hint" style="margin-top:6px;">Anyone with a leadership role sees an extra read-only "Leadership Briefing" tab in their own portal login — a live rollup of registrations, payments, sponsors, checklist/committee progress, and goodies delivery across the whole congress.</p>
+
+        <!-- Members normally answer these themselves on my-profile.html; these
+             inputs exist so the office can key in an answer phoned through. -->
+        <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Spouse at dinner &amp; goodies</div>
+        <p class="hint" style="margin-top:-6px;">Spouses may attend the congress dinners; children are not permitted.</p>
+        <div class="form-grid cols-2">
+          <div class="field"><label>Spouse name</label><input name="spouse_name" placeholder="Blank if not attending" /></div>
+          <div class="field">
+            <label>Dinners the spouse attends</label>
+            <div style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:4px;">
+              <label class="check-inline"><input type="checkbox" name="spouse_dinner_aug12" id="hmSpouseAug12" /> 12 Aug</label>
+              <label class="check-inline"><input type="checkbox" name="spouse_dinner_aug13" id="hmSpouseAug13" /> 13 Aug</label>
+              <label class="check-inline"><input type="checkbox" name="spouse_dinner_aug14" id="hmSpouseAug14" /> 14 Aug</label>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label class="check-inline"><input type="checkbox" name="goodies_offer" id="hmGoodiesOffer" /> Willing to give away goodies to all participants</label>
+        </div>
+        <div class="field"><label>What are they offering?</label><input name="goodies_details" placeholder="e.g. 300 branded notebooks" /></div>
         <div class="section-title" style="font-size:12px;margin:16px 0 8px;">₹5,000 host-club payment</div>
         <div class="form-grid cols-3">
           <div class="field"><label>Payment status</label>
@@ -2423,6 +2444,58 @@
   </section>
 
   <!-- EXPORT TAB -->
+  <!-- BULK IMPORT TAB -->
+  <section class="tab-panel" id="tab-bulkimport">
+    <div class="section-title" style="margin-top:0">Bulk Import</div>
+    <div class="card">
+      <p class="hint" style="margin-top:0;">
+        Update existing <strong>Delegates</strong> or <strong>Host Members</strong> from a spreadsheet.
+        Accepts <strong>.xlsx</strong> and <strong>.csv</strong>. This screen only <em>updates</em> records
+        that already exist — it never creates new ones. To add delegates, use the CSV upload on the Delegates tab.
+      </p>
+      <div class="two-col" style="flex-wrap:wrap;gap:10px;align-items:flex-end;">
+        <div class="field">
+          <label>What are you updating?</label>
+          <select id="biTarget">
+            <option value="delegates">Delegates</option>
+            <option value="hostmembers">Host Members</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Spreadsheet</label>
+          <input type="file" id="biFile" accept=".xlsx,.xlsm,.csv,text/csv">
+        </div>
+        <button class="btn" type="button" id="biTemplateBtn">Download template</button>
+        <button class="btn gold" type="button" id="biPreviewBtn">Preview changes</button>
+      </div>
+      <p class="hint" id="biMatchHint" style="margin-bottom:0;"></p>
+    </div>
+
+    <div class="card" id="biHelpCard">
+      <div class="section-title" style="margin-top:0">Accepted columns</div>
+      <p class="hint" style="margin-top:0;">
+        Header spelling is flexible — <code>Reg Number</code>, <code>reg_number</code> and <code>REG NO</code>
+        all work. Columns not listed here are ignored. <strong>A blank cell leaves the existing value
+        alone</strong>; it does not clear the field.
+      </p>
+      <div id="biFieldList" class="hint"></div>
+    </div>
+
+    <div class="card" id="biResultCard" style="display:none;">
+      <div class="section-title" style="margin-top:0">Preview</div>
+      <div id="biSummary"></div>
+      <div id="biErrors"></div>
+      <div class="table-wrap"><table class="data-table" id="biDiffTable">
+        <thead><tr><th>Row</th><th>Record</th><th>Field</th><th>Current</th><th>New</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div class="two-col" style="margin-top:12px;gap:10px;">
+        <button class="btn gold" type="button" id="biApplyBtn">Apply changes</button>
+        <button class="btn" type="button" id="biCancelBtn">Cancel</button>
+      </div>
+    </div>
+  </section>
+
   <section class="tab-panel" id="tab-export">
     <div class="card">
       <div class="section-title" style="margin-top:0">Export data for voice agent training</div>

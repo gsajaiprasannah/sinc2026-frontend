@@ -142,12 +142,58 @@ function openRecord(match) {
     if (canHaveLogo) renderPreview('logoPreviewWrap', match.logo_url, 'company logo');
   }
 
+  // Spouse dinners + goodies are host-member-only columns, so the block is
+  // hidden entirely for Delegates and Volunteers — showing it would offer
+  // questions whose answers the server would refuse to store.
+  const spouseSection = document.getElementById('spouseSection');
+  if (spouseSection) {
+    const isHostMember = match.type === 'host_member';
+    spouseSection.style.display = isHostMember ? '' : 'none';
+    if (isHostMember) {
+      if (form.elements.spouse_name) form.elements.spouse_name.value = match.spouse_name || '';
+      document.getElementById('spouseAug12').checked = isTrue(match.spouse_dinner_aug12);
+      document.getElementById('spouseAug13').checked = isTrue(match.spouse_dinner_aug13);
+      document.getElementById('spouseAug14').checked = isTrue(match.spouse_dinner_aug14);
+      document.getElementById('goodiesOffer').checked = isTrue(match.goodies_offer);
+      if (form.elements.goodies_details) form.elements.goodies_details.value = match.goodies_details || '';
+      applyGoodiesVisibility();
+      applySpouseNameWarning();
+    }
+  }
+
   fileState = {
     photo: !!match.photo_url,
     card: !!match.business_card_url,
     logo: canHaveLogo && !!match.logo_url,
   };
   updateCompletion();
+}
+
+// Postgres booleans arrive as real booleans over JSON, but a value that has
+// been through a form round-trip can come back as the string "true".
+function isTrue(v) {
+  return v === true || v === 'true' || v === 1 || v === '1';
+}
+
+// The "what are you offering" box only makes sense once they've said yes.
+function applyGoodiesVisibility() {
+  const wrap = document.getElementById('goodiesDetailsWrap');
+  const box = document.getElementById('goodiesOffer');
+  if (!wrap || !box) return;
+  wrap.style.display = box.checked ? '' : 'none';
+}
+
+// Nudge rather than block: a spouse ticked for a dinner but left unnamed
+// means the badge desk has nothing to print. Saving is still allowed, since
+// a member may genuinely not know yet.
+function applySpouseNameWarning() {
+  const warn = document.getElementById('spouseNameWarning');
+  const form = document.getElementById('editForm');
+  if (!warn || !form) return;
+  const anyNight = ['spouseAug12', 'spouseAug13', 'spouseAug14']
+    .some((id) => { const el = document.getElementById(id); return el && el.checked; });
+  const named = form.elements.spouse_name && form.elements.spouse_name.value.trim() !== '';
+  warn.style.display = anyNight && !named ? '' : 'none';
 }
 
 // The "which nights / why" box is only meaningful once a room is actually
@@ -245,6 +291,28 @@ document.getElementById('editForm').addEventListener('submit', async (e) => {
       // Don't keep stale "which nights" text against an unticked request.
       if (!hotelBox.checked) body.hotel_stay_notes = '';
     }
+    // Spouse dinners + goodies — host members only. Sent only for that type so
+    // the server never sees columns a Delegate's or Volunteer's table lacks;
+    // publicProfile.js ignores unsent keys rather than blanking them.
+    if (current.type === 'host_member') {
+      const aug12 = document.getElementById('spouseAug12').checked;
+      const aug13 = document.getElementById('spouseAug13').checked;
+      const aug14 = document.getElementById('spouseAug14').checked;
+      body.spouse_dinner_aug12 = aug12;
+      body.spouse_dinner_aug13 = aug13;
+      body.spouse_dinner_aug14 = aug14;
+      // No nights ticked means no spouse attending — drop a leftover name so
+      // the catering list can't show a guest nobody booked.
+      if (!aug12 && !aug13 && !aug14) body.spouse_name = '';
+      const goodies = document.getElementById('goodiesOffer').checked;
+      body.goodies_offer = goodies;
+      if (!goodies) body.goodies_details = '';
+    } else {
+      // FormData picks these up from the hidden block; strip them so a
+      // Delegate's save doesn't carry host-member-only keys.
+      delete body.spouse_name;
+      delete body.goodies_details;
+    }
     const r = await fetch(`${API}/public-profile/${current.type}/${current.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -331,6 +399,15 @@ document.getElementById('startOverBtn').addEventListener('click', showLookup);
 const hotelStayBox = document.getElementById('hotelStayRequired');
 if (hotelStayBox) hotelStayBox.addEventListener('change', applyHotelStayVisibility);
 wireDrinkPrefExclusivity();
+
+const goodiesBox = document.getElementById('goodiesOffer');
+if (goodiesBox) goodiesBox.addEventListener('change', applyGoodiesVisibility);
+['spouseAug12', 'spouseAug13', 'spouseAug14'].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', applySpouseNameWarning);
+});
+const spouseNameInput = document.querySelector('#editForm [name="spouse_name"]');
+if (spouseNameInput) spouseNameInput.addEventListener('input', applySpouseNameWarning);
 
 // Live-update the completion bar as the person types/selects — this is
 // meant to feel instant, not wait for a save.
