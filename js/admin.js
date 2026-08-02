@@ -5121,9 +5121,51 @@ function pdfFitImage(ratio, maxW, maxH) {
   return { w, h };
 }
 
+// --- PDF text safety net -------------------------------------------------
+// jsPDF's built-in Helvetica/Times are standard-14 PDF fonts, which are
+// encoded in WinAnsi (cp1252). The rupee sign ₹ (U+20B9) does not exist in
+// cp1252, and jsPDF falls back to the code point's low byte — 0x20B9 & 0xFF
+// = 0xB9, which is '¹' in cp1252. That is exactly why every amount on a
+// receipt printed as a stray "1".
+//
+// Fixing it properly would mean embedding a Unicode TTF (Noto/DejaVu) and
+// shipping a few hundred KB of font to every admin for one glyph. Instead
+// the symbol is transliterated at render time — "Rs." is the conventional
+// form on Indian receipts and prints identically everywhere.
+//
+// Applied by wrapping doc.text rather than editing the ~40 call sites, so
+// any amount added later is covered automatically and can't regress.
+const PDF_TEXT_SUBSTITUTIONS = [
+  // Before a figure, "Rs." takes a space: ₹5,000 -> Rs. 5,000
+  [/₹\s*(?=[\d.])/g, 'Rs. '],
+  // Anywhere else it stands alone, so a column heading reads "Amount (Rs.)"
+  // rather than "Amount (Rs. )".
+  [/₹\s*/g, 'Rs.'],
+  [/’/g, "'"],          // curly apostrophe — also outside cp1252
+  [/[“”]/g, '"'],       // curly quotes
+];
+function pdfSafeText(value) {
+  if (Array.isArray(value)) return value.map(pdfSafeText);
+  if (value === null || value === undefined) return value;
+  let s = String(value);
+  for (const [re, to] of PDF_TEXT_SUBSTITUTIONS) s = s.replace(re, to);
+  return s;
+}
+// Also exposed for the few places that measure a string before drawing it
+// (getTextWidth / splitTextToSize), so the measurement matches what's drawn.
+function pdfHardenDoc(doc) {
+  const originalText = doc.text.bind(doc);
+  doc.text = (text, ...rest) => originalText(pdfSafeText(text), ...rest);
+  const originalSplit = doc.splitTextToSize.bind(doc);
+  doc.splitTextToSize = (text, ...rest) => originalSplit(pdfSafeText(text), ...rest);
+  const originalWidth = doc.getTextWidth.bind(doc);
+  doc.getTextWidth = (text) => originalWidth(pdfSafeText(text));
+  return doc;
+}
+
 function pdfDoc() {
   const { jsPDF } = window.jspdf;
-  return new jsPDF({ unit: 'pt', format: 'a4' });
+  return pdfHardenDoc(new jsPDF({ unit: 'pt', format: 'a4' }));
 }
 function pdfMaybeNewPage(doc, y, needed) {
   if (y + needed > PDF_CONTENT_BOTTOM) { doc.addPage(); return 44; }
@@ -5311,7 +5353,9 @@ window.downloadQrPng = async (token, name) => {
 // just what buildBadgePdf renders now.
 async function buildBadgePdf(person) {
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: 'pt', format: [288, 432] });
+  // Same WinAnsi hardening as pdfDoc() — a badge carries no amounts today,
+  // but it does carry free-typed names that can contain curly quotes.
+  const doc = pdfHardenDoc(new jsPDF({ unit: 'pt', format: [288, 432] }));
   const W = 288;
   let y = 56;
   // Bolder, bigger name than before (was 14pt) — the sample layout wants the
