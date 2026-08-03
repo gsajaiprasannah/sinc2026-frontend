@@ -1140,13 +1140,19 @@ applySidebarState();
 function switchAdminTab(tab) {
   const btn = document.querySelector(`.admin-nav button[data-tab="${tab}"]`);
   // Post Tours reuses the Pre Tours panel in 'post' mode — see setTourType().
-  const panel = document.getElementById(tab === 'posttours' ? 'tab-pretours' : 'tab-' + tab);
+  // Post Tours and Day Tours reuse the Pre Tours panel in a different mode —
+  // see setTourType(). One panel, three tour types.
+  const panel = document.getElementById(
+    (tab === 'posttours' || tab === 'daytours') ? 'tab-pretours' : 'tab-' + tab
+  );
   if (!btn || !panel) return;
   document.querySelectorAll('.admin-nav button').forEach((b) => b.classList.remove('active'));
   document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
   btn.classList.add('active');
   panel.classList.add('active');
-  if (tab === 'pretours' || tab === 'posttours') setTourType(tab === 'posttours' ? 'post' : 'pre');
+  if (tab === 'pretours' || tab === 'posttours' || tab === 'daytours') {
+    setTourType(tab === 'posttours' ? 'post' : tab === 'daytours' ? 'day' : 'pre');
+  }
   if (tab === 'settings') refreshUsersAdmin();
   if (tab === 'activitylog') { refreshActivityLog(); refreshScanActivity(); }
   if (tab === 'attendance') refreshAttendance();
@@ -4714,9 +4720,10 @@ document.getElementById('tripPassengerForm').addEventListener('submit', async (e
 // sidebar has an entry for each; switchAdminTab() flips this mode and points
 // both at the same panel rather than maintaining two copies of the markup.
 let TOUR_TYPE = 'pre';
-function tourTypeLabel() { return TOUR_TYPE === 'post' ? 'Post Tour' : 'Pre Tour'; }
+const TOUR_TYPE_LABELS = { pre: 'Pre Tour', post: 'Post Tour', day: 'Day Tour' };
+function tourTypeLabel() { return TOUR_TYPE_LABELS[TOUR_TYPE] || 'Pre Tour'; }
 function setTourType(type) {
-  TOUR_TYPE = type === 'post' ? 'post' : 'pre';
+  TOUR_TYPE = TOUR_TYPE_LABELS[type] ? type : 'pre';
   const noun = tourTypeLabel();
   const form = document.getElementById('tourForm');
   // Leave an in-progress edit alone; just relabel around it.
@@ -4732,7 +4739,9 @@ function setTourType(type) {
   if (intro) {
     intro.textContent = TOUR_TYPE === 'post'
       ? 'Optional post-congress tours — hotel, attractions, day-wise itinerary, transport, and the delegates/host members signed up.'
-      : 'Optional pre-congress tours — hotel, attractions, day-wise itinerary, transport, and the delegates/host members signed up.';
+      : TOUR_TYPE === 'day'
+        ? 'Complimentary single-day visits on 12 August — attractions, itinerary, transport, and the delegates signed up. Signups marked "public" came in through tours.html.'
+        : 'Optional pre-congress tours — hotel, attractions, day-wise itinerary, transport, and the delegates/host members signed up.';
   }
   // Whichever tour was open belongs to the other list.
   closeTourManage();
