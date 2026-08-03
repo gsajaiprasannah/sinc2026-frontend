@@ -198,12 +198,19 @@ $('coPhoneForm').addEventListener('submit', async (e) => {
     if (!r.ok) throw new Error(d.error || 'Lookup failed.');
     phone = value;
     PEOPLE = d.people || [];
-    // Default: everything in the cart goes to the primary registrant. Most
-    // people are booking for themselves, so this is one tap for the common
-    // case and still fully editable.
+    // Default: assign the cart to the primary registrant, since most people
+    // are booking for themselves — but skip any tour that would clash with
+    // one already defaulted to them. Blindly ticking everything would build a
+    // state the server rejects at Confirm, which is a confusing place to
+    // discover it. Skipped tours are left unticked for the user to place.
     const primary = (PEOPLE.find((p) => p.is_primary) || PEOPLE[0] || {}).id;
     assign = {};
-    cart.forEach((id) => { assign[id] = new Set(primary ? [primary] : []); });
+    cart.forEach((id) => { assign[id] = new Set(); });
+    if (primary) {
+      cart.forEach((id) => {
+        if (!clashFor(id, primary)) assign[id].add(primary);
+      });
+    }
     renderAssign();
     showCheckoutStep('coStepAssign');
   } catch (ex) {
