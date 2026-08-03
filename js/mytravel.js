@@ -247,6 +247,7 @@ function openRecord(match) {
   document.getElementById('editTitle').textContent = `Update your travel details — ${match.name}`;
   const form = document.getElementById('editForm');
   form.elements.email.value = match.email || '';
+  if (form.elements.company) form.elements.company.value = match.company || '';
   form.elements.address.value = match.address || '';
   form.elements.travel_mode.value = match.travel_mode || '';
   form.elements.travel_number.value = match.travel_number || '';

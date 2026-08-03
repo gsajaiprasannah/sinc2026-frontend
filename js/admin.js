@@ -484,6 +484,10 @@ function sizesLabel(obj) {
 const DELEGATE_PROFILE_FIELDS = [
   { key: 'phone', label: 'Phone', has: (r) => !!r.phone },
   { key: 'email', label: 'Email', has: (r) => !!r.email },
+  // 62 delegates left Company blank on the original registration form, so it
+  // counts toward completion — that puts them in the "incomplete profile"
+  // filter the office already works from, rather than needing a separate list.
+  { key: 'company', label: 'Company', has: (r) => !!r.company },
   { key: 'arrival', label: 'Arrival details', has: (r) => !!(r.travel_mode && r.travel_datetime) },
   { key: 'departure', label: 'Departure details', has: (r) => !!(r.departure_mode && r.departure_datetime) },
   { key: 'food', label: 'Food preference', has: (r) => !!r.dietary_preference },
