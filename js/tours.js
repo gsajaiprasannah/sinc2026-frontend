@@ -76,6 +76,20 @@ function overlaps(a, b) {
 
 const tourById = (id) => TOURS.find((t) => t.id === id);
 
+// Which tour already in the cart overlaps this one's dates. Used to warn at
+// add-time: nobody can be in two places at once, so a clashing pair is only
+// ever valid when the two tours are for two different people on the booking.
+function cartClashFor(tourId) {
+  const t = tourById(tourId);
+  if (!t) return null;
+  for (const otherId of cart) {
+    if (otherId === tourId) continue;
+    const other = tourById(otherId);
+    if (other && overlaps(t, other)) return other;
+  }
+  return null;
+}
+
 // Which other cart tour, already assigned to this person, blocks this one.
 function clashFor(tourId, personId) {
   const t = tourById(tourId);
@@ -127,9 +141,15 @@ function renderCartBar() {
   bar.classList.toggle('show', cart.length > 0);
   if (!cart.length) return;
   const names = cart.map((id) => (tourById(id) || {}).name).filter(Boolean);
+  // Does anything in the cart overlap anything else? If so it can only work
+  // across two people, and saying so here saves a surprise at checkout.
+  const hasClash = cart.some((id) => cartClashFor(id));
   $('cartCount').innerHTML =
     `<strong>${cart.length} tour${cart.length === 1 ? '' : 's'} selected</strong><br>` +
-    `<span style="opacity:.8;font-size:12.5px;">${esc(names.join(' · '))}</span>`;
+    `<span style="opacity:.8;font-size:12.5px;">${esc(names.join(' · '))}</span>` +
+    (hasClash
+      ? `<br><span style="font-size:12.5px;color:#ffd7a0;">Some of these share dates — they'll need to be for different people.</span>`
+      : '');
 }
 
 // --- tour detail -----------------------------------------------------------
@@ -147,6 +167,21 @@ function openTour(id) {
     ? 'This day visit is complimentary for delegates.'
     : 'Pre-tour pricing will be confirmed by the Registration Desk. Adding it here places you under no obligation.';
   $('tmToggleBtn').textContent = cart.includes(id) ? 'Remove from my tours' : 'Add to my tours';
+
+  // Flag the overlap before they add it, not at checkout. One person cannot
+  // be on both, so this only works if the second tour is for someone else on
+  // the same booking.
+  const clash = cart.includes(id) ? null : cartClashFor(id);
+  const warn = $('tmClashWarn');
+  if (clash) {
+    warn.innerHTML = `<strong>Heads up —</strong> these dates overlap
+      “${esc(clash.name)}”, which you have already chosen.
+      One person cannot join both, so only add this if it is for
+      <strong>someone else on your booking</strong>.`;
+    warn.style.display = '';
+  } else {
+    warn.style.display = 'none';
+  }
   $('tourModal').classList.add('open');
 }
 const closeTour = () => { $('tourModal').classList.remove('open'); modalTourId = null; };
@@ -249,6 +284,23 @@ function renderAssign() {
       </div>
     </div>`;
   }).join('') || '<p class="hint">Your selection is empty.</p>';
+
+  // A tour nobody can be assigned to is a dead end — most often a solo
+  // delegate who added two tours on the same date. Name it explicitly rather
+  // than leaving them to work out why a chip won't tick.
+  const stranded = cart.filter((id) => {
+    if ((assign[id] || new Set()).size) return false;
+    return PEOPLE.every((p) => clashFor(id, p.id));
+  }).map((id) => (tourById(id) || {}).name);
+  const note = $('coClashNote');
+  if (stranded.length) {
+    note.innerHTML = `${esc(stranded.join(', '))} ${stranded.length === 1 ? 'shares dates' : 'share dates'} with
+      ${PEOPLE.length > 1 ? 'tours already assigned to everyone on this booking' : 'another tour you have chosen'}.
+      Remove ${stranded.length === 1 ? 'it' : 'them'}, or free up the person you want on ${stranded.length === 1 ? 'it' : 'them'}.`;
+    note.style.display = '';
+  } else {
+    note.style.display = 'none';
+  }
 
   $('coCartList').querySelectorAll('[data-remove]').forEach((b) => {
     b.addEventListener('click', () => {
