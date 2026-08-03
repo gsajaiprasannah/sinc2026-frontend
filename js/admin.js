@@ -1639,6 +1639,7 @@ async function refreshParts(query) {
         ? `${regCategoryLabel(p.registration_category)}${regIncludesAccommodation(p.registration_category) === false ? '<br><span class="hint">No accommodation included</span>' : ''}`
         : '<span class="hint">Not recorded</span>' },
       { label: 'Linked Registrant', value: linkedValue },
+      { label: 'Company', value: p.company || '-' },
       { label: 'Phone', value: p.phone || '-' },
       { label: 'Travel In', value: p.travel_mode ? p.travel_mode + ' ' + (p.travel_number || '') + '<br><span class="hint">' + (p.travel_datetime || '') + '</span>' : '-' },
       { label: 'Pickup', value: (p.pickup_by || '-') + (p.pickup_vehicle ? '<br><span class="hint">' + p.pickup_vehicle + '</span>' : '') },
@@ -1735,7 +1736,7 @@ window.highlightPartCard = (id) => {
 };
 
 const PART_FORM_FIELDS = [
-  'name', 'phone', 'whatsapp', 'email', 'address', 'club_id', 'registration_id', 'designation', 'is_primary', 'sex',
+  'name', 'phone', 'whatsapp', 'email', 'address', 'club_id', 'registration_id', 'designation', 'company', 'is_primary', 'sex',
   'business_profile', 'dietary_preference', 'special_requests',
   'travel_mode', 'travel_number', 'travel_datetime', 'arrival_point',
   'departure_mode', 'departure_number', 'departure_datetime', 'departure_point',
@@ -6489,6 +6490,9 @@ const DELEGATE_PDF_FIELDS = [
   { key: 'name', label: 'Name', group: 'Identity', width: 110, get: (r) => r.name },
   { key: 'sex', label: 'Sex', group: 'Identity', width: 45, get: (r) => r.sex || '' },
   { key: 'designation', label: 'Designation', group: 'Identity', width: 90, get: (r) => r.designation },
+  // Note: `designation` holds the delegate's Skål club office (President,
+  // Treasurer, Member) — not their job title. Company is the employer.
+  { key: 'company', label: 'Company', group: 'Identity', width: 110, get: (r) => r.company },
   { key: 'club_name', label: 'Club', group: 'Identity', width: 85, get: (r) => r.club_name },
   { key: 'role', label: 'Role', group: 'Identity', width: 55, get: (r) => (Number(r.is_primary) === 1 ? 'Primary' : 'Co-reg') },
   { key: 'reg_number', label: 'Reg #', group: 'Identity', width: 62, get: (r) => r.reg_number },
