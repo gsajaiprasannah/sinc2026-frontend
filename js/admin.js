@@ -1324,7 +1324,7 @@ async function refreshRegs() {
       <td>₹${r.amount_paid}</td>
       <td>₹${r.amount_due}</td>
       <td><span class="pill ${r.payment_status}">${r.payment_status}</span></td>
-      <td><button class="btn small" onclick="editReg(${r.id})">Update Payment</button> <button class="btn small" onclick="downloadReceiptPdf(${r.id})">Receipt</button> ${canDelete() ? `<button class="btn danger small" onclick="deleteReg(${r.id})">Delete</button>` : ''}</td>
+      <td><button class="btn small" onclick="editReg(${r.id})">Update Payment</button> <button class="btn small" onclick="downloadReceiptPdf(${r.id})">Receipt</button> <button class="btn small" onclick="issueInvoice('registration', ${r.id})">GST Invoice</button> ${canDelete() ? `<button class="btn danger small" onclick="deleteReg(${r.id})">Delete</button>` : ''}</td>
     </tr>
   `).join('') || '<tr><td colspan="9" class="empty">No registrations yet</td></tr>';
 
@@ -2744,6 +2744,7 @@ async function refreshHostPayments() {
       <td class="sticky-actions">
         <button class="btn small" onclick="saveHostPayment(${h.id})">Save</button>
         <button class="btn small" onclick="downloadHostMemberReceiptPdf(${h.id})">Receipt</button>
+        <button class="btn small" onclick="issueInvoice('host_member', ${h.id})">GST Invoice</button>
       </td>
     </tr>
   `).join('') || '<tr><td colspan="9" class="empty">No host members yet</td></tr>';
@@ -7998,6 +7999,7 @@ async function refreshSponsors() {
         <button class="btn small" onclick="openChecklistModal('sponsor', ${s.id})">Checklist</button>
         <button class="btn small" onclick="downloadSponsorDetailPdf(${s.id})">PDF</button>
         <button class="btn small" onclick="downloadSponsorReceiptPdf(${s.id})">Receipt</button>
+        <button class="btn small" onclick="issueInvoice('sponsor', ${s.id})">GST Invoice</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteSponsor(${s.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -10182,6 +10184,7 @@ async function refreshStallBookings() {
       <td><span class="pill ${b.payment_status}">${b.payment_status === 'paid' ? 'Paid' : 'Pending'}</span></td>
       <td class="sticky-actions">
         <button class="btn small" onclick="editStallBooking(${b.id})">Update</button>
+        <button class="btn small" onclick="issueInvoice('stall', ${b.id})">GST Invoice</button>
         <button class="btn small" onclick="downloadStallBookingReceiptPdf(${b.id})">Receipt</button>
         ${canDelete() ? `<button class="btn danger small" onclick="deleteStallBooking(${b.id})">Delete</button>` : ''}
       </td>
