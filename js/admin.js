@@ -1156,6 +1156,7 @@ function switchAdminTab(tab) {
   if (tab === 'settings') refreshUsersAdmin();
   if (tab === 'activitylog') { refreshActivityLog(); refreshScanActivity(); }
   if (tab === 'attendance') refreshAttendance();
+  if (tab === 'gstinvoices') { refreshOrgGst(); refreshInvoices(); }
   if (tab === 'stallreport') refreshStallReport();
   if (tab === 'transportreport') refreshTransportReport();
   // On phone/tablet widths the sidebar overlays the content, so tuck it away
@@ -9120,6 +9121,175 @@ document.getElementById('exportAttendeesBtn')?.addEventListener('click', async (
   downloadJson(data, 'voice-agent-attendees.json');
   toast(`${data.total_attendees} attendees exported.`, 3500);
 });
+
+// --- GST Invoices ---------------------------------------------------------
+// An issued invoice is never edited — GST needs a gapless, immutable series,
+// so a mistake is cancelled (number stays consumed) and a new one raised.
+// Everything here therefore only issues, lists, cancels and prints.
+
+const INV_MODULE_LABEL = {
+  registration: 'Registration', sponsor: 'Sponsor',
+  stall: 'Stall', host_member: 'Host contribution'
+};
+const ORG_GST_FIELDS = ['legal_name', 'gstin', 'address', 'city', 'state', 'state_code', 'pincode',
+  'default_gst_rate', 'default_sac', 'tax_basis', 'pan', 'email', 'phone', 'bank_details', 'invoice_footer'];
+let ORG_GST = null;
+
+function renderGstBanner(check, settings) {
+  const el = document.getElementById('gstCheckBanner');
+  if (!el) return;
+  if (!settings || !settings.gstin) {
+    el.innerHTML = `<p class="hint" style="padding:10px 12px;border-left:3px solid var(--gold);background:#fffdf5;color:var(--navy);">
+      <strong>No GSTIN saved yet.</strong> Invoices cannot be issued until one is entered and validated.</p>`;
+    return;
+  }
+  if (!check) { el.innerHTML = ''; return; }
+  const bad = !check.valid;
+  el.innerHTML = `<p class="hint" style="padding:10px 12px;border-left:3px solid ${bad ? 'var(--red)' : 'var(--gold)'};background:${bad ? '#fdf3f2' : '#fffdf5'};color:var(--navy);">
+    <strong>${escapeHtmlAdmin(settings.gstin)}</strong>${check.state ? ' &middot; ' + escapeHtmlAdmin(check.state) : ''}${check.entity_type ? ' &middot; ' + escapeHtmlAdmin(check.entity_type) : ''}
+    ${check.errors.map((e) => `<br><strong>Error:</strong> ${escapeHtmlAdmin(e)}`).join('')}
+    ${check.warnings.map((w) => `<br><strong>Check:</strong> ${escapeHtmlAdmin(w)}`).join('')}</p>`;
+}
+
+async function refreshOrgGst() {
+  const d = await jget(`${API}/invoices/settings`);
+  ORG_GST = d.settings || {};
+  const form = document.getElementById('orgGstForm');
+  if (form) ORG_GST_FIELDS.forEach((f) => { if (form.elements[f]) form.elements[f].value = ORG_GST[f] == null ? '' : ORG_GST[f]; });
+  renderGstBanner(d.gstin_check, ORG_GST);
+}
+
+document.getElementById('orgGstForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  if (body.gstin) body.gstin = body.gstin.toUpperCase().trim();
+  try {
+    const r = await jput(`${API}/invoices/settings`, body);
+    toast('GST settings saved.');
+    if (r.gstin_check && r.gstin_check.warnings.length) toast(r.gstin_check.warnings[0], 8000);
+    refreshOrgGst();
+  } catch (err) {
+    toast(err.message, 7000);
+    if (err.data && err.data.gstin_check) renderGstBanner(err.data.gstin_check, { gstin: body.gstin });
+  }
+});
+
+async function refreshInvoices() {
+  const m = document.getElementById('invFilterModule')?.value || '';
+  const s = document.getElementById('invFilterStatus')?.value || '';
+  const qs = [m ? `module=${m}` : '', s ? `status=${s}` : ''].filter(Boolean).join('&');
+  const rows = await jget(`${API}/invoices${qs ? '?' + qs : ''}`);
+  document.getElementById('invTable').querySelector('tbody').innerHTML = rows.map((i) => `
+    <tr${i.status === 'cancelled' ? ' style="opacity:.55;"' : ''}>
+      <td><strong>${escapeHtmlAdmin(i.invoice_number)}</strong></td>
+      <td>${String(i.invoice_date).slice(0, 10)}</td>
+      <td>${INV_MODULE_LABEL[i.module] || i.module}</td>
+      <td>${escapeHtmlAdmin(i.party_name)}</td>
+      <td>${i.party_gstin ? escapeHtmlAdmin(i.party_gstin) : '<span class="hint">B2C</span>'}</td>
+      <td style="text-align:right;">${Number(i.taxable_value).toLocaleString('en-IN')}</td>
+      <td style="text-align:right;">${(Number(i.cgst) + Number(i.sgst) + Number(i.igst)).toLocaleString('en-IN')}</td>
+      <td style="text-align:right;"><strong>${Number(i.total).toLocaleString('en-IN')}</strong></td>
+      <td><span class="pill ${i.status === 'issued' ? 'paid' : 'pending'}">${i.status}</span></td>
+      <td style="white-space:nowrap;">
+        <button class="btn small" onclick="downloadInvoicePdf(${i.id})">PDF</button>
+        ${i.status === 'issued' ? `<button class="btn danger small" onclick="cancelInvoice(${i.id}, '${escapeHtmlAdmin(i.invoice_number)}')">Cancel</button>` : ''}
+      </td>
+    </tr>`).join('') || '<tr><td colspan="10" class="empty">No invoices yet.</td></tr>';
+}
+['invFilterModule', 'invFilterStatus'].forEach((id) => document.getElementById(id)?.addEventListener('change', refreshInvoices));
+document.getElementById('invRefreshBtn')?.addEventListener('click', refreshInvoices);
+
+// Issue from anywhere — the module buttons all call this.
+window.issueInvoice = async (module, entityId) => {
+  try {
+    const pre = await jget(`${API}/invoices/preview/${module}/${entityId}`);
+    if (pre.blockers && pre.blockers.length) { toast(pre.blockers.join(' '), 8000); return; }
+    const taxLine = pre.inter_state
+      ? `IGST ${pre.rate}%: ₹${pre.igst.toLocaleString('en-IN')}`
+      : `CGST ${pre.rate / 2}%: ₹${pre.cgst.toLocaleString('en-IN')}  +  SGST ${pre.rate / 2}%: ₹${pre.sgst.toLocaleString('en-IN')}`;
+    const ok = confirm(
+      `Issue a tax invoice?\n\n${pre.party.name}\n${pre.party.gstin ? 'GSTIN: ' + pre.party.gstin : 'No GSTIN — B2C invoice'}\n\n` +
+      `Taxable value: ₹${pre.taxable_value.toLocaleString('en-IN')}\n${taxLine}\nTotal: ₹${pre.total.toLocaleString('en-IN')}\n\n` +
+      `Basis: ${pre.basis}. Once issued this number is permanent — a mistake must be cancelled, not edited.`
+    );
+    if (!ok) return;
+    const r = await jpost(`${API}/invoices/issue`, { module, entity_id: entityId });
+    toast(`Invoice ${r.invoice_number} issued.`, 4000);
+    downloadInvoicePdf(r.id);
+    if (document.getElementById('tab-gstinvoices')?.classList.contains('active')) refreshInvoices();
+  } catch (e) {
+    toast(e.message, 8000);
+  }
+};
+
+window.cancelInvoice = async (id, number) => {
+  const reason = prompt(`Cancel invoice ${number}?\n\nThe number stays consumed so the series has no gap. Give a reason:`);
+  if (!reason) return;
+  try {
+    await jpost(`${API}/invoices/${id}/cancel`, { reason });
+    toast('Invoice cancelled.');
+    refreshInvoices();
+  } catch (e) { toast(e.message, 7000); }
+};
+
+window.downloadInvoicePdf = async (id) => {
+  const d = await jget(`${API}/invoices/${id}`);
+  const inv = d.invoice, org = d.org;
+  const doc = pdfDoc();
+  const W = doc.internal.pageSize.getWidth();
+  let y = await pdfLetterhead(doc, inv.status === 'cancelled' ? 'TAX INVOICE (CANCELLED)' : 'TAX INVOICE',
+    `${inv.invoice_number}  ·  ${String(inv.invoice_date).slice(0, 10)}`);
+
+  const L = PDF_MARGIN, R = PDF_CONTENT_RIGHT;
+  doc.setFontSize(9);
+  const block = (x, title, lines) => {
+    let yy = y;
+    doc.setFont(undefined, 'bold'); doc.text(title, x, yy); yy += 13;
+    doc.setFont(undefined, 'normal');
+    lines.filter(Boolean).forEach((t) => { doc.text(String(t), x, yy, { maxWidth: 230 }); yy += 12; });
+    return yy;
+  };
+  const y1 = block(L, 'Supplier', [org.legal_name, org.address, [org.city, org.state, org.pincode].filter(Boolean).join(', '),
+    org.gstin ? 'GSTIN: ' + org.gstin : null, org.phone, org.email]);
+  const y2 = block(W / 2, 'Billed to', [inv.party_name, inv.party_address,
+    inv.party_gstin ? 'GSTIN: ' + inv.party_gstin : 'Unregistered (B2C)']);
+  y = Math.max(y1, y2) + 10;
+
+  doc.setDrawColor(200); doc.line(L, y, R, y); y += 16;
+  doc.setFont(undefined, 'bold'); doc.text('Description', L, y);
+  doc.text('SAC', R - 220, y); doc.text('Amount', R, y, { align: 'right' });
+  doc.setFont(undefined, 'normal'); y += 14;
+  doc.text(String(inv.description || ''), L, y, { maxWidth: 300 });
+  doc.text(String(inv.sac || ''), R - 220, y);
+  doc.text(Number(inv.taxable_value).toLocaleString('en-IN'), R, y, { align: 'right' });
+  y += 22; doc.line(L, y, R, y); y += 16;
+
+  const row = (label, val, bold) => {
+    doc.setFont(undefined, bold ? 'bold' : 'normal');
+    doc.text(label, R - 220, y); doc.text(val, R, y, { align: 'right' });
+    y += 14;
+  };
+  row('Taxable value', Number(inv.taxable_value).toLocaleString('en-IN'));
+  if (Number(inv.igst) > 0) row(`IGST @ ${inv.gst_rate}%`, Number(inv.igst).toLocaleString('en-IN'));
+  else {
+    row(`CGST @ ${Number(inv.gst_rate) / 2}%`, Number(inv.cgst).toLocaleString('en-IN'));
+    row(`SGST @ ${Number(inv.gst_rate) / 2}%`, Number(inv.sgst).toLocaleString('en-IN'));
+  }
+  row('Total', '₹' + Number(inv.total).toLocaleString('en-IN'), true);
+  y += 8;
+  doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
+  doc.text(`Amount in words: ${d.amount_in_words}`, L, y, { maxWidth: R - L }); y += 18;
+  if (inv.tax_basis === 'inclusive') { doc.text('Amount collected is inclusive of GST.', L, y); y += 14; }
+  if (org.bank_details) { doc.text(String(org.bank_details), L, y, { maxWidth: R - L }); y += 22; }
+  if (inv.status === 'cancelled') {
+    doc.setTextColor(190, 40, 40);
+    doc.text(`CANCELLED — ${inv.cancelled_reason || ''}`, L, y, { maxWidth: R - L }); y += 16;
+    doc.setTextColor(0);
+  }
+  if (org.invoice_footer) doc.text(String(org.invoice_footer), L, y, { maxWidth: R - L });
+
+  doc.save(`${inv.invoice_number.replace(/\//g, '-')}.pdf`);
+};
 
 // --- Bulk Import: spreadsheet-driven UPDATE of delegates / host members ---
 // Two-step on purpose. Preview parses and diffs server-side and shows exactly
