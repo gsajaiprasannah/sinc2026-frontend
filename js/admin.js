@@ -9244,11 +9244,20 @@ window.downloadInvoicePdf = async (id) => {
 
   const L = PDF_MARGIN, R = PDF_CONTENT_RIGHT;
   doc.setFontSize(9);
+  // Each line is wrapped explicitly and the cursor advanced by however many
+  // lines came back. Passing maxWidth to doc.text() wraps the text visually
+  // but does NOT tell us how tall it became, so a long address silently
+  // overprinted the line beneath it.
+  const COL_W = 225;
   const block = (x, title, lines) => {
     let yy = y;
     doc.setFont(undefined, 'bold'); doc.text(title, x, yy); yy += 13;
     doc.setFont(undefined, 'normal');
-    lines.filter(Boolean).forEach((t) => { doc.text(String(t), x, yy, { maxWidth: 230 }); yy += 12; });
+    lines.filter(Boolean).forEach((t) => {
+      const wrapped = doc.splitTextToSize(String(t), COL_W);
+      doc.text(wrapped, x, yy);
+      yy += 12 * wrapped.length;
+    });
     return yy;
   };
   const y1 = block(L, 'Supplier', [org.legal_name, org.address, [org.city, org.state, org.pincode].filter(Boolean).join(', '),
@@ -9261,10 +9270,13 @@ window.downloadInvoicePdf = async (id) => {
   doc.setFont(undefined, 'bold'); doc.text('Description', L, y);
   doc.text('SAC', R - 220, y); doc.text('Amount', R, y, { align: 'right' });
   doc.setFont(undefined, 'normal'); y += 14;
-  doc.text(String(inv.description || ''), L, y, { maxWidth: 300 });
+  // Same wrap-then-measure treatment: a long description must push the rule
+  // and the totals down, not print through them.
+  const descLines = doc.splitTextToSize(String(inv.description || ''), 290);
+  doc.text(descLines, L, y);
   doc.text(String(inv.sac || ''), R - 220, y);
   doc.text(Number(inv.taxable_value).toLocaleString('en-IN'), R, y, { align: 'right' });
-  y += 22; doc.line(L, y, R, y); y += 16;
+  y += 12 * descLines.length + 10; doc.line(L, y, R, y); y += 16;
 
   const row = (label, val, bold) => {
     doc.setFont(undefined, bold ? 'bold' : 'normal');
@@ -9280,15 +9292,22 @@ window.downloadInvoicePdf = async (id) => {
   row('Total', '₹' + Number(inv.total).toLocaleString('en-IN'), true);
   y += 8;
   doc.setFont(undefined, 'normal'); doc.setFontSize(8.5);
-  doc.text(`Amount in words: ${d.amount_in_words}`, L, y, { maxWidth: R - L }); y += 18;
-  if (inv.tax_basis === 'inclusive') { doc.text('Amount collected is inclusive of GST.', L, y); y += 14; }
-  if (org.bank_details) { doc.text(String(org.bank_details), L, y, { maxWidth: R - L }); y += 22; }
+  // Footer lines are wrapped and measured the same way, so a long bank block
+  // or cancellation reason cannot collide with what follows it.
+  const para = (text) => {
+    const lines = doc.splitTextToSize(String(text), R - L);
+    doc.text(lines, L, y);
+    y += 12 * lines.length + 6;
+  };
+  para(`Amount in words: ${d.amount_in_words}`);
+  if (inv.tax_basis === 'inclusive') para('Amount collected is inclusive of GST.');
+  if (org.bank_details) para(org.bank_details);
   if (inv.status === 'cancelled') {
     doc.setTextColor(190, 40, 40);
-    doc.text(`CANCELLED — ${inv.cancelled_reason || ''}`, L, y, { maxWidth: R - L }); y += 16;
+    para(`CANCELLED — ${inv.cancelled_reason || ''}`);
     doc.setTextColor(0);
   }
-  if (org.invoice_footer) doc.text(String(org.invoice_footer), L, y, { maxWidth: R - L });
+  if (org.invoice_footer) para(org.invoice_footer);
 
   doc.save(`${inv.invoice_number.replace(/\//g, '-')}.pdf`);
 };
