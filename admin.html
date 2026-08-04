@@ -2504,6 +2504,22 @@
       <p class="hint">Generates a structured, <strong>public-safe</strong> JSON knowledge base (club membership counts, registration-type totals, and general happenings) — ready to feed into your voice agent's retrieval or fine-tuning pipeline. No delegate contact details, travel/pickup information, SPOC names/phone numbers, or payment data are included, since this file is intended to leave our admin-gated system and anyone talking to the voice agent could potentially be told anything in it.</p>
       <button class="btn gold" id="exportBtn">Download voice-agent-data.json</button>
     </div>
+
+    <div class="card">
+      <div class="section-title" style="margin-top:0">Attendee itineraries for a concierge agent</div>
+      <p class="hint" style="margin-top:-6px;">
+        One record per delegate in the <code>sample_attendees</code> format — arrival flight and time,
+        pickup point and who is collecting them, hotel and room, assigned helper, and departure.
+        This is what a voice agent needs to answer “when does Rajesh land and who is meeting him?”.
+      </p>
+      <p class="hint" style="padding:10px 12px;border-left:3px solid var(--red);background:#fdf3f2;color:var(--navy);">
+        <strong>Contains personal data.</strong> Mobile and WhatsApp numbers, travel itineraries, hotel
+        allocations and helper contacts for named individuals — unlike the public-safe export above.
+        Share it only with a platform that encrypts it at rest, does not train shared models on it, and
+        can delete it after the congress.
+      </p>
+      <button class="btn" id="exportAttendeesBtn">Download voice-agent-attendees.json</button>
+    </div>
   </section>
 
   <!-- ACTIVITY LOG TAB (super_admin only) -->

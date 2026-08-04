@@ -9091,15 +9091,34 @@ document.getElementById('saClearFiltersBtn')?.addEventListener('click', () => {
 });
 
 // --- Export ---
-document.getElementById('exportBtn').addEventListener('click', async () => {
-  const data = await jget(`${API}/export/voice-agent`);
+function downloadJson(data, filename) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'voice-agent-data.json';
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+document.getElementById('exportBtn').addEventListener('click', async () => {
+  downloadJson(await jget(`${API}/export/voice-agent`), 'voice-agent-data.json');
+});
+
+// Per-attendee itinerary export. Separate button and separate endpoint from
+// the public-safe one above, with a confirmation, because this file carries
+// mobile numbers, flights, hotels and helper contacts for named people.
+document.getElementById('exportAttendeesBtn')?.addEventListener('click', async () => {
+  const ok = confirm(
+    'This file contains personal data — mobile and WhatsApp numbers, flight details, ' +
+    'hotel allocations and helper contacts for every named delegate.\n\n' +
+    'Only share it with a voice-agent platform that encrypts it, does not train shared ' +
+    'models on it, and can delete it after the congress.\n\nDownload?'
+  );
+  if (!ok) return;
+  const data = await jget(`${API}/export/voice-agent-attendees`);
+  downloadJson(data, 'voice-agent-attendees.json');
+  toast(`${data.total_attendees} attendees exported.`, 3500);
 });
 
 // --- Bulk Import: spreadsheet-driven UPDATE of delegates / host members ---
