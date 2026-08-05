@@ -923,7 +923,7 @@ async function tryResumeSession() {
 // ================= STATS DASHBOARD (merged in from the old dashboard.html —=
 // it used to be a separate page with its own admin login; now it's just the
 // first sidebar tab, reusing this same admin session). =====================
-let clubChart, stateChart, merchShirtChart, merchTeeChart;
+let clubChart, stateChart, merchShirtChart, merchTeeChart, merchDhotiChart;
 let dashboardStarted = false;
 
 function renderOverview(s) {
@@ -8481,10 +8481,14 @@ async function refreshMerchandiseRequirement() {
     const data = await jget(`${API}/inventory/merchandise-requirement`);
     merchShirtChart = renderMerchChart('merchShirtChart', merchShirtChart, mergeMerchSizeSeries(data.delegates.shirt, data.hostMembers.shirt), 'Shirt sizes');
     merchTeeChart = renderMerchChart('merchTeeChart', merchTeeChart, mergeMerchSizeSeries(data.delegates.tshirt, data.hostMembers.tshirt), 'T-shirt sizes');
+    // Dhotis are ordered by waist measurement, so this chart runs on its own
+    // numeric scale rather than sharing the XS–XXXL axis of the two above.
+    merchDhotiChart = renderMerchChart('merchDhotiChart', merchDhotiChart, mergeMerchSizeSeries(data.delegates.waist, data.hostMembers.waist), 'Dhoti (waist sizes)');
     const hint = document.getElementById('merchSizesOnFileHint');
     if (hint) {
       hint.textContent = `${data.delegates.sizesOnFile} of ${data.delegates.total} delegate(s) and ${data.hostMembers.sizesOnFile} of ${data.hostMembers.total} host member(s) have sizes on file.`;
     }
+    renderMerchRequirementTally(data);
   } catch (e) { /* chart is supplementary — fail quietly */ }
 }
 // Per-person "who chose what size" list — so whoever's packing/handing out
@@ -8535,10 +8539,147 @@ window.downloadMerchSizeListPdf = async (category) => {
       { label: 'Phone', width: 95, get: (r) => r.phone },
       { label: 'Shirt', width: 45, get: (r) => r.shirt_size },
       { label: 'Tee', width: 45, get: (r) => r.tshirt_size },
-      { label: 'Waist', width: 45, get: (r) => r.waist_size },
+      { label: 'Dhoti (waist)', width: 60, get: (r) => r.waist_size },
     ], filtered, `merchandise-size-list-${fileSlug}.pdf`);
   } catch (err) { toast(err.message); }
 };
+// --- Merchandise Requirement report (procurement) --------------------------
+// The order sheet: how many of each garment in each size, split Delegates vs
+// Host Members with a combined total. Built from the same endpoint that feeds
+// the charts, so the printed sheet and the screen can never disagree.
+//
+// "Not recorded" is included on purpose. Whoever places the order needs to see
+// how many people still have no size on file — that gap is the real risk when
+// committing to a print run, and a chart of only the known sizes hides it.
+// Mirrors MERCH_SIZE_ORDER in server/routes/inventory.js.
+const MERCH_SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
+const MERCH_GARMENTS = [
+  { key: 'shirt', label: 'Shirt' },
+  { key: 'tshirt', label: 'T-Shirt' },
+  // Waist size is collected specifically to buy dhotis, so it's labelled as
+  // the garment being ordered rather than as a body measurement.
+  { key: 'waist', label: 'Dhoti (waist)' }
+];
+
+function buildMerchRequirementRows(data) {
+  const rows = [];
+  MERCH_GARMENTS.forEach(({ key, label }) => {
+    const d = data.delegates[key] || [];
+    const h = data.hostMembers[key] || [];
+    const sizes = [];
+    [...d, ...h].forEach((x) => { if (!sizes.includes(x.size)) sizes.push(x.size); });
+    if (!sizes.length) return;
+    // Each group arrives already in size order, but merging two lists can
+    // interleave them wrongly when one side is missing a size. Re-sort against
+    // the canonical scale so the printed sheet always reads XS -> XXXL;
+    // anything off-scale (e.g. numeric waist sizes) falls to the end, sorted.
+    sizes.sort((a, b) => {
+      const ia = MERCH_SIZE_ORDER.indexOf(a), ib = MERCH_SIZE_ORDER.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return String(a).localeCompare(String(b), undefined, { numeric: true });
+    });
+    const at = (arr, s) => (arr.find((x) => x.size === s) || {}).count || 0;
+    let dTot = 0, hTot = 0;
+    sizes.forEach((s) => {
+      const dc = at(d, s), hc = at(h, s);
+      dTot += dc; hTot += hc;
+      rows.push({ garment: label, size: s, delegates: dc, hostMembers: hc, total: dc + hc });
+    });
+    rows.push({ garment: label, size: 'TOTAL', delegates: dTot, hostMembers: hTot, total: dTot + hTot, _isTotal: true });
+    // How many people this garment has no size for at all.
+    rows.push({
+      garment: label, size: 'Not recorded',
+      delegates: Math.max(0, data.delegates.total - dTot),
+      hostMembers: Math.max(0, data.hostMembers.total - hTot),
+      total: Math.max(0, data.delegates.total - dTot) + Math.max(0, data.hostMembers.total - hTot),
+      _isGap: true
+    });
+  });
+  return rows;
+}
+
+const MERCH_REQ_COLUMNS = [
+  { label: 'Garment', width: 110, get: (r) => r.garment },
+  { label: 'Size', width: 90, get: (r) => r.size },
+  { label: 'Delegates', width: 80, align: 'right', get: (r) => String(r.delegates) },
+  { label: 'Host Members', width: 90, align: 'right', get: (r) => String(r.hostMembers) },
+  { label: 'Total required', width: 90, align: 'right', get: (r) => String(r.total) }
+];
+
+// The same tally the PDF/Excel exports use, rendered into the page so the
+// numbers can be read without downloading anything. Built from buildMerchRequirementRows
+// so screen and export can never drift apart.
+function renderMerchRequirementTally(data) {
+  const body = document.getElementById('merchRequirementTallyBody');
+  if (!body) return;
+  const rows = buildMerchRequirementRows(data);
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="5" class="empty">Nobody has a size on file yet.</td></tr>';
+    return;
+  }
+  const num = 'style="text-align:right;"';
+  body.innerHTML = rows.map((r) => {
+    // Subtotal rows get emphasis; the gap row is muted so it reads as a
+    // caveat on the total above it rather than another size to order.
+    const style = r._isTotal ? ' style="font-weight:700;"'
+      : r._isGap ? ' style="opacity:.65;font-style:italic;"' : '';
+    return `<tr${style}>
+      <td>${r.garment}</td>
+      <td>${r.size}</td>
+      <td ${num}>${r.delegates}</td>
+      <td ${num}>${r.hostMembers}</td>
+      <td ${num}>${r.total}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function fetchMerchRequirement() {
+  const data = await jget(`${API}/inventory/merchandise-requirement`);
+  const rows = buildMerchRequirementRows(data);
+  if (!rows.length) { toast('Nobody has a size on file yet.'); return null; }
+  return { data, rows };
+}
+
+window.downloadMerchRequirementPdf = async () => {
+  try {
+    const res = await fetchMerchRequirement();
+    if (!res) return;
+    const { data, rows } = res;
+    await downloadListReportPdf(
+      'Merchandise Requirement',
+      `${data.delegates.sizesOnFile} of ${data.delegates.total} delegates and ${data.hostMembers.sizesOnFile} of ${data.hostMembers.total} host members have sizes on file`,
+      MERCH_REQ_COLUMNS, rows, 'merchandise-requirement.pdf');
+  } catch (err) { toast(err.message); }
+};
+
+window.downloadMerchRequirementXlsx = async () => {
+  try {
+    const res = await fetchMerchRequirement();
+    if (!res) return;
+    downloadListReportXlsx('Merchandise Requirement', MERCH_REQ_COLUMNS, res.rows, 'merchandise-requirement.xlsx');
+  } catch (err) { toast(err.message); }
+};
+
+// Excel twin of the existing per-person PDF, so the packing list can be
+// sorted and filtered rather than only printed.
+window.downloadMerchSizeListXlsx = async (category) => {
+  try {
+    const rows = await jget(`${API}/inventory/merchandise-size-list`);
+    const filtered = rows.filter((r) => r.type === category);
+    if (!filtered.length) { toast(`Nobody in ${category}s has a size on file yet`); return; }
+    downloadListReportXlsx(category, [
+      { label: 'Name', width: 180, get: (r) => r.name },
+      { label: 'Club / Company', width: 150, get: (r) => r.club_or_company },
+      { label: 'Phone', width: 95, get: (r) => r.phone },
+      { label: 'Shirt', width: 45, get: (r) => r.shirt_size },
+      { label: 'Tee', width: 45, get: (r) => r.tshirt_size },
+      { label: 'Dhoti (waist)', width: 60, get: (r) => r.waist_size },
+    ], filtered, `merchandise-size-list-${category.toLowerCase().replace(/\s+/g, '-')}.xlsx`);
+  } catch (err) { toast(err.message); }
+};
+
 window.syncMerchandiseRequirements = async () => {
   try {
     const r = await jpost(`${API}/inventory/requirements/sync-merchandise`, {});

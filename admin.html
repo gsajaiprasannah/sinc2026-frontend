@@ -1718,14 +1718,32 @@
     <div class="card">
       <div class="section-title" style="margin-top:0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
         <span>Merchandise Requirement Chart</span>
-        <button type="button" class="btn small outline" onclick="syncMerchandiseRequirements()">Sync into Requirements</button>
+        <span style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button type="button" class="btn small" onclick="downloadMerchRequirementPdf()">Download PDF</button>
+          <button type="button" class="btn small" onclick="downloadMerchRequirementXlsx()">Download Excel</button>
+          <button type="button" class="btn small outline" onclick="syncMerchandiseRequirements()">Sync into Requirements</button>
+        </span>
       </div>
-      <p class="hint" style="margin-top:0;">Accumulated Shirt &amp; T-shirt size counts from everyone who's filled in their size, Delegates and Host Members tracked separately. "Sync into Requirements" writes these counts into the Requirements list below so the Purchase team can act on them.</p>
+      <p class="hint" style="margin-top:0;">Accumulated Shirt, T-shirt and Dhoti size counts from everyone who's filled in their size, Delegates and Host Members tracked separately. Dhotis are ordered against the waist size collected on the same forms. "Sync into Requirements" writes these counts into the Requirements list below so the Purchase team can act on them.</p>
       <div class="form-grid cols-2">
         <div class="chart-scroll" style="height:220px;"><canvas id="merchShirtChart"></canvas></div>
         <div class="chart-scroll" style="height:220px;"><canvas id="merchTeeChart"></canvas></div>
       </div>
+      <div class="chart-scroll" style="height:220px;"><canvas id="merchDhotiChart"></canvas></div>
       <p class="hint" id="merchSizesOnFileHint" style="margin-bottom:0;"></p>
+
+      <!-- The order sheet. Same numbers as the charts above, but as a table -->
+      <!-- you can read a quantity off and hand to the supplier. -->
+      <div class="section-title">
+        <span>Requirement tally</span>
+      </div>
+      <p class="hint" style="margin-top:0;">Quantity needed per garment per size. "Not recorded" is how many people still have no size on file for that garment — order-at-risk.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Garment</th><th>Size</th><th style="text-align:right;">Delegates</th><th style="text-align:right;">Host Members</th><th style="text-align:right;">Total required</th></tr></thead>
+          <tbody id="merchRequirementTallyBody"></tbody>
+        </table>
+      </div>
 
       <div class="section-title">
         <span>Who chose what size</span>
@@ -1734,10 +1752,11 @@
       <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
         <span>Delegates</span>
         <button type="button" class="btn small" onclick="downloadMerchSizeListPdf('Delegate')">Download PDF</button>
+        <button type="button" class="btn small" onclick="downloadMerchSizeListXlsx('Delegate')">Download Excel</button>
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Name</th><th>Club / Company</th><th>Phone</th><th>Shirt</th><th>Tee</th><th>Waist</th></tr></thead>
+          <thead><tr><th>Name</th><th>Club / Company</th><th>Phone</th><th>Shirt</th><th>Tee</th><th>Dhoti (waist)</th></tr></thead>
           <tbody id="merchSizeListTableBody_Delegate"></tbody>
         </table>
       </div>
@@ -1745,10 +1764,11 @@
       <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
         <span>Host Members</span>
         <button type="button" class="btn small" onclick="downloadMerchSizeListPdf('Host Member')">Download PDF</button>
+        <button type="button" class="btn small" onclick="downloadMerchSizeListXlsx('Host Member')">Download Excel</button>
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Name</th><th>Club / Company</th><th>Phone</th><th>Shirt</th><th>Tee</th><th>Waist</th></tr></thead>
+          <thead><tr><th>Name</th><th>Club / Company</th><th>Phone</th><th>Shirt</th><th>Tee</th><th>Dhoti (waist)</th></tr></thead>
           <tbody id="merchSizeListTableBody_HostMember"></tbody>
         </table>
       </div>
@@ -1764,8 +1784,20 @@
       <form id="requirementForm">
         <div class="form-grid cols-4">
           <div class="field"><label>Item *</label><input name="item_name" required placeholder="e.g. Delegate Bag" /></div>
-          <div class="field"><label>Category</label><input name="category" value="General" /></div>
-          <div class="field"><label>Size (optional)</label><input name="size" placeholder="e.g. M" /></div>
+          <!-- Free text, but suggests the same category names the merchandise -->
+          <!-- sync uses, so a hand-raised Dhoti/Shirt/Tee line lands in the -->
+          <!-- same bucket as the auto-synced ones instead of a near-miss spelling. -->
+          <div class="field"><label>Category</label><input name="category" value="General" list="requirementCategoryOptions" /></div>
+          <datalist id="requirementCategoryOptions">
+            <option value="General"></option>
+            <option value="Merchandise – Shirt – Delegates"></option>
+            <option value="Merchandise – Shirt – Host Members"></option>
+            <option value="Merchandise – Tee – Delegates"></option>
+            <option value="Merchandise – Tee – Host Members"></option>
+            <option value="Merchandise – Dhoti – Delegates"></option>
+            <option value="Merchandise – Dhoti – Host Members"></option>
+          </datalist>
+          <div class="field"><label>Size (optional)</label><input name="size" placeholder="e.g. M, or 38 for a dhoti" /></div>
           <div class="field"><label>Quantity needed *</label><input name="quantity_needed" type="number" min="1" required /></div>
         </div>
         <div class="field"><label>Notes</label><input name="notes" placeholder="optional" /></div>
