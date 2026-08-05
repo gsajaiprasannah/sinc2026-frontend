@@ -6897,6 +6897,38 @@ window.runXlsxFieldPicker = () => {
 // whatever was ticked in the field-picker modal; multi-value cells (Arrival,
 // Pickup, SPOC) stack their labelled lines and pdfTable wraps them, sizing
 // each row to its tallest cell.
+// Annotates each delegate with who else is on their registration, then orders
+// the list so a primary is immediately followed by their co-registrant.
+//
+// The API returns delegates newest-first, which scatters couples — Aruna Anand
+// and her co-registrant sat 109 rows apart. Sorting by registration number and
+// then primary-first puts each booking together, which is what the transport,
+// rooming and badge desks actually work from. Anyone with no registration
+// (rare, but possible) falls to the end rather than being dropped.
+function pairRegistrants(rows) {
+  const byReg = new Map();
+  rows.forEach((r) => {
+    if (!r.registration_id) return;
+    if (!byReg.has(r.registration_id)) byReg.set(r.registration_id, []);
+    byReg.get(r.registration_id).push(r);
+  });
+  rows.forEach((r) => {
+    const mates = (byReg.get(r.registration_id) || []).filter((m) => m.id !== r.id);
+    r._travelling_with = mates.map((m) => m.name).join(', ');
+  });
+  const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+  return [...rows].sort((a, b) => {
+    const ra = a.reg_number || '', rb = b.reg_number || '';
+    if (!ra && !rb) return collator.compare(a.name || '', b.name || '');
+    if (!ra) return 1;
+    if (!rb) return -1;
+    const byNumber = collator.compare(ra, rb);
+    if (byNumber !== 0) return byNumber;
+    // Same registration: primary first, then the co-registrant.
+    return (Number(b.is_primary) || 0) - (Number(a.is_primary) || 0);
+  });
+}
+
 async function downloadDelegatesListPdf(fields, columns, groupByClub) {
   try {
     const keys = fields.map((f) => f.key);
@@ -6904,19 +6936,10 @@ async function downloadDelegatesListPdf(fields, columns, groupByClub) {
     // Honor whatever the "Profile completion" filter is currently set to on
     // the Delegates tab, so picking Complete/Incomplete there and exporting
     // gives exactly that list rather than always everyone.
-    const { rows, value: filterValue, label: filterLabel } = applyDelegateCompletionFilter(all);
-    // Annotate each delegate with whoever else shares their registration, so
-    // the "Travelling with" column can show the partner by name.
-    const byReg = new Map();
-    rows.forEach((r) => {
-      if (!r.registration_id) return;
-      if (!byReg.has(r.registration_id)) byReg.set(r.registration_id, []);
-      byReg.get(r.registration_id).push(r);
-    });
-    rows.forEach((r) => {
-      const mates = (byReg.get(r.registration_id) || []).filter((m) => m.id !== r.id);
-      r._travelling_with = mates.map((m) => m.name).join(', ');
-    });
+    const { rows: filtered, value: filterValue, label: filterLabel } = applyDelegateCompletionFilter(all);
+    // Fills in "Travelling with" and puts each primary next to their
+    // co-registrant — see pairRegistrants above.
+    const rows = pairRegistrants(filtered);
     const toRow = (r) => fields.map((f) => f.get(r));
 
     const doc = pdfDoc();
@@ -6955,17 +6978,9 @@ async function downloadDelegatesListPdf(fields, columns, groupByClub) {
 async function downloadDelegatesListXlsx(fields) {
   try {
     const all = await jget(`${API}/participants`);
-    const { rows, value: filterValue } = applyDelegateCompletionFilter(all);
-    const byReg = new Map();
-    rows.forEach((r) => {
-      if (!r.registration_id) return;
-      if (!byReg.has(r.registration_id)) byReg.set(r.registration_id, []);
-      byReg.get(r.registration_id).push(r);
-    });
-    rows.forEach((r) => {
-      const mates = (byReg.get(r.registration_id) || []).filter((m) => m.id !== r.id);
-      r._travelling_with = mates.map((m) => m.name).join(', ');
-    });
+    const { rows: filtered, value: filterValue } = applyDelegateCompletionFilter(all);
+    // Same pairing as the PDF, so the two downloads read identically.
+    const rows = pairRegistrants(filtered);
     downloadListReportXlsx('Delegates', fields, rows, `delegates-directory${filterValue || ''}.xlsx`);
   } catch (err) { toast(err.message); }
 }
