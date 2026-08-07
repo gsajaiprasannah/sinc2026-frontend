@@ -2524,6 +2524,45 @@
       </form>
     </div>
 
+    <!-- Billing readiness: fix details BEFORE anyone asks for an invoice. -->
+    <!-- Correcting a name or GSTIN here is free; after issuing it costs an -->
+    <!-- edit-with-reason or a cancel-and-reissue. -->
+    <div class="card">
+      <div class="section-title" style="margin-top:0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <span>Billing readiness</span>
+        <span style="display:flex;gap:8px;flex-wrap:wrap;">
+          <select id="brFilterModule">
+            <option value="">All modules</option>
+            <option value="registration">Delegate registrations</option>
+            <option value="sponsor">Sponsors</option>
+            <option value="stall">Exhibition stalls</option>
+            <option value="host_member">Host members</option>
+          </select>
+          <select id="brFilterStatus">
+            <option value="notready">Needs attention</option>
+            <option value="error">Errors only</option>
+            <option value="warn">Warnings only</option>
+            <option value="ready">Ready</option>
+            <option value="">Everyone</option>
+          </select>
+          <button type="button" class="btn small outline" id="brRefreshBtn">Refresh</button>
+          <button type="button" class="btn small" onclick="downloadBillingReadinessXlsx()">Download Excel</button>
+        </span>
+      </div>
+      <p class="hint" style="margin-top:0;">
+        Everyone with money against their name who could be invoiced, and what's missing from their
+        billing details. Fill these in from the registration forms you already hold, so that when a
+        delegate does ask for an invoice it comes out right first time.
+      </p>
+      <div id="brSummary" class="hint"></div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Reference</th><th>Billed to</th><th style="text-align:right;">Amount</th><th>GSTIN</th><th>What's missing</th><th>Invoice</th><th></th></tr></thead>
+          <tbody id="brTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="card">
       <div class="section-title" style="margin-top:0">Issued invoices</div>
       <div class="two-col" style="flex-wrap:wrap;gap:10px;">

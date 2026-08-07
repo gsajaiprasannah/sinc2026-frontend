@@ -1156,7 +1156,7 @@ function switchAdminTab(tab) {
   if (tab === 'settings') refreshUsersAdmin();
   if (tab === 'activitylog') { refreshActivityLog(); refreshScanActivity(); }
   if (tab === 'attendance') refreshAttendance();
-  if (tab === 'gstinvoices') { refreshOrgGst(); refreshInvoices(); }
+  if (tab === 'gstinvoices') { refreshOrgGst(); refreshBillingReadiness(); refreshInvoices(); }
   if (tab === 'stallreport') refreshStallReport();
   if (tab === 'transportreport') refreshTransportReport();
   // On phone/tablet widths the sidebar overlays the content, so tuck it away
@@ -9377,6 +9377,120 @@ async function refreshInvoices() {
 document.getElementById('invRefreshBtn')?.addEventListener('click', refreshInvoices);
 
 // Issue from anywhere — the module buttons all call this.
+// --- Billing readiness -----------------------------------------------------
+// The work queue that stops correction requests happening in the first place.
+// Everything here is fixable for free; the same fix after an invoice has been
+// issued costs an edit-with-reason, and after it has been emailed, an apology.
+
+let BR_ROWS = [];
+const BR_SEVERITY_COLOUR = { error: '#b02a2a', warn: '#a06a00', info: '#666' };
+
+async function refreshBillingReadiness() {
+  const mod = document.getElementById('brFilterModule')?.value || '';
+  try {
+    const d = await jget(`${API}/invoices/billing-readiness${mod ? `?module=${mod}` : ''}`);
+    BR_ROWS = d.rows;
+    const s = d.summary;
+    const sum = document.getElementById('brSummary');
+    if (sum) {
+      sum.innerHTML =
+        `<strong>${s.total}</strong> invoiceable · ` +
+        `<span style="color:${BR_SEVERITY_COLOUR.error};"><strong>${s.error}</strong> with errors</span> · ` +
+        `<span style="color:${BR_SEVERITY_COLOUR.warn};"><strong>${s.warn}</strong> with warnings</span> · ` +
+        `<strong>${s.ready}</strong> ready · ${s.invoiced} already invoiced` +
+        (s.drifted ? ` · <span style="color:${BR_SEVERITY_COLOUR.error};"><strong>${s.drifted}</strong> changed since invoicing</span>` : '');
+    }
+    renderBillingReadiness();
+  } catch (e) { toast(e.message, 7000); }
+}
+
+function brVisibleRows() {
+  const f = document.getElementById('brFilterStatus')?.value ?? 'notready';
+  if (f === 'notready') return BR_ROWS.filter((r) => r.status !== 'ready');
+  if (!f) return BR_ROWS;
+  return BR_ROWS.filter((r) => r.status === f);
+}
+
+function renderBillingReadiness() {
+  const body = document.getElementById('brTableBody');
+  if (!body) return;
+  const rows = brVisibleRows();
+  body.innerHTML = rows.map((r) => `
+    <tr${r.status === 'ready' ? ' style="opacity:.7;"' : ''}>
+      <td><strong>${escapeHtmlAdmin(r.reference)}</strong><div class="hint">${escapeHtmlAdmin(r.module_label)}</div></td>
+      <td>${escapeHtmlAdmin(r.party_name || '—')}${r.contact_name && r.contact_name !== r.party_name ? `<div class="hint">${escapeHtmlAdmin(r.contact_name)}</div>` : ''}</td>
+      <td style="text-align:right;">${Number(r.amount).toLocaleString('en-IN')}</td>
+      <td>${r.gstin ? escapeHtmlAdmin(r.gstin) : '<span class="hint">B2C</span>'}${r.state_code ? `<div class="hint">state ${escapeHtmlAdmin(r.state_code)}</div>` : ''}</td>
+      <td>${r.issues.length
+        ? r.issues.map((i) => `<div style="color:${BR_SEVERITY_COLOUR[i.severity]};font-size:12px;">${escapeHtmlAdmin(i.text)}</div>`).join('')
+        : '<span class="hint">Nothing missing</span>'}</td>
+      <td>${r.invoice_number
+        ? `${escapeHtmlAdmin(r.invoice_number)}${r.drifted ? `<div class="hint" style="color:${BR_SEVERITY_COLOUR.error};">details changed since</div>` : ''}`
+        : '<span class="hint">not issued</span>'}</td>
+      <td style="white-space:nowrap;">
+        <button class="btn small" onclick="editBillingDetails('${r.module}', ${r.entity_id})">Fix details</button>
+        ${r.invoice_number ? '' : `<button class="btn small outline" onclick="issueInvoice('${r.module}', ${r.entity_id})">Issue</button>`}
+      </td>
+    </tr>`).join('') || '<tr><td colspan="7" class="empty">Nothing to show for this filter.</td></tr>';
+}
+
+// Fills the gaps straight onto the delegate/sponsor record, so the correction
+// is permanent rather than applying only to one invoice.
+window.editBillingDetails = async (module, entityId) => {
+  const r = BR_ROWS.find((x) => x.module === module && x.entity_id === entityId);
+  if (!r) return;
+  try {
+    const ask = (label, current) => {
+      const v = prompt(`${r.reference} — ${r.party_name}\n\n${label}`, current == null ? '' : String(current));
+      return v === null ? undefined : v.trim();
+    };
+    const body = {};
+    const gstin = ask('GSTIN (leave blank if they are not GST-registered)', r.gstin);
+    if (gstin === undefined) return;
+    body.gstin = gstin.toUpperCase();
+    const addr = ask('Billing address as it should appear on the invoice', r.billing_address);
+    if (addr === undefined) return;
+    body.billing_address = addr;
+    const email = ask('Email address to send the invoice to', r.email);
+    if (email === undefined) return;
+    body.email = email;
+    // Only ask for state when there is no GSTIN to derive it from — entering
+    // it by hand when a GSTIN exists is how the two end up disagreeing.
+    if (!body.gstin) {
+      const st = ask('State code (2 digits, e.g. 33 Tamil Nadu) — used to decide CGST+SGST vs IGST', r.state_code);
+      if (st === undefined) return;
+      body.state_code = st;
+    }
+    const saved = await jput(`${API}/invoices/party/${module}/${entityId}`, body);
+    toast(`Saved${saved.state_code ? ` (state ${saved.state_code})` : ''}.`, 4000);
+    refreshBillingReadiness();
+  } catch (e) {
+    if (confirm(`${e.message}\n\nTry again?`)) return editBillingDetails(module, entityId);
+  }
+};
+
+window.downloadBillingReadinessXlsx = () => {
+  const rows = brVisibleRows();
+  if (!rows.length) { toast('Nothing to export for this filter.'); return; }
+  downloadListReportXlsx('Billing readiness', [
+    { label: 'Reference', width: 90, get: (r) => r.reference },
+    { label: 'Type', width: 110, get: (r) => r.module_label },
+    { label: 'Billed to', width: 190, get: (r) => r.party_name },
+    { label: 'Contact', width: 140, get: (r) => r.contact_name },
+    { label: 'Amount', width: 70, get: (r) => String(r.amount) },
+    { label: 'GSTIN', width: 130, get: (r) => r.gstin },
+    { label: 'State', width: 45, get: (r) => r.state_code },
+    { label: 'Billing address', width: 200, get: (r) => r.billing_address },
+    { label: 'Email', width: 160, get: (r) => r.email },
+    { label: 'Invoice', width: 130, get: (r) => r.invoice_number || '' },
+    { label: 'What is missing', width: 260, get: (r) => r.issues.map((i) => i.text).join('; ') },
+  ], rows, 'billing-readiness.xlsx');
+};
+
+['brFilterModule', 'brFilterStatus'].forEach((id) =>
+  document.getElementById(id)?.addEventListener('change', () => (id === 'brFilterModule' ? refreshBillingReadiness() : renderBillingReadiness())));
+document.getElementById('brRefreshBtn')?.addEventListener('click', refreshBillingReadiness);
+
 // A missing GSTIN is never decided silently. Rather than warning and letting
 // the click carry on into a B2C invoice, this stops and offers to capture the
 // number — because at this moment the registration is open on screen and the
@@ -9456,7 +9570,10 @@ window.issueInvoice = async (module, entityId) => {
     const r = await jpost(`${API}/invoices/issue`, { module, entity_id: entityId, acknowledge_warnings: true });
     toast(`Invoice ${r.invoice_number} issued.`, 4000);
     downloadInvoicePdf(r.id);
-    if (document.getElementById('tab-gstinvoices')?.classList.contains('active')) refreshInvoices();
+    if (document.getElementById('tab-gstinvoices')?.classList.contains('active')) {
+      refreshInvoices();
+      refreshBillingReadiness();
+    }
   } catch (e) {
     toast(e.message, 8000);
   }
