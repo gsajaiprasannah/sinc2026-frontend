@@ -1993,9 +1993,19 @@ document.getElementById('partCsvForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
     const res = await uploadFile(`${API}/participants/bulk-upload`, e.target);
-    let msg = `Imported ${res.imported} delegates`;
-    if (res.skipped) msg += `, skipped ${res.skipped} likely duplicates`;
-    toast(msg);
+    toast(`Imported ${res.imported} delegate(s)${res.skipped ? `, ${res.skipped} skipped` : ''}.`);
+    // Skipped rows are now shown in full rather than counted. They are no
+    // longer only "likely duplicates" — a row is also skipped when it would
+    // over-fill a registration or add a second primary registrant, and a
+    // delegate silently missing from the import is far worse than a dialog.
+    if (res.skipped && res.duplicates && res.duplicates.length) {
+      alert(
+        `${res.imported} delegate(s) imported.\n\n` +
+        `${res.skipped} row(s) were NOT imported:\n\n` +
+        res.duplicates.map((d, i) => `${i + 1}. ${d.name || '(no name)'}\n   ${d.reason}`).join('\n\n') +
+        `\n\nFix these rows and re-upload just them, or add force=1 to a row that really is a different person.`
+      );
+    }
     e.target.reset();
     refreshParts();
   } catch (err) { toast(err.message); }
