@@ -10570,6 +10570,22 @@ async function refreshStallHalls() {
   });
   const filterSel = document.getElementById('stallFilterHall');
   if (filterSel) filterSel.innerHTML = '<option value="">All halls</option>' + opts;
+
+  // Host member stall assignment picks a hall too. Default it to the largest
+  // hall, which in practice is the one set aside for host members — saves
+  // choosing it every time without hard-coding "Hall B". Uses total stalls
+  // rather than free ones so the default doesn't wander as they get assigned.
+  const hmSel = document.getElementById('hmStallHallSelect');
+  if (hmSel) {
+    const previous = hmSel.value;
+    hmSel.innerHTML = '<option value="">-- pick a hall --</option>' + opts;
+    if (previous) hmSel.value = previous;
+    else {
+      const biggest = [...rows].sort((a, b) => (Number(b.stall_count) || 0) - (Number(a.stall_count) || 0))[0];
+      if (biggest) hmSel.value = String(biggest.id);
+    }
+  }
+  refreshHostMemberStallSummary();
 }
 window.deleteStallHall = async (id) => {
   try { await jdel(`${API}/stall-halls/${id}`); toast('Hall removed'); refreshStallHalls(); refreshStalls(); }
@@ -10633,9 +10649,14 @@ async function refreshStalls() {
       <td>${s.size || '-'}</td>
       <td>${Number(s.price || 0).toLocaleString('en-IN')}</td>
       <td><span class="pill ${s.status}">${s.status === 'allocated' ? 'Allocated' : 'Available'}</span></td>
-      <td>${s.booked_company_name || '-'}</td>
+      <td>${s.host_member_id
+        ? `<strong>${escapeHtmlAdmin(s.host_member_name || '')}</strong><div class="hint">Host member${s.host_member_company ? ' · ' + escapeHtmlAdmin(s.host_member_company) : ''}</div>`
+        : (s.booked_company_name ? escapeHtmlAdmin(s.booked_company_name) : '-')}</td>
       <td class="sticky-actions">
         <button class="btn small" onclick="editStall(${s.id})">Update</button>
+        ${s.host_member_id
+          ? `<button class="btn small outline" onclick="releaseHostMemberStall(${s.id}, '${escapeHtmlAdmin(s.stall_number)}')">Release</button>`
+          : (s.booking_id ? '' : `<button class="btn small" onclick="assignHostMemberStall(${s.id}, '${escapeHtmlAdmin(s.hall_name)} ${escapeHtmlAdmin(s.stall_number)}')">Assign host member</button>`)}
         ${canDelete() ? `<button class="btn danger small" onclick="deleteStall(${s.id})">Delete</button>` : ''}
       </td>
     </tr>
@@ -10645,6 +10666,93 @@ async function refreshStalls() {
   // newly generated/edited stall shows up there without a manual reload.
   refreshStallBookingStallOptions();
 }
+// --- Host member stalls (Hall B) -------------------------------------------
+// Hall B is set aside for host members, one stall each, complimentary. These
+// are not stall_bookings — there is no enquiry, no amount and no invoice — so
+// they are assigned straight onto the stall.
+
+let HM_STALL_CACHE = null;
+
+async function hostMemberStallAvailability(force) {
+  if (!HM_STALL_CACHE || force) HM_STALL_CACHE = await jget(`${API}/stalls/host-member-availability`);
+  return HM_STALL_CACHE;
+}
+
+window.assignHostMemberStall = async (stallId, stallLabel) => {
+  try {
+    const d = await hostMemberStallAvailability(true);
+    const free = d.members.filter((m) => !m.stall_id);
+    if (!free.length) { toast('Every host member already has a stall.', 5000); return; }
+    // Numbered list in a prompt rather than a dropdown: 75 names is too many to
+    // scan visually, and typing a number is faster than hunting a select.
+    const pick = prompt(
+      `Assign ${stallLabel} to which host member?\n\n` +
+      `Type the number:\n\n` +
+      free.map((m, i) => `${i + 1}. ${m.name}${m.company ? ' — ' + m.company : ''}`).join('\n'),
+      ''
+    );
+    if (pick === null) return;
+    const idx = Number(String(pick).trim()) - 1;
+    if (!(idx >= 0 && idx < free.length)) { toast('That was not one of the numbers listed.', 5000); return; }
+    await jput(`${API}/stalls/${stallId}/host-member`, { host_member_id: free[idx].id });
+    toast(`${stallLabel} assigned to ${free[idx].name}.`, 4000);
+    HM_STALL_CACHE = null;
+    refreshStalls(); refreshStallHalls();
+  } catch (e) { toast(e.message, 7000); }
+};
+
+window.releaseHostMemberStall = async (stallId, stallNumber) => {
+  if (!confirm(`Release stall ${stallNumber} from its host member?\n\nThe stall becomes available again.`)) return;
+  try {
+    await jput(`${API}/stalls/${stallId}/host-member`, { host_member_id: null });
+    toast(`Stall ${stallNumber} released.`);
+    HM_STALL_CACHE = null;
+    refreshStalls(); refreshStallHalls();
+  } catch (e) { toast(e.message, 7000); }
+};
+
+// Bulk assign: previews the full pairing before writing anything, because it
+// touches up to 75 rows and unpicking them one at a time would be miserable.
+window.bulkAssignHostMemberStalls = async () => {
+  const hallId = document.getElementById('hmStallHallSelect')?.value;
+  if (!hallId) { toast('Pick the hall to assign from.'); return; }
+  try {
+    const preview = await jpost(`${API}/stalls/host-member-bulk-assign`, { hall_id: Number(hallId) });
+    if (!preview.pairs.length) {
+      toast(preview.unassigned_members === 0
+        ? 'Every host member already has a stall.'
+        : `No free stalls left in ${preview.hall}.`, 6000);
+      return;
+    }
+    const sample = preview.pairs.slice(0, 8).map((p) => `  ${p.stall_number} → ${p.host_member_name}`).join('\n');
+    const ok = confirm(
+      `Assign ${preview.pairs.length} ${preview.hall} stall(s) to host members?\n\n` +
+      `${sample}${preview.pairs.length > 8 ? `\n  …and ${preview.pairs.length - 8} more` : ''}\n\n` +
+      `${preview.unassigned_members} host member(s) without a stall · ${preview.free_stalls} free stall(s) in ${preview.hall}\n` +
+      (preview.left_without_stall ? `${preview.left_without_stall} host member(s) would still have none.\n` : '') +
+      (preview.spare_stalls ? `${preview.spare_stalls} stall(s) would stay free.\n` : '') +
+      `\nAssignment is alphabetical by host member name. You can move any of them afterwards.`
+    );
+    if (!ok) return;
+    const r = await jpost(`${API}/stalls/host-member-bulk-assign`, { hall_id: Number(hallId), apply: true });
+    toast(`${r.pairs.length} stall(s) assigned.`, 5000);
+    HM_STALL_CACHE = null;
+    refreshStalls(); refreshStallHalls(); refreshHostMemberStallSummary();
+  } catch (e) { toast(e.message, 8000); }
+};
+
+async function refreshHostMemberStallSummary() {
+  const el = document.getElementById('hmStallSummary');
+  if (!el) return;
+  try {
+    const d = await hostMemberStallAvailability(true);
+    const s = d.summary;
+    el.innerHTML =
+      `<strong>${s.assigned}</strong> of <strong>${s.host_members}</strong> host members have a stall · ` +
+      `<strong>${s.unassigned}</strong> still to assign · <strong>${s.free_stalls}</strong> stall(s) free`;
+  } catch (e) { el.textContent = ''; }
+}
+
 window.deleteStall = async (id) => {
   try { await jdel(`${API}/stalls/${id}`); toast('Stall removed'); refreshStalls(); refreshStallHalls(); }
   catch (err) { toast(err.message); }

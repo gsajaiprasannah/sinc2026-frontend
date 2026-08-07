@@ -2243,6 +2243,27 @@
       <span>Stalls</span>
       <button class="btn small" onclick="downloadStallsListPdf()">Download PDF</button>
     </div>
+    <!-- Host member stalls. A hall set aside for host members rather than
+         paying exhibitors: one stall each, complimentary as part of their host
+         contribution, so these are not bookings and carry no amount. -->
+    <div class="card">
+      <div class="section-title" style="margin-top:0;">Host member stalls</div>
+      <p class="hint" style="margin-top:0;">
+        One stall per host member, complimentary. Assigning here marks the stall allocated, so the
+        same stall can never also be sold to an exhibitor. Assign them all at once below, or use
+        <strong>Assign host member</strong> on any individual stall in the list.
+      </p>
+      <div id="hmStallSummary" class="hint" style="margin-bottom:8px;"></div>
+      <div class="two-col" style="flex-wrap:wrap;gap:10px;align-items:flex-end;">
+        <div class="field" style="margin:0;">
+          <label>Assign from hall</label>
+          <select id="hmStallHallSelect"><option value="">-- pick a hall --</option></select>
+        </div>
+        <button type="button" class="btn gold small" onclick="bulkAssignHostMemberStalls()">Assign all unassigned host members</button>
+      </div>
+      <p class="hint" style="margin-bottom:0;">You'll see the full pairing and can back out before anything is written.</p>
+    </div>
+
     <div class="card">
       <div class="form-grid cols-2">
         <div class="field"><label>Filter by hall</label>
@@ -2258,7 +2279,7 @@
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Hall</th><th>Stall #</th><th>Size</th><th>Price (₹)</th><th>Status</th><th>Booked by</th><th></th></tr></thead>
+          <thead><tr><th>Hall</th><th>Stall #</th><th>Size</th><th>Price (₹)</th><th>Status</th><th>Occupied by</th><th></th></tr></thead>
           <tbody id="stallTableBody"></tbody>
         </table>
       </div>
