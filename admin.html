@@ -1990,6 +1990,25 @@
           <select name="guest_relation_host_member_id" id="sponsorHmSelect"><option value="">-- none --</option></select>
           <span class="hint">Shows up on this host member's own portal as a responsibility.</span>
         </div>
+        <!-- Billing details. Separate from the contact block because these are
+             what appear on the GST invoice, and the invoicing address is often
+             not the same as the person you deal with day to day. -->
+        <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Billing details (for GST invoice)</div>
+        <p class="hint" style="margin-top:-6px;">Without a GSTIN the sponsor is invoiced as B2C and cannot claim input tax credit. The state code decides CGST+SGST vs IGST.</p>
+        <div class="field"><label>Billing address</label><input name="billing_address" placeholder="As it should appear on the invoice" /></div>
+        <div class="form-grid cols-2">
+          <div class="field">
+            <label>GSTIN</label>
+            <input name="gstin" maxlength="15" placeholder="Leave blank if not GST-registered" style="text-transform:uppercase;" />
+            <span class="hint" id="sponsorGstinHint"></span>
+          </div>
+          <div class="field">
+            <label>State code</label>
+            <input name="state_code" maxlength="2" placeholder="e.g. 33" />
+            <span class="hint">Filled automatically from the GSTIN.</span>
+          </div>
+        </div>
+
         <div class="section-title" style="font-size:12px;margin:18px 0 8px;">Sponsorship Payment</div>
         <p class="hint" style="margin-top:-6px;">Whatever amount was actually agreed/received — rates are still not pre-defined anywhere in the system.</p>
         <div class="form-grid cols-3">

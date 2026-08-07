@@ -8032,7 +8032,10 @@ async function refreshSponsors() {
 }
 window.deleteSponsor = async (id) => { await jdel(`${API}/sponsors/${id}`); toast('Sponsor deleted'); refreshSponsors(); };
 
-const SPONSOR_FORM_FIELDS = ['name', 'tier', 'contact_person', 'phone', 'email', 'guest_relation_host_member_id', 'status', 'notes', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date'];
+const SPONSOR_FORM_FIELDS = ['name', 'tier', 'contact_person', 'phone', 'email', 'guest_relation_host_member_id', 'status', 'notes', 'payment_status', 'payment_amount', 'payment_mode', 'payment_date',
+  // Billing details — these feed the GST invoice. Without them a sponsor is
+  // always invoiced B2C with CGST+SGST regardless of where they are.
+  'gstin', 'billing_address', 'state_code'];
 window.editSponsor = async (id) => {
   const s = await jget(`${API}/sponsors/${id}`);
   const form = document.getElementById('sponsorForm');
@@ -8043,6 +8046,30 @@ window.editSponsor = async (id) => {
   document.getElementById('sponsorCancelEditBtn').style.display = '';
   openEditModalForForm(form);
 };
+// Same live GSTIN feedback as the invoice editor: shape check, state name, and
+// auto-filling the state code so the two can't disagree. The checksum is still
+// enforced server-side — this just makes a typo obvious at the point of typing.
+document.getElementById('sponsorForm')?.addEventListener('input', (e) => {
+  if (e.target.name !== 'gstin') return;
+  const form = e.target.form;
+  const hint = document.getElementById('sponsorGstinHint');
+  if (!hint) return;
+  const g = (e.target.value || '').trim().toUpperCase();
+  if (!g) {
+    hint.innerHTML = '<span style="color:#a06a00;">Blank = B2C. They cannot claim input tax credit.</span>';
+    return;
+  }
+  if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/.test(g)) {
+    hint.innerHTML = `<span style="color:#b02a2a;">Not a valid GSTIN shape (${g.length}/15).</span>`;
+    return;
+  }
+  const st = GST_STATE_NAMES[g.slice(0, 2)];
+  if (st && form.elements.state_code && !form.elements.state_code.value) form.elements.state_code.value = g.slice(0, 2);
+  hint.innerHTML = st
+    ? `<span style="color:#2a7a2a;">Looks right — ${g.slice(0, 2)} ${st}. Checksum verified on save.</span>`
+    : `<span style="color:#b02a2a;">"${g.slice(0, 2)}" is not a recognised state code.</span>`;
+});
+
 document.getElementById('sponsorCancelEditBtn').addEventListener('click', () => {
   const form = document.getElementById('sponsorForm');
   form.reset(); delete form.dataset.editId;
