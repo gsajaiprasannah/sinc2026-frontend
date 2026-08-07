@@ -9347,10 +9347,19 @@ async function refreshInvoices() {
       <td style="text-align:right;">${Number(i.taxable_value).toLocaleString('en-IN')}</td>
       <td style="text-align:right;">${(Number(i.cgst) + Number(i.sgst) + Number(i.igst)).toLocaleString('en-IN')}</td>
       <td style="text-align:right;"><strong>${Number(i.total).toLocaleString('en-IN')}</strong></td>
-      <td><span class="pill ${i.status === 'issued' ? 'paid' : 'pending'}">${i.status}</span></td>
+      <td>
+        <span class="pill ${i.status === 'issued' ? 'paid' : 'pending'}">${i.status}</span>
+        ${i.emailed_at
+          ? `<div class="hint" title="Last sent to ${escapeHtmlAdmin(i.emailed_to || '')}">Emailed ${String(i.emailed_at).slice(0, 10)}${i.email_count > 1 ? ` ×${i.email_count}` : ''}</div>`
+          : (i.status === 'issued' ? '<div class="hint">Not emailed</div>' : '')}
+      </td>
       <td style="white-space:nowrap;">
         <button class="btn small" onclick="downloadInvoicePdf(${i.id})">PDF</button>
-        ${i.status === 'issued' ? `<button class="btn danger small" onclick="cancelInvoice(${i.id}, '${escapeHtmlAdmin(i.invoice_number)}')">Cancel</button>` : ''}
+        ${i.status === 'issued' ? `
+        <button class="btn small" onclick="emailInvoice(${i.id})">Email</button>
+        <button class="btn small outline" onclick="editInvoice(${i.id})">Edit</button>
+        <button class="btn small outline" onclick="showInvoiceRevisions(${i.id}, '${escapeHtmlAdmin(i.invoice_number)}')">History</button>
+        <button class="btn danger small" onclick="cancelInvoice(${i.id}, '${escapeHtmlAdmin(i.invoice_number)}')">Cancel</button>` : ''}
       </td>
     </tr>`).join('') || '<tr><td colspan="10" class="empty">No invoices yet.</td></tr>';
 }
@@ -9358,26 +9367,196 @@ async function refreshInvoices() {
 document.getElementById('invRefreshBtn')?.addEventListener('click', refreshInvoices);
 
 // Issue from anywhere — the module buttons all call this.
+// A missing GSTIN is never decided silently. Rather than warning and letting
+// the click carry on into a B2C invoice, this stops and offers to capture the
+// number — because at this moment the registration is open on screen and the
+// number is usually one phone call away, whereas fixing it later means
+// cancelling and reissuing. Returns true to continue, false to abandon.
+//
+// Three outcomes: type a GSTIN (saved to the delegate/sponsor record, not just
+// this invoice), leave it blank and explicitly accept B2C, or press Cancel and
+// walk away having issued nothing.
+async function resolveMissingGstin(module, entityId, pre) {
+  if (pre.party.gstin) return true;
+
+  const entered = prompt(
+    `No GST number on file for ${pre.party.name}.\n\n` +
+    `Enter their GSTIN now to raise a proper B2B invoice — it will be saved to their record, not just this invoice.\n\n` +
+    `Leave this blank to issue a B2C invoice instead: valid, but they will NOT be able to claim input tax credit, and changing it later means cancelling and reissuing.\n\n` +
+    `Press Cancel to stop without issuing anything.`,
+    ''
+  );
+  if (entered === null) { toast('No invoice issued.', 4000); return false; }
+
+  const gstin = String(entered).trim().toUpperCase();
+  if (!gstin) {
+    const sure = confirm(
+      `Issue a B2C invoice for ${pre.party.name} with no GSTIN?\n\n` +
+      `They will not be able to claim input tax credit on it.`
+    );
+    if (!sure) { toast('No invoice issued.', 4000); return false; }
+    return true;
+  }
+
+  try {
+    const saved = await jput(`${API}/invoices/party/${module}/${entityId}`, { gstin });
+    toast(`GSTIN saved to the record${saved.state_code ? ` (state ${saved.state_code})` : ''}.`, 4000);
+    return true;
+  } catch (e) {
+    // Rejected by the checksum — let them retry rather than dropping them back
+    // to the start, since a mistyped GSTIN is the likeliest cause.
+    if (confirm(`${e.message}\n\nTry entering it again?`)) return resolveMissingGstin(module, entityId, pre);
+    toast('No invoice issued.', 4000);
+    return false;
+  }
+}
+
 window.issueInvoice = async (module, entityId) => {
   try {
-    const pre = await jget(`${API}/invoices/preview/${module}/${entityId}`);
+    let pre = await jget(`${API}/invoices/preview/${module}/${entityId}`);
     if (pre.blockers && pre.blockers.length) { toast(pre.blockers.join(' '), 8000); return; }
+
+    // Ask about a missing GSTIN first, then re-price: entering one usually sets
+    // the state code too, which can flip the invoice between CGST+SGST and IGST.
+    if (!(await resolveMissingGstin(module, entityId, pre))) return;
+    pre = await jget(`${API}/invoices/preview/${module}/${entityId}`);
     const taxLine = pre.inter_state
       ? `IGST ${pre.rate}%: ₹${pre.igst.toLocaleString('en-IN')}`
       : `CGST ${pre.rate / 2}%: ₹${pre.cgst.toLocaleString('en-IN')}  +  SGST ${pre.rate / 2}%: ₹${pre.sgst.toLocaleString('en-IN')}`;
+    // Remaining warnings get their own confirm step before the figures. The
+    // missing-GSTIN one is dropped here because resolveMissingGstin has just
+    // put that decision to you explicitly — asking twice would train you to
+    // dismiss the dialog without reading it.
+    const rest = (pre.warnings || []).filter((w) => !/^No GSTIN on file/.test(w));
+    if (rest.length) {
+      const proceed = confirm(
+        `Before this invoice is raised for ${pre.party.name}:\n\n` +
+        rest.map((w) => '•  ' + w).join('\n\n') +
+        `\n\nRaise the invoice anyway?\n` +
+        `Choose Cancel to go back and add the missing details first.`
+      );
+      if (!proceed) return;
+    }
     const ok = confirm(
       `Issue a tax invoice?\n\n${pre.party.name}\n${pre.party.gstin ? 'GSTIN: ' + pre.party.gstin : 'No GSTIN — B2C invoice'}\n\n` +
       `Taxable value: ₹${pre.taxable_value.toLocaleString('en-IN')}\n${taxLine}\nTotal: ₹${pre.total.toLocaleString('en-IN')}\n\n` +
-      `Basis: ${pre.basis}. Once issued this number is permanent — a mistake must be cancelled, not edited.`
+      `Basis: ${pre.basis}. The number is permanent once issued; details can be corrected afterwards and every change is logged.`
     );
     if (!ok) return;
-    const r = await jpost(`${API}/invoices/issue`, { module, entity_id: entityId });
+    const r = await jpost(`${API}/invoices/issue`, { module, entity_id: entityId, acknowledge_warnings: true });
     toast(`Invoice ${r.invoice_number} issued.`, 4000);
     downloadInvoicePdf(r.id);
     if (document.getElementById('tab-gstinvoices')?.classList.contains('active')) refreshInvoices();
   } catch (e) {
     toast(e.message, 8000);
   }
+};
+
+// --- emailing --------------------------------------------------------------
+// The PDF is rendered here and posted as base64 so the recipient's attachment
+// is byte-identical to what Download produces. The address defaults to the one
+// captured on the invoice, but is always shown for confirmation before sending
+// — an invoice going to the wrong inbox is not something you can take back.
+window.emailInvoice = async (id) => {
+  try {
+    const d = await jget(`${API}/invoices/${id}`);
+    const inv = d.invoice;
+    if (inv.status === 'cancelled') { toast('That invoice is cancelled — it should not be emailed.', 6000); return; }
+
+    const already = inv.emailed_at
+      ? `\nAlready sent ${new Date(inv.emailed_at).toLocaleString('en-IN')} to ${inv.emailed_to}${inv.email_count > 1 ? ` (${inv.email_count} times)` : ''}.\nSending again will deliver another copy.\n` : '';
+    const to = prompt(
+      `Email invoice ${inv.invoice_number} to:\n${already}`,
+      inv.emailed_to || inv.party_email || ''
+    );
+    if (to === null) return;
+    const addr = String(to).trim();
+    if (!addr) { toast('No address entered — nothing sent.'); return; }
+
+    if (!confirm(`Send ${inv.invoice_number} (₹${Number(inv.total).toLocaleString('en-IN')}) to ${addr}?`)) return;
+
+    toast('Rendering and sending…');
+    const { doc } = await buildInvoicePdf(id);
+    // datauristring gives "data:application/pdf;filename=...;base64,XXXX" —
+    // the server strips the prefix, but split here too so an oversized body is
+    // never sent by accident.
+    const b64 = doc.output('datauristring').split(',')[1];
+    const r = await jpost(`${API}/invoices/${id}/email`, { to: addr, pdf_base64: b64 });
+    toast(`Invoice emailed to ${r.to}.`, 5000);
+    refreshInvoices();
+  } catch (e) { toast(e.message, 8000); }
+};
+
+// --- editing ---------------------------------------------------------------
+// Corrects an issued invoice in place. The number never changes, so a copy
+// already in someone's inbox still refers to this document; every field change
+// is written to invoice_revisions server-side with the old and new value.
+// Amounts are recomputed on the server — nothing here sends a total.
+window.editInvoice = async (id) => {
+  try {
+    const d = await jget(`${API}/invoices/${id}`);
+    const inv = d.invoice;
+    if (inv.status === 'cancelled') { toast('Cancelled invoices cannot be edited — reissue instead.', 6000); return; }
+
+    const ask = (label, current) => {
+      const v = prompt(`${inv.invoice_number} — ${label}\n\nLeave unchanged to skip.`, current == null ? '' : String(current));
+      return v === null ? undefined : v.trim();
+    };
+
+    const body = {};
+    const name = ask('Billed to (party name)', inv.party_name);
+    if (name === undefined) return;
+    body.party_name = name;
+    const addr = ask('Billing address', inv.party_address);
+    if (addr === undefined) return;
+    body.party_address = addr;
+    const gstin = ask('Party GSTIN (blank for B2C / unregistered)', inv.party_gstin);
+    if (gstin === undefined) return;
+    body.party_gstin = gstin.toUpperCase();
+    const state = ask('Party state code (2 digits, e.g. 33 for Tamil Nadu)', inv.party_state_code);
+    if (state === undefined) return;
+    body.party_state_code = state;
+    const email = ask('Email address for sending this invoice', inv.party_email);
+    if (email === undefined) return;
+    body.party_email = email;
+    const desc = ask('Description', inv.description);
+    if (desc === undefined) return;
+    body.description = desc;
+    const amt = ask('Amount (gross, as collected)', inv.gross_amount);
+    if (amt === undefined) return;
+    if (amt !== String(inv.gross_amount)) {
+      if (!(Number(amt) > 0)) { toast('That amount is not a positive number — nothing changed.', 6000); return; }
+      body.gross_amount = Number(amt);
+    }
+
+    const reason = prompt(
+      `Why is ${inv.invoice_number} being corrected?\n\n` +
+      `This is recorded against the invoice permanently, alongside what changed.`
+    );
+    if (reason === null) return;
+    body.reason = reason;
+
+    const r = await jput(`${API}/invoices/${id}`, body);
+    if (!r.changed) { toast('Nothing was different — no changes recorded.'); return; }
+    toast(`${r.changed} field(s) updated on ${r.invoice.invoice_number}.`, 5000);
+    refreshInvoices();
+  } catch (e) { toast(e.message, 8000); }
+};
+
+// Shows what has been corrected on an invoice and by whom.
+window.showInvoiceRevisions = async (id, number) => {
+  try {
+    const rows = await jget(`${API}/invoices/${id}/revisions`);
+    if (!rows.length) { toast(`${number} has not been edited.`, 4000); return; }
+    alert(
+      `Edit history for ${number}\n\n` +
+      rows.map((r) =>
+        `${new Date(r.changed_at).toLocaleString('en-IN')} — ${r.changed_by || 'unknown'}\n` +
+        `  ${r.field}: "${r.old_value || '(blank)'}"  ->  "${r.new_value || '(blank)'}"` +
+        (r.reason ? `\n  Reason: ${r.reason}` : '')
+      ).join('\n\n')
+    );
+  } catch (e) { toast(e.message, 7000); }
 };
 
 window.cancelInvoice = async (id, number) => {
@@ -9391,6 +9570,14 @@ window.cancelInvoice = async (id, number) => {
 };
 
 window.downloadInvoicePdf = async (id) => {
+  const { doc, inv } = await buildInvoicePdf(id);
+  doc.save(`${inv.invoice_number.replace(/\//g, '-')}.pdf`);
+};
+
+// Renders the invoice and hands back the jsPDF doc rather than saving it, so
+// the Download button and the Email button produce the identical document from
+// one code path. Emailing posts this same doc's bytes to the server as base64.
+async function buildInvoicePdf(id) {
   const d = await jget(`${API}/invoices/${id}`);
   const inv = d.invoice, org = d.org;
   const doc = pdfDoc();
@@ -9465,8 +9652,8 @@ window.downloadInvoicePdf = async (id) => {
   }
   if (org.invoice_footer) para(org.invoice_footer);
 
-  doc.save(`${inv.invoice_number.replace(/\//g, '-')}.pdf`);
-};
+  return { doc, inv, org };
+}
 
 // --- Bulk Import: spreadsheet-driven UPDATE of delegates / host members ---
 // Two-step on purpose. Preview parses and diffs server-side and shows exactly
