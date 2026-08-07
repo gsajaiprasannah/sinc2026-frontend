@@ -9436,38 +9436,124 @@ function renderBillingReadiness() {
 
 // Fills the gaps straight onto the delegate/sponsor record, so the correction
 // is permanent rather than applying only to one invoice.
-window.editBillingDetails = async (module, entityId) => {
+window.editBillingDetails = (module, entityId) => {
   const r = BR_ROWS.find((x) => x.module === module && x.entity_id === entityId);
   if (!r) return;
-  try {
-    const ask = (label, current) => {
-      const v = prompt(`${r.reference} — ${r.party_name}\n\n${label}`, current == null ? '' : String(current));
-      return v === null ? undefined : v.trim();
-    };
-    const body = {};
-    const gstin = ask('GSTIN (leave blank if they are not GST-registered)', r.gstin);
-    if (gstin === undefined) return;
-    body.gstin = gstin.toUpperCase();
-    const addr = ask('Billing address as it should appear on the invoice', r.billing_address);
-    if (addr === undefined) return;
-    body.billing_address = addr;
-    const email = ask('Email address to send the invoice to', r.email);
-    if (email === undefined) return;
-    body.email = email;
-    // Only ask for state when there is no GSTIN to derive it from — entering
-    // it by hand when a GSTIN exists is how the two end up disagreeing.
-    if (!body.gstin) {
-      const st = ask('State code (2 digits, e.g. 33 Tamil Nadu) — used to decide CGST+SGST vs IGST', r.state_code);
-      if (st === undefined) return;
-      body.state_code = st;
+  openInvEditModal({
+    title: `Billing details — ${r.reference}`,
+    hint: `${r.party_name || r.contact_name || 'This record'} · saved to the ${r.module_label.toLowerCase()} record, so it applies to every invoice raised from it.`,
+    values: {
+      party_name: r.party_name, party_email: r.email, party_address: r.billing_address,
+      party_gstin: r.gstin, party_state_code: r.state_code
+    },
+    // Party details live on the source record, which has no description or
+    // amount — those belong to an invoice, and no invoice exists yet here.
+    hideNameField: true,
+    hideDescription: true,
+    hideAmountAndReason: true,
+    onSave: async (v) => {
+      const saved = await jput(`${API}/invoices/party/${module}/${entityId}`, {
+        gstin: v.party_gstin, billing_address: v.party_address,
+        email: v.party_email, state_code: v.party_state_code
+      });
+      toast(`Saved${saved.state_code ? ` (state ${saved.state_code})` : ''}.`, 4000);
+      refreshBillingReadiness();
     }
-    const saved = await jput(`${API}/invoices/party/${module}/${entityId}`, body);
-    toast(`Saved${saved.state_code ? ` (state ${saved.state_code})` : ''}.`, 4000);
-    refreshBillingReadiness();
-  } catch (e) {
-    if (confirm(`${e.message}\n\nTry again?`)) return editBillingDetails(module, entityId);
-  }
+  });
 };
+
+// --- shared edit modal -----------------------------------------------------
+// One form for both "fix the party's details" and "correct an issued invoice".
+// The fields interact — a GSTIN implies a state code, which decides whether the
+// invoice is CGST+SGST or IGST — so they are shown together and validated live
+// rather than asked for one at a time with no way to look back.
+
+let INV_EDIT_CFG = null;
+
+function openInvEditModal(cfg) {
+  INV_EDIT_CFG = cfg;
+  const form = document.getElementById('invEditForm');
+  form.reset();
+  document.getElementById('invEditModalTitle').textContent = cfg.title;
+  document.getElementById('invEditModalHint').textContent = cfg.hint || '';
+  document.getElementById('invEditModalBanner').innerHTML = cfg.banner || '';
+  Object.entries(cfg.values || {}).forEach(([k, v]) => {
+    if (form.elements[k]) form.elements[k].value = v == null ? '' : v;
+  });
+
+  form.elements.party_name.closest('.field').style.display = cfg.hideNameField ? 'none' : '';
+  form.elements.party_name.required = !cfg.hideNameField;
+  form.elements.description.closest('.field').style.display = cfg.hideDescription ? 'none' : '';
+  document.getElementById('invEditAmountRow').style.display = cfg.hideAmountAndReason ? 'none' : '';
+  form.elements.reason.required = !cfg.hideAmountAndReason;
+
+  invEditGstinFeedback();
+  document.getElementById('invEditModal').style.display = 'flex';
+  (cfg.hideNameField ? form.elements.party_gstin : form.elements.party_name).focus();
+}
+
+window.closeInvEditModal = () => {
+  document.getElementById('invEditModal').style.display = 'none';
+  INV_EDIT_CFG = null;
+};
+
+// Client-side GSTIN feedback: shape, state name, and auto-filling the state
+// code. The authoritative checksum check still happens server-side — this is
+// only here so a typo is obvious while you are still looking at the field.
+const GST_STATE_NAMES = {
+  '01': 'Jammu & Kashmir', '02': 'Himachal Pradesh', '03': 'Punjab', '04': 'Chandigarh', '05': 'Uttarakhand',
+  '06': 'Haryana', '07': 'Delhi', '08': 'Rajasthan', '09': 'Uttar Pradesh', '10': 'Bihar', '11': 'Sikkim',
+  '12': 'Arunachal Pradesh', '13': 'Nagaland', '14': 'Manipur', '15': 'Mizoram', '16': 'Tripura',
+  '17': 'Meghalaya', '18': 'Assam', '19': 'West Bengal', '20': 'Jharkhand', '21': 'Odisha', '22': 'Chhattisgarh',
+  '23': 'Madhya Pradesh', '24': 'Gujarat', '26': 'Dadra & Nagar Haveli and Daman & Diu', '27': 'Maharashtra',
+  '29': 'Karnataka', '30': 'Goa', '31': 'Lakshadweep', '32': 'Kerala', '33': 'Tamil Nadu', '34': 'Puducherry',
+  '35': 'Andaman & Nicobar', '36': 'Telangana', '37': 'Andhra Pradesh', '38': 'Ladakh', '97': 'Other Territory'
+};
+function invEditGstinFeedback() {
+  const form = document.getElementById('invEditForm');
+  if (!form) return;
+  const hint = document.getElementById('invEditGstinHint');
+  const g = (form.elements.party_gstin.value || '').trim().toUpperCase();
+  if (!g) {
+    hint.innerHTML = '<span style="color:#a06a00;">Blank = B2C. They will not be able to claim input tax credit.</span>';
+    return;
+  }
+  if (!/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/.test(g)) {
+    hint.innerHTML = `<span style="color:#b02a2a;">Not a valid GSTIN shape (${g.length}/15 characters).</span>`;
+    return;
+  }
+  const st = GST_STATE_NAMES[g.slice(0, 2)];
+  // Auto-fill the state, but never overwrite a value already typed by hand.
+  const stateField = form.elements.party_state_code;
+  if (st && !stateField.value) stateField.value = g.slice(0, 2);
+  hint.innerHTML = st
+    ? `<span style="color:#2a7a2a;">Shape looks right — ${g.slice(0, 2)} ${st}. Checksum is verified on save.</span>`
+    : `<span style="color:#b02a2a;">"${g.slice(0, 2)}" is not a recognised state code.</span>`;
+}
+document.getElementById('invEditForm')?.addEventListener('input', (e) => {
+  if (e.target.name === 'party_gstin') invEditGstinFeedback();
+});
+
+document.getElementById('invEditForm')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!INV_EDIT_CFG) return;
+  const btn = document.getElementById('invEditSaveBtn');
+  const form = e.target;
+  const v = {};
+  ['party_name', 'party_email', 'party_address', 'party_gstin', 'party_state_code', 'description', 'gross_amount', 'reason']
+    .forEach((k) => { v[k] = (form.elements[k]?.value || '').trim(); });
+  v.party_gstin = v.party_gstin.toUpperCase();
+
+  btn.disabled = true;
+  try {
+    await INV_EDIT_CFG.onSave(v);
+    closeInvEditModal();
+  } catch (err) {
+    toast(err.message, 8000);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 window.downloadBillingReadinessXlsx = () => {
   const rows = brVisibleRows();
@@ -9625,48 +9711,36 @@ window.editInvoice = async (id) => {
     const inv = d.invoice;
     if (inv.status === 'cancelled') { toast('Cancelled invoices cannot be edited — reissue instead.', 6000); return; }
 
-    const ask = (label, current) => {
-      const v = prompt(`${inv.invoice_number} — ${label}\n\nLeave unchanged to skip.`, current == null ? '' : String(current));
-      return v === null ? undefined : v.trim();
-    };
-
-    const body = {};
-    const name = ask('Billed to (party name)', inv.party_name);
-    if (name === undefined) return;
-    body.party_name = name;
-    const addr = ask('Billing address', inv.party_address);
-    if (addr === undefined) return;
-    body.party_address = addr;
-    const gstin = ask('Party GSTIN (blank for B2C / unregistered)', inv.party_gstin);
-    if (gstin === undefined) return;
-    body.party_gstin = gstin.toUpperCase();
-    const state = ask('Party state code (2 digits, e.g. 33 for Tamil Nadu)', inv.party_state_code);
-    if (state === undefined) return;
-    body.party_state_code = state;
-    const email = ask('Email address for sending this invoice', inv.party_email);
-    if (email === undefined) return;
-    body.party_email = email;
-    const desc = ask('Description', inv.description);
-    if (desc === undefined) return;
-    body.description = desc;
-    const amt = ask('Amount (gross, as collected)', inv.gross_amount);
-    if (amt === undefined) return;
-    if (amt !== String(inv.gross_amount)) {
-      if (!(Number(amt) > 0)) { toast('That amount is not a positive number — nothing changed.', 6000); return; }
-      body.gross_amount = Number(amt);
-    }
-
-    const reason = prompt(
-      `Why is ${inv.invoice_number} being corrected?\n\n` +
-      `This is recorded against the invoice permanently, alongside what changed.`
-    );
-    if (reason === null) return;
-    body.reason = reason;
-
-    const r = await jput(`${API}/invoices/${id}`, body);
-    if (!r.changed) { toast('Nothing was different — no changes recorded.'); return; }
-    toast(`${r.changed} field(s) updated on ${r.invoice.invoice_number}.`, 5000);
-    refreshInvoices();
+    openInvEditModal({
+      title: `Correct ${inv.invoice_number}`,
+      hint: `The invoice number does not change, so any copy already sent stays valid. Every change is recorded with your reason.`,
+      banner: inv.emailed_at
+        ? `<p class="hint" style="color:#a06a00;">This invoice was already emailed to <strong>${escapeHtmlAdmin(inv.emailed_to || '')}</strong> on ${String(inv.emailed_at).slice(0, 10)}. After saving, use <strong>Email</strong> to send the corrected copy.</p>`
+        : '',
+      values: {
+        party_name: inv.party_name, party_email: inv.party_email, party_address: inv.party_address,
+        party_gstin: inv.party_gstin, party_state_code: inv.party_state_code,
+        description: inv.description, gross_amount: inv.gross_amount
+      },
+      onSave: async (v) => {
+        const body = {
+          party_name: v.party_name, party_email: v.party_email, party_address: v.party_address,
+          party_gstin: v.party_gstin, party_state_code: v.party_state_code,
+          description: v.description, reason: v.reason
+        };
+        // Only send the amount when it actually changed, so an untouched field
+        // never triggers a pointless tax recomputation and revision entry.
+        if (String(v.gross_amount) !== String(inv.gross_amount)) {
+          if (!(Number(v.gross_amount) > 0)) throw new Error('The amount must be a positive number.');
+          body.gross_amount = Number(v.gross_amount);
+        }
+        const r = await jput(`${API}/invoices/${id}`, body);
+        if (!r.changed) { toast('Nothing was different — no changes recorded.'); return; }
+        toast(`${r.changed} field(s) updated on ${r.invoice.invoice_number}.`, 5000);
+        refreshInvoices();
+        refreshBillingReadiness();
+      }
+    });
   } catch (e) { toast(e.message, 8000); }
 };
 

@@ -2950,6 +2950,53 @@
   </div>
 </div>
 
+<!-- Invoice / billing details editor. One form rather than a chain of prompt()
+     boxes: the fields are related (GSTIN determines the state code, which
+     determines the tax split), so they need to be visible together to be
+     checked against each other. -->
+<div class="modal-overlay" id="invEditModal" style="display:none;" onclick="if(event.target===this) closeInvEditModal()">
+  <div class="modal-card wide">
+    <div class="modal-header">
+      <div class="section-title" style="margin:0;" id="invEditModalTitle">Edit invoice</div>
+      <button type="button" class="modal-close" onclick="closeInvEditModal()">&times;</button>
+    </div>
+    <p class="hint" id="invEditModalHint" style="margin-top:0;"></p>
+    <div id="invEditModalBanner"></div>
+    <form id="invEditForm">
+      <div class="form-grid cols-2">
+        <div class="field"><label>Billed to *</label><input name="party_name" required /></div>
+        <div class="field"><label>Email (for sending the invoice)</label><input name="party_email" type="email" placeholder="name@company.com" /></div>
+      </div>
+      <div class="field"><label>Billing address</label><input name="party_address" placeholder="As it should appear on the invoice" /></div>
+      <div class="form-grid cols-2">
+        <div class="field">
+          <label>GSTIN</label>
+          <input name="party_gstin" maxlength="15" placeholder="Leave blank for B2C (unregistered)" style="text-transform:uppercase;" />
+          <div class="hint" id="invEditGstinHint"></div>
+        </div>
+        <div class="field">
+          <label>State code</label>
+          <input name="party_state_code" maxlength="2" placeholder="e.g. 33" />
+          <div class="hint">Filled automatically from the GSTIN. Decides CGST+SGST vs IGST.</div>
+        </div>
+      </div>
+      <div class="field"><label>Description</label><input name="description" /></div>
+      <div class="form-grid cols-2" id="invEditAmountRow">
+        <div class="field">
+          <label>Amount (gross, as collected)</label>
+          <input name="gross_amount" type="number" step="0.01" min="0" />
+          <div class="hint">Tax is recalculated on the server — never taken from this screen.</div>
+        </div>
+        <div class="field"><label>Reason for the change *</label><input name="reason" placeholder="e.g. GSTIN supplied by delegate" /></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+        <button class="btn gold" type="submit" id="invEditSaveBtn">Save changes</button>
+        <button class="btn outline" type="button" onclick="closeInvEditModal()">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Document picker for the "Download Documents (ZIP)" buttons on the
      Delegates and Host Members tabs. Zipping happens server-side (R2 serves
      no CORS headers to this origin) — see DOC_ZIP_PICKERS in js/admin.js. -->
